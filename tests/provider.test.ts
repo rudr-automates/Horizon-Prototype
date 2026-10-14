@@ -1,62 +1,62 @@
 import { describe, expect, it } from "vitest";
-import {
-  RuntimeModelNotConfiguredError,
-  getClaimGenerator,
-  isRuntimeAiConfigured,
-} from "@/lib/answer/provider";
-import type { ServerEnv } from "@/lib/env";
+import { RuntimeModelNotConfiguredError } from "@/lib/answer/provider";
+import { createRuntimeProviders } from "@/lib/answer/providers";
+import { readRuntimeConfig } from "@/lib/config";
+import { makeEnv } from "./helpers/fakes";
 
-const baseEnv: ServerEnv = {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
-  supabaseServiceRoleKey: "",
-  llmProvider: "",
-  llmBaseUrl: "",
-  llmApiKey: "",
-  llmModel: "",
-  llmMaxOutputTokens: 1024,
-  dailyTokenBudget: 0,
-};
-
-describe("isRuntimeAiConfigured", () => {
-  it("is false when any required name is missing", () => {
-    expect(isRuntimeAiConfigured(baseEnv)).toBe(false);
-    expect(
-      isRuntimeAiConfigured({ ...baseEnv, llmProvider: "openai-compatible" }),
-    ).toBe(false);
+describe("createRuntimeProviders", () => {
+  it("reports unconfigured when no credential is present", () => {
+    const providers = createRuntimeProviders(readRuntimeConfig(makeEnv()));
+    expect(providers.configured).toBe(false);
   });
 
-  it("is true only when all four names are present", () => {
-    expect(
-      isRuntimeAiConfigured({
-        ...baseEnv,
-        llmProvider: "openai-compatible",
-        llmBaseUrl: "https://example.invalid",
-        llmApiKey: "placeholder",
-        llmModel: "placeholder-model",
-      }),
-    ).toBe(true);
+  it("provides NO generator and NO verifier when unconfigured, so no inference is possible", () => {
+    const providers = createRuntimeProviders(readRuntimeConfig(makeEnv()));
+    expect(providers.generator).toBeNull();
+    expect(providers.verifier).toBeNull();
+    expect(providers.modelId).toBeNull();
+  });
+
+  it("falls back to the clearly labelled offline embedder at the configured dimension", () => {
+    const providers = createRuntimeProviders(
+      readRuntimeConfig(makeEnv({ embeddingDimensions: 768 })),
+    );
+    expect(providers.embeddingProviderId).toBe("synthetic-lexical-v1");
+    expect(providers.embedder.dimensions).toBe(768);
+  });
+
+  it("still refuses to fabricate output when only some names are present", () => {
+    const providers = createRuntimeProviders(
+      readRuntimeConfig(makeEnv({ llmProvider: "google-genai", llmModel: "gemini-3.6-flash" })),
+    );
+    // No API key => not configured => no generator.
+    expect(providers.configured).toBe(false);
+    expect(providers.generator).toBeNull();
+  });
+
+  it("builds the Gemini providers once every required name is present", () => {
+    const providers = createRuntimeProviders(
+      readRuntimeConfig(
+        makeEnv({
+          llmProvider: "google-genai",
+          llmApiKey: "placeholder",
+          llmModel: "gemini-3.6-flash",
+        }),
+      ),
+    );
+    expect(providers.configured).toBe(true);
+    expect(providers.generator?.providerId).toBe("google-genai");
+    expect(providers.verifier?.providerId).toBe("google-genai");
+    expect(providers.modelId).toBe("gemini-3.6-flash");
+    expect(providers.embeddingProviderId).toBe("gemini-embedding-001");
   });
 });
 
-describe("getClaimGenerator", () => {
-  it("fails closed with an explicit error instead of fabricating claims", async () => {
-    const generator = getClaimGenerator(baseEnv);
-    await expect(
-      generator.generate({ question: "q", evidence: [] }),
-    ).rejects.toBeInstanceOf(RuntimeModelNotConfiguredError);
-  });
-
-  it("does not return canned claims even when env names are present", async () => {
-    const generator = getClaimGenerator({
-      ...baseEnv,
-      llmProvider: "openai-compatible",
-      llmBaseUrl: "https://example.invalid",
-      llmApiKey: "placeholder",
-      llmModel: "placeholder-model",
-    });
-    await expect(
-      generator.generate({ question: "q", evidence: [] }),
-    ).rejects.toBeInstanceOf(RuntimeModelNotConfiguredError);
+describe("error taxonomy", () => {
+  it("keeps RuntimeModelNotConfiguredError catchable as a ProviderFailure", () => {
+    const error = new RuntimeModelNotConfiguredError("not configured");
+    expect(error.kind).toBe("not_configured");
+    expect(error).toBeInstanceOf(RuntimeModelNotConfiguredError);
+    expect(error).toBeInstanceOf(Error);
   });
 });

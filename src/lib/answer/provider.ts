@@ -1,8 +1,7 @@
 import { z } from "zod";
-import type { ServerEnv } from "@/lib/env";
 
 /**
- * Runtime-model adapter boundary (blueprint §9.5).
+ * Runtime-model boundary (blueprint §9.5, §9.6).
  *
  * The generator returns STRUCTURED CLAIMS ONLY. There is no free-text answer
  * field and no model-owned answer state. A verifier and the application decide
@@ -36,46 +35,75 @@ export interface ClaimGenerator {
   generate(request: ClaimGenerationRequest): Promise<ClaimGenerationResult>;
 }
 
-/** Raised whenever a real inference call cannot be made honestly. */
-export class RuntimeModelNotConfiguredError extends Error {
-  readonly code = "PROVIDER_UNAVAILABLE" as const;
+/* ------------------------------------------------------------------ *
+ * Semantic (Tier 2) verification — MODEL-ASSISTED, not independent.
+ * ------------------------------------------------------------------ */
 
-  constructor(message: string) {
+export const verifierVerdictSchema = z.object({
+  index: z.number().int().min(0),
+  verdict: z.enum(["SUPPORTED", "PARTIAL", "NOT_SUPPORTED"]),
+  reason: z.string().max(300),
+});
+export type VerifierVerdict = z.infer<typeof verifierVerdictSchema>;
+
+export const verifierResultSchema = z.object({
+  verdicts: z.array(verifierVerdictSchema).max(16),
+});
+export type VerifierResult = z.infer<typeof verifierResultSchema>;
+
+export interface VerificationTarget {
+  index: number;
+  claimText: string;
+  evidence: EvidenceItem[];
+}
+
+export interface SemanticVerifier {
+  readonly providerId: string;
+  verify(targets: VerificationTarget[]): Promise<VerifierVerdict[]>;
+}
+
+/* ------------------------------------------------------------------ *
+ * Embeddings
+ * ------------------------------------------------------------------ */
+
+export type EmbedPurpose = "query" | "document";
+
+export interface Embedder {
+  readonly providerId: string;
+  readonly dimensions: number;
+  embed(texts: string[], purpose?: EmbedPurpose): Promise<number[][]>;
+}
+
+/* ------------------------------------------------------------------ *
+ * Fail-closed error taxonomy
+ * ------------------------------------------------------------------ */
+
+export type ProviderFailureKind =
+  | "not_configured"
+  | "rate_limited"
+  | "timeout"
+  | "unavailable"
+  | "malformed_response";
+
+export class ProviderFailure extends Error {
+  readonly kind: ProviderFailureKind;
+  readonly status: number | null;
+
+  constructor(kind: ProviderFailureKind, message: string, status: number | null = null) {
     super(message);
+    this.name = "ProviderFailure";
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+/**
+ * Kept as a distinct class for Part 01 compatibility. It is a ProviderFailure
+ * with kind "not_configured", so callers can catch either.
+ */
+export class RuntimeModelNotConfiguredError extends ProviderFailure {
+  constructor(message: string) {
+    super("not_configured", message);
     this.name = "RuntimeModelNotConfiguredError";
   }
-}
-
-/**
- * "Configured" means the required env var names are present. It does NOT mean
- * the provider works. Reachability requires a real smoke test, which Part 01
- * deliberately has not performed.
- */
-export function isRuntimeAiConfigured(env: ServerEnv): boolean {
-  return Boolean(
-    env.llmProvider && env.llmBaseUrl && env.llmApiKey && env.llmModel,
-  );
-}
-
-/**
- * A generator that never fabricates output. Part 01 ships no verified provider
- * adapter, so every call fails closed with an explicit error. Do not replace
- * this with a mock that returns canned claims.
- */
-class UnconfiguredClaimGenerator implements ClaimGenerator {
-  readonly providerId = "unconfigured";
-
-  constructor(private readonly envPresent: boolean) {}
-
-  async generate(): Promise<ClaimGenerationResult> {
-    throw new RuntimeModelNotConfiguredError(
-      this.envPresent
-        ? "Runtime AI environment variables are present, but no verified provider adapter exists yet. No inference was performed."
-        : "Runtime AI is not configured. Set the HORIZON_LLM_* variables and add a verified provider adapter. No inference was performed.",
-    );
-  }
-}
-
-export function getClaimGenerator(env: ServerEnv): ClaimGenerator {
-  return new UnconfiguredClaimGenerator(isRuntimeAiConfigured(env));
 }

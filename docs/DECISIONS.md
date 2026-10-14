@@ -135,3 +135,138 @@ is installed and no deployment has been attempted in Part 01.
 
 **Consequence:** Deployment is an open prerequisite. It must not be reported as
 successful until a real public URL has been opened in a clean session.
+
+---
+
+## D-008 — Gemini provider is integrated through its own SDK; `HORIZON_LLM_BASE_URL` is not a base URL
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** The task named an OpenAI-compatible shape (`HORIZON_LLM_BASE_URL`)
+but also required the official Google Gen AI SDK used correctly, and explicitly
+forbade assuming Gemini is OpenAI-compatible.
+
+**Decision:** Integrate `@google/genai` directly. The SDK resolves its own
+endpoint, so there is no meaningful base URL to configure.
+`HORIZON_LLM_BASE_URL` is kept as an OPTIONAL override that is only applied when
+explicitly set. Provider configuration is `HORIZON_LLM_PROVIDER=google-genai`.
+`HORIZON_LLM_API_KEY` is preferred, with `GOOGLE_API_KEY` / `GEMINI_API_KEY`
+accepted as fallbacks because the SDK reads those names.
+
+**Consequence:** The environment surface still uses the requested generic names,
+but nothing forces a misleading OpenAI-compatible configuration. Structured
+output uses `responseMimeType: application/json` plus `responseSchema`; the
+schema shapes were checked against the installed SDK's own `.d.ts` rather than
+assumed from documentation.
+
+---
+
+## D-009 — Offline lexical embedder as a labelled fallback, never as the configured model
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** Without an embedding credential the vector retrieval branch cannot
+run at all, which would make the pipeline untestable and hide the temporal
+invariant from a demo.
+
+**Decision:** When embeddings are unconfigured, use a deterministic lexical
+hashing embedder (`synthetic-lexical-v1`) at 768 dimensions. It is reported in
+every response, labelled "in use" separately from the configured model, and
+excluded from any claim about semantic retrieval quality.
+
+**Consequence:** Retrieval quality in demo mode is weaker than PostgreSQL FTS
+and far weaker than a real embedding model. That difference is reported, not
+hidden. No generation fallback exists: when the text model is unconfigured the
+pipeline refuses rather than fabricating claims.
+
+---
+
+## D-010 — NOT_AVAILABLE_YET collapses into INSUFFICIENT_EVIDENCE for learners
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** Distinguishing "the lesson has not reached that yet" from "that is
+not in the material" would leak the existence of future content and turn the
+assistant into a syllabus oracle. The blueprint's definition of done asks for a
+distinct honest state for the future-only case.
+
+**Decision:** Keep both states **internally** (`InternalAnswerState`) and store
+the distinction in the database `turns.answer_state`. The learner-facing API
+always collapses them to `INSUFFICIENT_EVIDENCE` with one identical message. The
+backend diagnostic `horizon_has_matching_ineligible` returns a boolean only.
+
+**Consequence:** Both requirements are satisfied without contradiction: the
+system's internal honesty is preserved and testable, while nothing future-facing
+reaches the browser. Tests assert both the internal distinction and the collapse.
+
+---
+
+## D-011 — Turn persistence is best-effort and reports `persisted: false`
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** §5 requires storing minimal conversation/turn information, but the
+migration is not applied and the demo corpus is a fixture with no course row.
+
+**Decision:** Persist turns through a `TurnRecorder`. When no database is
+configured, or when the turn came from the fixture corpus, report
+`persisted: false` with a plain-language reason. Persistence failures are caught,
+never retried into the learner's latency budget, and never surfaced as a request
+error.
+
+**Consequence:** No invented database success. The UI shows a real `turn stored:
+no — <reason>` field, and once the migration is applied and real rows exist the
+same field reports `yes`.
+
+---
+
+## D-012 — Sample timeline simulation instead of a lesson video
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** No original lesson video exists. The promotional `Horizon.mp4` is
+not lesson content and must not be portrayed as one.
+
+**Decision:** Build a labelled 15-minute sample corpus (transcript, PDF pages,
+slide, code appendix) with a deliberately invented, high-entropy fact: the
+"Marlin backoff constant, 0.37", introduced only in timeline-bound blocks that
+unlock at 578s and appearing in no course-wide resource. Every surface labels it
+as synthetic demo content.
+
+**Consequence:** The temporal invariant is demonstrable and testable: the same
+question at 06:00 and 12:00 has different eligible evidence, and the canary fact
+is unavailable before its unlock time. This is a simulation, not a learner
+outcome, and is never presented as an evaluated result.
+
+---
+
+## D-013 — Exact vector scan, no approximate index, for the demo corpus
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** The blueprint requires recall to be measured before approximate
+indexing is trusted.
+
+**Decision:** `horizon_search_vector` scans eligible blocks exactly and orders by
+distance before `LIMIT`. No HNSW/IVFFlat index is created.
+
+**Consequence:** Retrieval is exact and cheap at this corpus size, and recall is
+not silently traded away. An ANN index is a later, measured decision.
+
+---
+
+## D-014 — The semantic verifier is model-assisted, not independent
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** A second model call is easy to describe as "independent
+verification", which would overstate what it guarantees.
+
+**Decision:** Label the Tier-2 check as **model-assisted** everywhere: in the
+response (`provenance.verification: "model_assisted"`), the UI and the docs. Keep
+Tier-1 deterministic checks (payload membership, verbatim quote match) as the
+parts that are actually mechanical. Fail closed on verifier errors, timeouts,
+rate limits and malformed output.
+
+**Consequence:** No claim of infallibility. A shared failure mode between the
+generator and the verifier is possible and is stated rather than hidden.

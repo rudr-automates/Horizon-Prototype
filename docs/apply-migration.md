@@ -1,6 +1,18 @@
-# Applying the Supabase migration
+# Applying the Supabase migrations
 
-**Status of `supabase/migrations/0001_init.sql`: AUTHORED, NOT APPLIED.**
+**Status: AUTHORED, NOT APPLIED.**
+
+Two files must be applied **in order**:
+
+1. `supabase/migrations/0001_init.sql` — types, tables, indexes, RLS.
+2. `supabase/migrations/0002_search_functions.sql` — the search/list functions
+   `horizon_is_eligible`, `horizon_search_fts`, `horizon_search_vector`,
+   `horizon_list_eligible` and `horizon_has_matching_ineligible`.
+
+`0002` reuses the identical eligibility condition as
+`src/lib/eligibility/predicate.ts`, so both retrieval branches filter the same
+way. If you change one, change the other and rerun
+[`tests/retrieval-eligibility.test.ts`](../tests/retrieval-eligibility.test.ts).
 
 The Part 00 audit found that the connected Supabase MCP toolset exposes only
 read-only tools (no `execute_sql`, no `apply_migration`). The coding agent
@@ -21,9 +33,18 @@ therefore cannot apply this migration, and must not claim that it did.
 4. Run it once. The file is written to be re-runnable: enums use
    `DO ... EXCEPTION WHEN duplicate_object`, and tables/indexes use
    `IF NOT EXISTS`. A clean first run should report success with no errors.
-5. Run the verification queries below and confirm each expected result.
-6. Record the outcome (date, project, who applied it) in your own notes. The
-   migration file is the source of truth; the remote schema should match it.
+5. Repeat steps 2–4 for `supabase/migrations/0002_search_functions.sql`.
+6. Run the verification queries below and confirm each expected result.
+7. Record the outcome (date, project, who applied it) in your own notes. The
+   migration files are the source of truth; the remote schema should match them.
+
+Then set the three Supabase variables in `.env.local` and confirm the app
+switches off demo mode:
+
+```bash
+# evidenceSource must become "supabase" and database.configured true
+curl -s localhost:3000/api/v1/health | grep -o '"evidenceSource":"[a-z]*"'
+```
 
 ## Verification queries
 
@@ -67,7 +88,42 @@ join pg_enum e on e.enumtypid = t.oid
 where t.typname in ('policy', 'review_state', 'lint_status', 'ingest_status')
 group by t.typname
 order by t.typname;
+
+-- 7. The five search/eligibility functions from 0002 exist (expect 5 rows)
+select proname, pg_get_function_arguments(p.oid) as args
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname like 'horizon\_%'
+order by proname;
 ```
+
+## Behavioural checks to run AFTER the schema exists
+
+Schema existence is not behaviour. With rows loaded, confirm in the SQL Editor
+that the functions actually cut off the future (replace the ids/timestamps with
+real values from your seed rows):
+
+```sql
+-- A. An early boundary must not return a block that unlocks later.
+select block_id from public.horizon_search_fts(
+  '<course_id>', 360, 'backoff constant', 20
+);
+-- Expect: no block whose unlock_seconds > 360.
+
+-- B. Both branches must agree about eligibility.
+select block_id from public.horizon_search_vector(
+  '<course_id>', 360, (select embedding::text from public.blocks limit 1)::extensions.vector, 20
+);
+-- Expect: the same eligibility cutoff as A.
+
+-- C. The diagnostic returns a boolean, never future content.
+select public.horizon_has_matching_ineligible('<course_id>', 360, 'backoff constant');
+```
+
+Note: `horizon_search_vector` takes the query vector supplied by the caller. The
+application embeds the question with the configured embedding model and sends a
+768-dimension vector; keep `HORIZON_EMBEDDING_DIMENSIONS` in step with the stored
+column or similarity comparison will fail.
 
 ## Expected security posture after applying
 
@@ -86,21 +142,29 @@ policies come with Supabase Auth integration in a later phase.
 
 ## What is deliberately missing
 
-- **No approximate vector index.** Exact scan is the MVP default. Add ivfflat/hnsw
-  only after a filtered-recall test shows it preserves eligible results.
+- **No approximate vector index.** Exact scan is the MVP default (see D-013). Add
+  ivfflat/hnsw only after a filtered-recall test shows it preserves eligible results.
+- **No learner-facing RLS policies.** Every read in this revision goes through the
+  server with the service-role key, so the deny-by-default posture is unchanged.
 - **No storage buckets.** Creating them, and wiring signed URLs, is a later phase.
 - **No seed data.** The `courses`/`resources`/`blocks` rows will be produced by the
   ingestion step once a real, rights-safe sample lesson exists.
 
-## Open item: embedding dimension
+## Resolved item: embedding dimension
 
-`blocks.embedding` is declared as a dimension-less `extensions.vector` because no
-embedding model has been chosen or verified. This stores vectors of any
-dimension and supports exact scan. When an embedding model is frozen:
+Part 02 froze the embedding model and dimension: `gemini-embedding-001` at
+**768** dimensions (`HORIZON_EMBEDDING_MODEL`, `HORIZON_EMBEDDING_DIMENSIONS`).
+The column stays dimension-less `extensions.vector` so the exact scan works
+regardless, but the application always writes and queries 768-dimension vectors
+and `tests/gemini-adapter.test.ts` asserts that dimensionality.
 
-1. Add a follow-up migration that sets the fixed dimension, for example
-   `alter table public.blocks alter column embedding type extensions.vector(1536);`
+When real rows are loaded, if you want the column pinned:
+
+1. Add a follow-up migration:
+   `alter table public.blocks alter column embedding type extensions.vector(768);`
 2. Re-embed existing rows and record `embedding_model` and `embedding_dim`.
 3. Only then consider an approximate index.
 
-Do not guess a dimension now; a wrong value silently breaks similarity search.
+A dimension mismatch between the stored column and the query vector breaks
+similarity search silently — that is why the dimension is configuration, not a
+literal scattered through the code.

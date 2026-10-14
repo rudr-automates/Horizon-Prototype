@@ -1,30 +1,39 @@
-/**
- * Placeholder landing page for the MVP foundation.
- *
- * The learner UI (video player, ask flow, evidence viewer) is intentionally NOT
- * built in Part 01. This page exists only so the app has a real route, and it
- * reports the same "not configured" truth as the health endpoint.
- */
-export default function HomePage() {
-  return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-6 px-6 py-16">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Horizon</h1>
-        <p className="text-base opacity-80">
-          Timestamp-aware, evidence-grounded learning assistant.
-        </p>
-      </header>
+import LearnerWorkbench from "@/components/learner-workbench";
+import { DEMO_QUESTIONS } from "@/lib/demo/lesson";
+import { createServerContext } from "@/lib/server/context";
+import type { CourseSummary } from "@/lib/contracts/question";
 
-      <section className="rounded-lg border border-current/15 p-4 text-sm">
-        <h2 className="mb-2 font-medium">Foundation status</h2>
-        <p className="opacity-80">
-          Part 01 scaffold only. The lesson player, ask flow and evidence viewer
-          are deferred. Runtime AI is not configured, so no answer path is
-          active. See{" "}
-          <code className="rounded bg-current/10 px-1">/api/v1/health</code> for
-          the live, honest dependency status.
-        </p>
-      </section>
-    </main>
+// The page reads server configuration on every request.
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const { config, providers, storeResolution } = createServerContext();
+  const store = storeResolution.store;
+
+  let course: CourseSummary | null = null;
+  let storeError: string | null = null;
+  try {
+    const courses = await store.listCourses();
+    course = courses[0] ?? null;
+    if (!course) {
+      storeError = "No course is available from the configured evidence source.";
+    }
+  } catch {
+    storeError =
+      "The database-backed evidence store is configured but the query failed. The schema migration has probably not been applied yet.";
+  }
+
+  return (
+    <LearnerWorkbench
+      course={course}
+      suggestedQuestions={[DEMO_QUESTIONS.canary, DEMO_QUESTIONS.courseWideControl]}
+      runtimeAiConfigured={providers.configured}
+      textModel={config.model}
+      embeddingProvider={providers.embeddingProviderId}
+      embeddingDimensions={config.embeddingDimensions}
+      evidenceSource={store.mode}
+      evidenceReason={storeResolution.reason}
+      storeError={storeError}
+    />
   );
 }

@@ -5,10 +5,12 @@ recorded lesson, asks a question, and receives an answer supported only by
 content that is **permitted at their current position** — with citations — or an
 honest refusal.
 
-> **Repository state:** this is the **Part 01 foundation** only. It is a real,
-> modular Next.js application with a truthful health endpoint and an authored
-> (but not yet applied) database migration. The learner UI, ingestion pipeline,
-> retrieval and answer path are **not built yet**.
+> **Repository state:** this is the **Part 02 vertical slice**. The learner
+> interface, timestamp-scoped retrieval, claims-only generation, deterministic +
+> model-assisted verification and safe refusals are built. Two things are still
+> NOT true: **no Supabase migration has been applied** and **no runtime AI
+> credential is configured**, so the answer path has never run against a real
+> model. See [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ---
 
@@ -16,18 +18,61 @@ honest refusal.
 
 | Capability | Status |
 |---|---|
-| Next.js app builds and runs | ✅ |
-| `GET /api/v1/health` with honest config/connectivity reporting | ✅ |
-| Canonical eligibility predicate (unit tested) | ✅ |
-| Tier-1 deterministic claim checks (unit tested) | ✅ |
-| Runtime AI adapter that fails closed (unit tested) | ✅ |
-| Supabase migration with pgvector + FTS + RLS **authored** | ✅ (not applied) |
-| Database schema applied remotely | ❌ (see [apply-migration.md](docs/apply-migration.md)) |
-| Runtime AI provider configured | ❌ (no key, no smoke test) |
-| Public deployment | ❌ (not attempted) |
-| Learner UI / retrieval / answer path | ❌ (deferred) |
+| Next.js app builds and runs | ✅ verified (`pnpm build`) |
+| `GET /api/v1/health` with honest config/connectivity reporting | ✅ verified live |
+| Learner UI: sample timeline, playhead, ask, citations, refusal states | ✅ verified live |
+| Canonical eligibility predicate, TS + SQL twin | ✅ unit tested |
+| Both retrieval branches filtered before ranking | ✅ unit tested (fixture + fake SQL gateway) |
+| Rank fusion (RRF) with deterministic ordering | ✅ unit tested |
+| Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
+| Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
+| Supabase migrations (schema + search RPCs) **authored** | ✅ (not applied) |
+| Database schema applied remotely | ❌ blocked — see [apply-migration.md](docs/apply-migration.md) |
+| Runtime AI configured / live smoke test | ❌ blocked — no credential available |
+| Turn persistence to a real database | ❌ reports `persisted: false` honestly |
+| Public deployment | ❌ not attempted |
+| Ingestion (transcription, OCR, parsing) | ❌ deferred — the demo corpus is a fixture |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+---
+
+## The learner flow
+
+1. Open the sample lesson (a **labelled simulation**, not a real video).
+2. Move the playback position. The scope chip reports how many evidence blocks
+   are eligible *at that position*.
+3. Ask a question. The server embeds it, runs full-text **and** vector retrieval
+   — both filtered by the same canonical predicate — fuses the candidates, and
+   re-asserts eligibility on the final payload.
+4. The generator receives **only** that payload and returns structured claims
+   that cite evidence ids. It never decides what is eligible, and it never owns
+   the answer state.
+5. Tier-1 deterministic checks reject unknown ids and non-verbatim quotes.
+   Tier-2 model-assisted verification rejects claims the cited evidence does not
+   support. Only surviving claims are rendered, with server-resolved citations.
+6. If nothing survives, or nothing eligible exists, the learner sees a refusal.
+
+Ask `What backoff constant does the instructor choose, and why?` at 06:00 and
+again at 12:00 to watch the evidence scope change.
+
+---
+
+## API
+
+| Route | Purpose |
+|---|---|
+| `GET /api/v1/health` | configuration vs connectivity, separately |
+| `GET /api/v1/courses` | course list, plus which evidence store is in use |
+| `GET /api/v1/courses/:courseId` | one course |
+| `GET /api/v1/courses/:courseId/scope?playheadSeconds=` | eligible-block count at a position (never a syllabus oracle) |
+| `POST /api/v1/courses/:courseId/questions` | the full answer path |
+
+`POST /questions` returns HTTP 200 with `answerState`
+`TEMPORARILY_UNAVAILABLE` when a provider is unavailable, because that is a
+**domain** state the learner must see — not a transport error. The internal
+state (`NOT_AVAILABLE_YET` vs `NOT_IN_MATERIALS`) is deliberately never
+serialized; both collapse into `INSUFFICIENT_EVIDENCE`.
 
 ---
 
@@ -93,17 +138,28 @@ smoke test is run.
 ```text
 src/
   app/
-    api/v1/health/route.ts   # health endpoint
-    layout.tsx, page.tsx     # minimal shell (NOT the learner UI)
+    api/v1/health/route.ts
+    api/v1/courses/route.ts
+    api/v1/courses/[courseId]/route.ts
+    api/v1/courses/[courseId]/scope/route.ts
+    api/v1/courses/[courseId]/questions/route.ts   # the answer path
+    page.tsx, layout.tsx
+  components/learner-workbench.tsx                 # the learner interface
   lib/
-    answer/provider.ts       # runtime-model adapter boundary (fails closed)
+    answer/gemini.ts         # official Google Gen AI adapter (generate + verify + embed)
+    answer/pipeline.ts       # retrieve → guard → generate → check → verify → render
+    answer/provider.ts       # claims-only model boundary + fail-closed errors
+    answer/providers.ts      # provider bundle; null generator when unconfigured
+    answer/synthetic-embedder.ts  # LABELLED offline lexical embedder (demo fallback)
     answer/verification.ts   # Tier-1 deterministic claim checks
     contracts/               # shared Zod schemas + domain vocabulary
     db/server.ts             # server-only Supabase access + reachability probe
+    demo/lesson.ts           # SYNTHETIC sample corpus with a future-only fact
     eligibility/predicate.ts # THE canonical eligibility predicate (TS + SQL twin)
-    env.ts                   # presence-only env reader
-    http/api.ts              # request id, ApiError, safe error envelope
-supabase/migrations/0001_init.sql
+    persistence/turns.ts     # minimal turn records, honestly reported
+    retrieval/*              # stores, lexical helpers, RRF fusion, citation labels
+    server/context.ts        # per-request dependency assembly
+supabase/migrations/0001_init.sql              # schema
 docs/DECISIONS.md, docs/apply-migration.md
 tests/                       # Vitest unit tests
 ```
@@ -124,12 +180,15 @@ Names only; see [`.env.example`](.env.example).
 | `NEXT_PUBLIC_SUPABASE_URL` | public | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | Supabase anon/publishable key |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server only** | server tasks; bypasses RLS |
-| `HORIZON_LLM_PROVIDER` | **server only** | provider kind, once verified |
-| `HORIZON_LLM_BASE_URL` | **server only** | provider base URL |
-| `HORIZON_LLM_API_KEY` | **server only** | provider key |
-| `HORIZON_LLM_MODEL` | **server only** | frozen model id |
+| `HORIZON_LLM_PROVIDER` | **server only** | `google-genai` |
+| `HORIZON_LLM_BASE_URL` | **server only** | optional endpoint override; empty is normal |
+| `HORIZON_LLM_API_KEY` | **server only** | provider key (`GOOGLE_API_KEY`/`GEMINI_API_KEY` also accepted) |
+| `HORIZON_LLM_MODEL` | **server only** | frozen model id (`gemini-3.6-flash`) |
+| `HORIZON_EMBEDDING_MODEL` | **server only** | `gemini-embedding-001` |
+| `HORIZON_EMBEDDING_DIMENSIONS` | **server only** | `768`; must match the stored vectors |
 | `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | output cap per call |
 | `HORIZON_DAILY_TOKEN_BUDGET` | server | hard stop; `0` permits no calls |
+| `HORIZON_LLM_TIMEOUT_MS` | server | per-request provider timeout |
 
 Never prefix a secret with `NEXT_PUBLIC_`. Never commit `.env.local`.
 
@@ -137,10 +196,30 @@ Never prefix a secret with `NEXT_PUBLIC_`. Never commit `.env.local`.
 
 ## Database
 
-The schema is authored at
-[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and is
-**not applied**. Follow [docs/apply-migration.md](docs/apply-migration.md) to
-apply it through the Supabase Dashboard SQL Editor and verify the result.
+The schema and the search functions are authored at
+[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and
+[`supabase/migrations/0002_search_functions.sql`](supabase/migrations/0002_search_functions.sql)
+and are **not applied**. Follow [docs/apply-migration.md](docs/apply-migration.md)
+to apply them through the Supabase Dashboard SQL Editor and verify the result.
+
+Until then the app uses the labelled fixture corpus, and `/api/v1/health` keeps
+reporting the database as unconfigured. Nothing pretends otherwise.
+
+### Enabling the real model path
+
+With no credential the app cannot answer; it reports
+`TEMPORARILY_UNAVAILABLE` for any question that has eligible evidence rather
+than inventing a result. To enable real inference:
+
+```bash
+cp .env.example .env.local
+# set HORIZON_LLM_PROVIDER=google-genai and HORIZON_LLM_API_KEY=…
+pnpm build && pnpm start
+# then ask the canary question at 00:00 (refusal) and 12:00 (answer)
+```
+
+The free-tier data-use terms must be accepted by the team first, and the demo
+corpus must stay synthetic or team-authored.
 
 ---
 
@@ -149,3 +228,30 @@ apply it through the Supabase Dashboard SQL Editor and verify the result.
 This project follows a strict rule: **no feature, test, migration or deployment
 is described as working unless an artifact proves it.** Where something is
 unverified, the health endpoint, this README and `docs/` say so explicitly.
+
+Specific consequences of that rule:
+
+- The demo corpus is a **simulation**. There is no lesson video; `Horizon.mp4`
+  is promotional material and is never presented as lesson content.
+- The offline embedder is a lexical hash, not a semantic model. It is labelled
+  `synthetic-lexical-v1` everywhere it is used, and it is only used when no
+  embedding credential exists.
+- The Tier-2 verifier is **model-assisted**, not independent. It reduces risk; it
+  does not make the output infallible.
+- Timings reported in the UI are measured for that single request. They are not
+  benchmarks and no accuracy or latency claim is derived from them.
+- A migration that has been written and unit tested is still reported as
+  **not applied**.
+
+## Verified in this revision
+
+```
+pnpm lint       exit 0
+pnpm typecheck  exit 0
+pnpm test       exit 0   76 tests, 8 files
+pnpm build      exit 0
+```
+
+Live checks against `next start` on `127.0.0.1:4321`: health, courses, scope at
+five playheads, and the question endpoint before and after the canary unlock
+time. All model-dependent tests are **mocked**, not real inference.

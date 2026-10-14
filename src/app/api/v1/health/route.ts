@@ -1,31 +1,34 @@
 import { NextResponse } from "next/server";
-import { isRuntimeAiConfigured } from "@/lib/answer/provider";
+import { isRuntimeAiConfigured } from "@/lib/config";
 import { healthResponseSchema, type HealthResponse } from "@/lib/contracts/http";
 import { isDatabaseConfigured, probeDatabaseReachable } from "@/lib/db/server";
 import { readServerEnv } from "@/lib/env";
 import { errorResponse, newRequestId } from "@/lib/http/api";
+import { createServerContext } from "@/lib/server/context";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const SERVICE_VERSION = "0.1.0";
+const SERVICE_VERSION = "0.2.0";
 
 /**
  * GET /api/v1/health
  *
- * Reports configuration and connectivity as SEPARATE facts. Never returns
- * credentials or environment-variable values, and never reports a dependency
- * as healthy merely because its env var exists.
+ * Reports configuration and connectivity as SEPARATE facts, plus the runtime
+ * configuration actually in effect. Never returns credentials or env values,
+ * and never reports a dependency as healthy merely because its env var exists.
  */
 export async function GET(): Promise<NextResponse<HealthResponse>> {
   const requestId = newRequestId();
 
   try {
     const env = readServerEnv();
+    const context = createServerContext();
+    const { config, providers, storeResolution } = context;
 
     const databaseConfigured = isDatabaseConfigured(env);
     const databaseReachable = await probeDatabaseReachable(env);
-    const runtimeAiConfigured = isRuntimeAiConfigured(env);
+    const runtimeAiConfigured = isRuntimeAiConfigured(config);
 
     const appCheck = {
       configured: true,
@@ -48,8 +51,8 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
       // Never claim a model is reachable without a real smoke test.
       reachable: null,
       detail: runtimeAiConfigured
-        ? "Environment variable names are present, but no verified provider adapter or smoke test exists yet."
-        : "Runtime AI not configured; no model calls are possible.",
+        ? "Environment variable names are present, but no live smoke test has been run or recorded."
+        : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.",
     };
 
     const ok = appCheck.reachable === true && databaseCheck.reachable === true;
@@ -66,9 +69,18 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
         database: databaseCheck,
         runtimeAi: runtimeAiCheck,
       },
+      runtime: {
+        provider: config.provider,
+        textModel: config.model,
+        embeddingModel: config.embeddingModel,
+        embeddingDimensions: config.embeddingDimensions,
+        embeddingProvider: providers.embeddingProviderId,
+        evidenceSource: storeResolution.store.mode,
+        evidenceReason: storeResolution.reason,
+        demoContent: storeResolution.store.demoContent,
+      },
     };
 
-    // Validate our own output so the contract cannot silently drift.
     return NextResponse.json(healthResponseSchema.parse(payload));
   } catch {
     return errorResponse(

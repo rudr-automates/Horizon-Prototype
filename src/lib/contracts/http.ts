@@ -40,6 +40,23 @@ export const dependencyCheckSchema = z.object({
 });
 export type DependencyCheck = z.infer<typeof dependencyCheckSchema>;
 
+/**
+ * Runtime configuration actually in effect. Reports NAMES and defaults only;
+ * never a credential value.
+ */
+export const runtimeInfoSchema = z.object({
+  provider: z.string(),
+  textModel: z.string(),
+  embeddingModel: z.string(),
+  embeddingDimensions: z.number().int(),
+  /** Which embedder is really producing vectors right now. */
+  embeddingProvider: z.string(),
+  evidenceSource: z.enum(["supabase", "fixture"]),
+  evidenceReason: z.string(),
+  demoContent: z.boolean(),
+});
+export type RuntimeInfo = z.infer<typeof runtimeInfoSchema>;
+
 /** Health response contract. Contains no secrets and no env values. */
 export const healthResponseSchema = z.object({
   ok: z.boolean(),
@@ -53,5 +70,6 @@ export const healthResponseSchema = z.object({
     database: dependencyCheckSchema,
     runtimeAi: dependencyCheckSchema,
   }),
+  runtime: runtimeInfoSchema,
 });
 export type HealthResponse = z.infer<typeof healthResponseSchema>;

@@ -1,5 +1,9 @@
 # pnpm 12 reads build-approval settings from this file, not the package.json
-# "pnpm" field. unrs-resolver ships a native binding used by ESLint's import
-# resolver; approving its build script keeps `pnpm install` clean and quiet.
+# "pnpm" field. These dependencies run postinstall steps that must be approved:
+#   unrs-resolver  — native binding used by ESLint's import resolver
+#   @google/genai  — Google Gen AI SDK preinstall
+#   protobufjs     — transitive dependency of the SDK
 allowBuilds:
+  '@google/genai': true
+  protobufjs: true
   unrs-resolver: true
