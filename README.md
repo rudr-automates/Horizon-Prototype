@@ -33,7 +33,8 @@ honest refusal.
 | Public deployment | ❌ not attempted |
 | Ingestion (transcription, OCR, parsing) | ❌ deferred — the demo corpus is a fixture |
 
-Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
+evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALUATION.md).
 
 ---
 
@@ -255,3 +256,6 @@ pnpm build      exit 0
 Live checks against `next start` on `127.0.0.1:4321`: health, courses, scope at
 five playheads, and the question endpoint before and after the canary unlock
 time. All model-dependent tests are **mocked**, not real inference.
+
+Every case, its evidence kind, its actual result and everything that was **not**
+run is recorded in [docs/EVALUATION.md](docs/EVALUATION.md).
