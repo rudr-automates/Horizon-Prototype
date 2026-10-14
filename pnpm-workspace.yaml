@@ -1,0 +1,5 @@
+# pnpm 12 reads build-approval settings from this file, not the package.json
+# "pnpm" field. unrs-resolver ships a native binding used by ESLint's import
+# resolver; approving its build script keeps `pnpm install` clean and quiet.
+allowBuilds:
+  unrs-resolver: true

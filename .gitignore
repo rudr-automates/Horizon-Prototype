@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# build / tooling caches
+coverage/
+dist/
+.turbo/
+*.tsbuildinfo
+.eslintcache
+
+# environment files — never commit real values
+.env
+.env.*
+!.env.example
+
+# workspace metadata (Freebuff), not project content
+.freebuff/
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log

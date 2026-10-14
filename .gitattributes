@@ -1,0 +1,17 @@
+# Normalize all text files to LF in the repository.
+* text=auto eol=lf
+
+# Explicit types for clarity.
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.mjs  text eol=lf
+*.mts  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+
+# Never normalize binaries.
+*.png  binary
+*.jpg  binary
+*.mp4  binary

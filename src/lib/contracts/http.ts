@@ -1,0 +1,57 @@
+import { z } from "zod";
+
+/**
+ * Stable, safe API error codes. Messages must never reveal hidden
+ * future-resource details or database internals.
+ */
+export const errorCodeSchema = z.enum([
+  "INVALID_REQUEST",
+  "UNAUTHENTICATED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "FILE_TOO_LARGE",
+  "UNSUPPORTED_TYPE",
+  "RATE_LIMITED",
+  "PROVIDER_UNAVAILABLE",
+  "BUDGET_EXHAUSTED",
+  "INTERNAL_ERROR",
+]);
+export type ErrorCode = z.infer<typeof errorCodeSchema>;
+
+export const errorEnvelopeSchema = z.object({
+  error: z.object({
+    code: errorCodeSchema,
+    message: z.string(),
+    requestId: z.string(),
+  }),
+});
+export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
+
+/**
+ * A single dependency status. `configured` and `reachable` are reported
+ * separately and must never be conflated:
+ *  - configured: the required env var names are present.
+ *  - reachable: an actual probe succeeded. `null` means "not verified".
+ */
+export const dependencyCheckSchema = z.object({
+  configured: z.boolean(),
+  reachable: z.boolean().nullable(),
+  detail: z.string(),
+});
+export type DependencyCheck = z.infer<typeof dependencyCheckSchema>;
+
+/** Health response contract. Contains no secrets and no env values. */
+export const healthResponseSchema = z.object({
+  ok: z.boolean(),
+  status: z.enum(["ok", "degraded"]),
+  service: z.literal("horizon"),
+  version: z.string(),
+  requestId: z.string(),
+  timestamp: z.string(),
+  checks: z.object({
+    app: dependencyCheckSchema,
+    database: dependencyCheckSchema,
+    runtimeAi: dependencyCheckSchema,
+  }),
+});
+export type HealthResponse = z.infer<typeof healthResponseSchema>;
