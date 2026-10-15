@@ -118,6 +118,33 @@ describe("toProviderFailure", () => {
     const original = new ProviderFailure("rate_limited", "x");
     expect(toProviderFailure(original)).toBe(original);
   });
+
+  it("distinguishes an exhausted daily quota from a momentary throttle", () => {
+    // Real observed payload: retryDelay ~15 hours with the free-tier generate
+    // quota. Without this the reason code says only "rate limited", and an
+    // operator cannot tell "wait a minute" from "live generation is unavailable
+    // until the quota resets" — opposite responses to the same status code.
+    const daily = new ApiError({
+      message:
+        '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[' +
+        '{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"54959s"},' +
+        '{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[' +
+        '{"quotaMetric":"generativelanguage.googleapis.com/generate_content_free_tier_requests"}]}]}}',
+      status: 429,
+    });
+
+    const failure = toProviderFailure(daily);
+    expect(failure.kind).toBe("rate_limited");
+    expect(failure.message).toContain("retry after 54959s");
+    expect(failure.message).toContain("generate_content_free_tier_requests");
+  });
+
+  it("adds nothing when the rate-limit error carries no metadata", () => {
+    // The diagnostic must never invent a detail or mask the plain reason.
+    expect(toProviderFailure(new ApiError({ message: "quota", status: 429 })).message).toBe(
+      "The provider rate limit was reached.",
+    );
+  });
 });
 
 describe("GeminiEmbedder", () => {

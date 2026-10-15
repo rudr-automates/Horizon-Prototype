@@ -481,6 +481,7 @@ describe("cumulative daily usage accounting", () => {
       turnId: null,
       promptTokens: 19_500,
       completionTokens: 0,
+      reasoningTokens: 0,
       operation: "generate",
     });
 
@@ -525,6 +526,7 @@ describe("cumulative daily usage accounting", () => {
       turnId: null,
       promptTokens: 990,
       completionTokens: 0,
+      reasoningTokens: 0,
       operation: "generate",
     });
 

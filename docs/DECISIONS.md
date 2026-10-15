@@ -434,3 +434,55 @@ asserting a particular answer state.
 **Consequence:** The canary cannot report a temporal-scoping pass that was really
 an outage. It also no longer demands a refusal, because the requirement is that the
 fact is not disclosed — a partially supported answer that omits it is correct.
+
+---
+
+## D-017 — The persisted usage row must sum to the figure the cap was checked against
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** D-013 metered prompt + completion + reasoning for the *in-turn*
+reservation, but the entry written to the ledger carried only prompt and
+completion. Both ledgers then accumulated `prompt + completion`, so every
+persisted total silently dropped the reasoning tokens — the same class of
+under-count as D-013, one layer down, and it made the two ledger modes disagree
+about the same call. The row is what `spentToday()` reads back, so the daily cap
+was being enforced against a figure far below the provider's bill while still
+looking plausible.
+
+**Decision:** `entryTotalTokens` is the single definition of an entry's
+contribution. `usageRow` derives `completion_tokens` as
+`entryTotalTokens(entry) − prompt_tokens` instead of re-deriving it from the
+reported parts, so the identity `prompt_tokens + completion_tokens ===
+entryTotalTokens(entry)` holds **by construction**. `count()` is the one shared
+sanitiser for NaN/negative components, used by both ledgers and by
+`meteredTokens`.
+
+**Consequence:** A `reasoning_tokens` column would be more truthful about the
+split, but adding one would invalidate the migration an operator has already
+applied; the total is preserved instead and the split stays documented. A test
+asserts both ledgers report the same number for the same entry, and that test
+fails if the reasoning component is dropped again — verified by reintroducing the
+bug.
+
+---
+
+## D-018 — A rate limit is reported with the provider's own reason
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** Every live generation call failed as `rate_limited`, and the coarse
+reason code cannot distinguish "slow down for a minute" from "this project's
+daily quota is spent" — opposite responses to the same HTTP status. Live
+diagnosis was therefore guesswork.
+
+**Decision:** `describeRateLimit` extracts only the API's `retryDelay` and quota
+identifier from the error metadata and appends them server-side. It reads
+metadata about the limit, never content, and contributes nothing when the shape
+is unrecognised so it cannot mask the plain reason.
+
+**Consequence:** The blocking condition is now legible: the free-tier
+`generate_content_free_tier_requests` quota for `gemini-3.6-flash` is exhausted
+with a ~15-hour retry delay, while embeddings — a separate quota — still work.
+The canary gained `--delay <ms>` so three back-to-back turns do not exhaust a
+per-minute limit on their own.

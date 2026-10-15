@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { utcDayStart, type UsageEntry, type UsageLedger } from "@/lib/usage/types";
+import { count, entryTotalTokens, utcDayStart, type UsageEntry, type UsageLedger } from "@/lib/usage/types";
 
 /**
  * Database-backed usage ledger, reading and writing `public.usage_ledger`.
@@ -34,7 +34,41 @@ export interface UsageRow {
 function toCount(value: number | string | null): number {
   if (value === null) return 0;
   const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  return count(parsed);
+}
+
+/**
+ * The row written for one metered call.
+ *
+ * `sumTokensSince` reads only `prompt_tokens + completion_tokens`, so the row
+ * MUST sum to the same figure the admission check counted. The reasoning tokens
+ * are therefore folded into `completion_tokens` rather than dropped: persisting
+ * the visible completion alone made the daily cap count tens of times less than
+ * the provider billed, while `spentToday()` still returned a plausible number.
+ * `completion_tokens` is derived from the total instead of recomputed from its
+ * parts, so the equality below holds by construction rather than by convention:
+ *
+ *   prompt_tokens + completion_tokens === entryTotalTokens(entry)
+ *
+ * The schema has no reasoning column, and adding one would invalidate the
+ * migration an operator has already applied, so the split stays in this comment
+ * and the total is what is persisted. A `reasoning_tokens` column is the honest
+ * follow-up.
+ */
+export function usageRow(entry: UsageEntry): Record<string, unknown> {
+  const promptTokens = count(entry.promptTokens);
+  return {
+    provider: entry.provider,
+    model_id: entry.modelId,
+    request_id: entry.requestId,
+    turn_id: entry.turnId,
+    prompt_tokens: promptTokens,
+    completion_tokens: Math.max(0, entryTotalTokens(entry) - promptTokens),
+    // Left NULL deliberately: a cost figure without a dated price source
+    // would understate spend.
+    estimated_cost_usd: null,
+    price_source_date: null,
+  };
 }
 
 export class SupabaseUsageLedger implements UsageLedger {
@@ -49,18 +83,7 @@ export class SupabaseUsageLedger implements UsageLedger {
   }
 
   async record(entry: UsageEntry): Promise<void> {
-    await this.gateway.insert({
-      provider: entry.provider,
-      model_id: entry.modelId,
-      request_id: entry.requestId,
-      turn_id: entry.turnId,
-      prompt_tokens: Math.max(0, entry.promptTokens),
-      completion_tokens: Math.max(0, entry.completionTokens),
-      // Left NULL deliberately: a cost figure without a dated price source
-      // would understate spend.
-      estimated_cost_usd: null,
-      price_source_date: null,
-    });
+    await this.gateway.insert(usageRow(entry));
   }
 }
 

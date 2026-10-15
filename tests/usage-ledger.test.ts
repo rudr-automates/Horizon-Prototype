@@ -9,6 +9,7 @@ import {
 } from "@/lib/usage/supabase-ledger";
 import {
   decideAdmission,
+  entryTotalTokens,
   estimatePromptTokens,
   utcDayStart,
   USAGE_COVERAGE_NOTE,
@@ -23,6 +24,7 @@ function entry(overrides: Partial<UsageEntry> = {}): UsageEntry {
     turnId: null,
     promptTokens: 100,
     completionTokens: 20,
+    reasoningTokens: 0,
     operation: "generate",
     ...overrides,
   };
@@ -77,6 +79,17 @@ describe("in-memory usage ledger", () => {
 
     expect(await ledger.spentToday()).toBe(175);
     expect(ledger.entries).toHaveLength(2);
+  });
+
+  it("counts reasoning tokens, which are billed but reported separately", async () => {
+    // Observed live on gemini-3.6-flash: 417 prompt / 21 visible / 984 reasoning.
+    // Counting only prompt+completion under-reported this call by ~3x here and
+    // by far more on calls that reason harder, so the reasoning total is part of
+    // the figure the cap is enforced against.
+    const ledger = new InMemoryUsageLedger();
+    await ledger.record(entry({ promptTokens: 417, completionTokens: 21, reasoningTokens: 984 }));
+
+    expect(await ledger.spentToday()).toBe(1422);
   });
 
   it("counts both generation and verification against the same day", async () => {
@@ -165,6 +178,38 @@ describe("database-backed usage ledger", () => {
     // Inventing a cost without a dated price source would understate spend.
     expect(store.rows[0].estimated_cost_usd).toBeNull();
     expect(store.rows[0].price_source_date).toBeNull();
+  });
+
+  it("persists the reasoning tokens rather than dropping them", async () => {
+    const store = gateway();
+    const ledger = new SupabaseUsageLedger(store);
+
+    await ledger.record(entry({ promptTokens: 417, completionTokens: 21, reasoningTokens: 984 }));
+
+    // The table has no reasoning column, so the total must be preserved inside
+    // prompt+completion: `sumTokensSince` reads nothing else, and a row summing
+    // to 438 would enforce the daily cap against a fraction of real spend.
+    const row = store.rows[0];
+    expect(Number(row.prompt_tokens) + Number(row.completion_tokens)).toBe(1422);
+  });
+
+  it("records the same total the in-memory ledger does, for the same entry", async () => {
+    // Guards the real defect: the two ledgers disagreed, because one added the
+    // reasoning component and the other persisted only the visible completion.
+    // A mode switch must not change what counts as spend.
+    const sample = entry({ promptTokens: 417, completionTokens: 21, reasoningTokens: 984 });
+
+    const memory = new InMemoryUsageLedger();
+    await memory.record(sample);
+
+    const store = gateway();
+    await new SupabaseUsageLedger(store).record(sample);
+
+    const row = store.rows[0];
+    expect(Number(row.prompt_tokens) + Number(row.completion_tokens)).toBe(
+      await memory.spentToday(),
+    );
+    expect(await memory.spentToday()).toBe(entryTotalTokens(sample));
   });
 
   it("propagates a read failure instead of reporting zero spend", async () => {

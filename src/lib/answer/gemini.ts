@@ -104,6 +104,26 @@ export function createGeminiClient(config: RuntimeConfig): GoogleGenAI {
   });
 }
 
+/**
+ * Extract the API's own explanation of a rate limit, without any content.
+ *
+ * Reads only `retryDelay` and the quota identifier from the error metadata. An
+ * unrecognised shape yields an empty string, so this can never mask the reason
+ * or invent a detail: it either adds a real fact or adds nothing.
+ */
+export function describeRateLimit(error: unknown): string {
+  if (!(error instanceof Error) || typeof error.message !== "string") return "";
+  const message = error.message;
+
+  const delay = /"retryDelay"\s*:\s*"([^"]+)"/.exec(message)?.[1];
+  const quota = /"quota(?:Id|Metric)"\s*:\s*"([^"]+)"/.exec(message)?.[1];
+
+  const parts: string[] = [];
+  if (delay) parts.push(`retry after ${delay}`);
+  if (quota) parts.push(`quota ${quota}`);
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+}
+
 /** Map an SDK/network error onto the fail-closed ProviderFailure taxonomy. */
 export function toProviderFailure(error: unknown): ProviderFailure {
   if (error instanceof ProviderFailure) return error;
@@ -111,7 +131,17 @@ export function toProviderFailure(error: unknown): ProviderFailure {
   if (error instanceof ApiError) {
     const status = error.status;
     if (status === 429) {
-      return new ProviderFailure("rate_limited", "The provider rate limit was reached.", status);
+      // The coarse reason alone cannot distinguish "slow down for a moment" from
+      // "this project's daily quota for the model is exhausted", and those need
+      // opposite responses: wait, or switch account/tier. The API's own
+      // retryDelay and quota identifier are extracted here and logged
+      // server-side. Both are metadata about the limit — never user or model
+      // content — so they are safe to record and are the only way to act on it.
+      return new ProviderFailure(
+        "rate_limited",
+        `The provider rate limit was reached${describeRateLimit(error)}.`,
+        status,
+      );
     }
     if (status === 504) {
       return new ProviderFailure("timeout", "The provider request timed out.", status);

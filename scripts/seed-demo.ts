@@ -13,8 +13,15 @@
  */
 import { loadEnvFile, presentNames } from "./env-file";
 
+// The anon key is listed even though this command writes with the service role:
+// `isDatabaseConfigured` (and therefore the app's whole database path) requires
+// the URL, the anon key and the service-role key together. Checking only two of
+// the three let this pre-flight report "2/2 set" and then refuse further down
+// with a vaguer message, which is exactly the kind of partial truth the refusal
+// messages exist to avoid.
 const REQUIRED_DB_NAMES = [
   "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
 
@@ -63,9 +70,15 @@ async function main(): Promise<void> {
       ...missing,
       "",
       "Manual steps required before this command can run:",
-      "  1. Apply supabase/migrations/0001_init.sql then 0002_search_functions.sql",
-      "     in the Supabase Dashboard SQL Editor (see docs/apply-migration.md).",
-      "  2. Put NEXT_PUBLIC_SUPABASE_URL and the service-role key in .env.local.",
+      // Phrased as a confirmation, not an instruction: this command cannot see
+      // the schema from here, so asserting that the migrations are missing would
+      // be a guess. It says what must be true, and how to check.
+      "  1. Confirm supabase/migrations/0001_init.sql then 0002_search_functions.sql",
+      "     are applied (verify in the Supabase Dashboard SQL Editor; see",
+      "     docs/apply-migration.md).",
+      "  2. Put NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and the",
+      "     service-role key in .env.local. All three are required: the anon key is",
+      "     what the app's configuration check tests for.",
       "  3. Put the runtime provider credential in .env.local (server-side only).",
       "  4. Put HORIZON_LLM_PROVIDER=google-genai and HORIZON_LLM_MODEL in .env.local.",
     ]);

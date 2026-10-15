@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { count } from "@/lib/usage/types";
+
 /**
  * Runtime-model boundary (blueprint §9.5, §9.6).
  *
@@ -54,23 +56,14 @@ export interface TokenUsage {
  * null field means "the provider did not report it" and contributes zero, which
  * is the only defensible reading of an absent report.
  */
-/**
- * A reported count contributes only when it is a usable number. Without the
- * isFinite guard a single NaN component would make the whole total NaN, and
- * every comparison against NaN is false — which would silently turn the spend
- * guard off rather than trip it. Negative counts are not credits either.
- */
-function countable(value: number | null): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
-}
-
 export function meteredTokens(usage: TokenUsage | null): number {
   if (!usage) return 0;
-  return (
-    countable(usage.promptTokens) +
-    countable(usage.completionTokens) +
-    countable(usage.thoughtsTokens)
-  );
+  // `count` is the single shared sanitiser: without its isFinite guard a single
+  // NaN component would make the whole total NaN, and every comparison against
+  // NaN is false — which would silently turn the spend guard OFF rather than
+  // trip it. Negative counts are not credits either. One implementation, shared
+  // with the ledgers, so the count here and the count persisted cannot drift.
+  return count(usage.promptTokens) + count(usage.completionTokens) + count(usage.thoughtsTokens);
 }
 
 /**

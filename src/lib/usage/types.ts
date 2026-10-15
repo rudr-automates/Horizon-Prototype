@@ -28,8 +28,32 @@ export interface UsageEntry {
   promptTokens: number;
   /** Tokens reported by the provider for the completion. */
   completionTokens: number;
+  /**
+   * Billable reasoning tokens (`thoughtsTokenCount`), reported SEPARATELY from
+   * `completionTokens` by the provider. They are carried as their own field
+   * because a total that silently drops them under-counts real spend by orders
+   * of magnitude — observed live at 984 reasoning against 21 visible tokens.
+   */
+  reasoningTokens: number;
   /** What the call was for, so the ledger is readable. */
   operation: "generate" | "verify";
+}
+
+/**
+ * What one entry contributes to the day's spend. Both ledgers MUST persist this
+ * same sum, or the enforced cap and the recorded total diverge and the limit
+ * becomes softer than the reported number suggests.
+ */
+export function entryTotalTokens(entry: UsageEntry): number {
+  return count(entry.promptTokens) + count(entry.completionTokens) + count(entry.reasoningTokens);
+}
+
+/**
+ * A single component of a usage figure. Negative, NaN and non-finite values
+ * contribute nothing: they must never act as a credit against the daily cap.
+ */
+export function count(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 export interface UsageLedger {
@@ -46,8 +70,9 @@ export interface UsageLedger {
 
 /** Stable, readable statement of what the recorded number covers. */
 export const USAGE_COVERAGE_NOTE =
-  "Counts text-generation and verification tokens reported by the provider. " +
-  "Embedding requests are not metered because that API reports no token usage.";
+  "Counts text-generation and verification tokens reported by the provider, " +
+  "including billable reasoning tokens. Embedding requests are not metered " +
+  "because that API reports no token usage.";
 
 /** UTC day key, so the window is unambiguous regardless of server timezone. */
 export function utcDayStart(now: Date = new Date()): string {

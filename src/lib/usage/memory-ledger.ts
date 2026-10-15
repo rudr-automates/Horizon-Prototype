@@ -1,4 +1,4 @@
-import { utcDayStart, type UsageEntry, type UsageLedger } from "@/lib/usage/types";
+import { entryTotalTokens, utcDayStart, type UsageEntry, type UsageLedger } from "@/lib/usage/types";
 
 /**
  * Process-local usage ledger.
@@ -20,8 +20,13 @@ export class InMemoryUsageLedger implements UsageLedger {
   private static readonly MAX_ENTRIES = 500;
 
   private day: string;
-  private promptTokens = 0;
-  private completionTokens = 0;
+  /**
+   * One accumulator for the day's billable total. It is a single number on
+   * purpose: keeping prompt/completion/reasoning in separate running sums invites
+   * exactly the bug this module exists to prevent, where one component is
+   * recorded but not counted.
+   */
+  private totalTokens = 0;
   /** Kept so tests and diagnostics can see the turn-level trail. */
   readonly entries: Array<UsageEntry & { occurredAt: string }> = [];
 
@@ -34,27 +39,20 @@ export class InMemoryUsageLedger implements UsageLedger {
     const current = utcDayStart(now);
     if (current !== this.day) {
       this.day = current;
-      this.promptTokens = 0;
-      this.completionTokens = 0;
+      this.totalTokens = 0;
     }
   }
 
   async spentToday(): Promise<number> {
     this.rollIfNeeded(new Date());
-    return this.promptTokens + this.completionTokens;
+    return this.totalTokens;
   }
 
   async record(entry: UsageEntry): Promise<void> {
     const now = new Date();
     this.rollIfNeeded(now);
 
-    const prompt = Number.isFinite(entry.promptTokens) ? Math.max(0, entry.promptTokens) : 0;
-    const completion = Number.isFinite(entry.completionTokens)
-      ? Math.max(0, entry.completionTokens)
-      : 0;
-
-    this.promptTokens += prompt;
-    this.completionTokens += completion;
+    this.totalTokens += entryTotalTokens(entry);
     this.entries.push({ ...entry, occurredAt: now.toISOString() });
     if (this.entries.length > InMemoryUsageLedger.MAX_ENTRIES) {
       this.entries.splice(0, this.entries.length - InMemoryUsageLedger.MAX_ENTRIES);

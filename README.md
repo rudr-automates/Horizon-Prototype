@@ -26,11 +26,12 @@ honest refusal.
 | Rank fusion (RRF) with deterministic ordering | ✅ unit tested |
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
-| Supabase migrations (schema + search RPCs) **authored** | ✅ (not applied) |
-| Database schema applied remotely | ❌ blocked — verified absent via three read-only checks; see [apply-migration.md](docs/apply-migration.md) |
-| Live inference (`gemini-3.6-flash`) and live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made and recorded** — `pnpm smoke` |
-| Temporal eligibility end-to-end with a live model | ✅ `pnpm canary` live: 27 passed, 0 failed |
-| Cumulative daily token accounting | ✅ enforced at admission before every billable call |
+| Supabase migrations (schema + search RPCs) | ✅ **applied** — six tables with RLS, pgvector `0.8.2` installed |
+| Database-backed retrieval, seeding and persistence | ❌ blocked — migrations are applied but no Supabase credential is configured, so the fixture corpus is still in use and `pnpm seed:demo` has never run |
+| Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke` |
+| Live inference (`gemini-3.6-flash`) | ⚠️ real calls were made and recorded in an earlier revision; on the current revision generation is **429-blocked by the free-tier daily quota** with a ~15 h retry delay |
+| Temporal eligibility end-to-end with a live model | ⚠️ 24 live checks pass on the current revision (eligibility, oracle cross-check, non-disclosure). The answer half is **NOT RUN** — refused by the quota, never counted as a pass |
+| Cumulative daily token accounting | ✅ enforced at admission, per call, including billable **reasoning** tokens; the persisted row sums to the same figure the cap was checked against |
 | SDK automatic retries | ✅ disabled (`attempts: 1`); they default to 5 |
 | Embedding-request cap | ✅ enforced — it bound and refused during live testing |
 | Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
@@ -111,11 +112,17 @@ cp .env.example .env.local   # then fill in real values (never commit them)
 
 ```bash
 pnpm canary --base http://127.0.0.1:4321 --label fixture-unconfigured
+pnpm canary --base http://127.0.0.1:4321 --delay 45000   # space positions out
 ```
+
+`--delay <ms>` waits between positions. Use it on a free tier: three turns back
+to back can exhaust a per-minute request quota, and the resulting
+`PROVIDER_RATE_LIMITED` turns the answer half of the run into `NOT RUN` — a limit
+on the harness, not a finding about the app.
 
 The canary writes raw responses only after checking that no configured
 credential value appears in them. It reports blocked cases as `NOT RUN`, never
-as passing.
+as passing, and reports a missing answer as a failure rather than a quiet skip.
 
 ## Health endpoint
 
@@ -197,7 +204,7 @@ Names only; see [`.env.example`](.env.example).
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | public | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | Supabase anon/publishable key |
-| `SUPABASE_SERVICE_ROLE_KEY` | **server only** | server tasks; bypasses RLS |
+| `SUPABASE_SERVICE_ROLE_KEY` | **server only** | server tasks; bypasses RLS. Required by `pnpm seed:demo` along with the two names above — all three must be set before the database path engages |
 | `HORIZON_LLM_PROVIDER` | **server only** | `google-genai` |
 | `HORIZON_LLM_BASE_URL` | **server only** | optional endpoint override; empty is normal |
 | `HORIZON_LLM_API_KEY` | **server only** | provider key (`GOOGLE_API_KEY`/`GEMINI_API_KEY` also accepted) |
@@ -209,6 +216,13 @@ Names only; see [`.env.example`](.env.example).
 | `HORIZON_DAILY_TOKEN_BUDGET` | server | cumulative daily token ceiling; `0` permits no calls |
 | `HORIZON_MAX_EMBEDDING_CALLS` | server | ceiling on embedding REQUESTS per process; `0` = no cap |
 | `HORIZON_LLM_TIMEOUT_MS` | server | per-request provider timeout |
+
+The budget is cumulative and per-call: each entry carries prompt, completion **and
+billable reasoning** tokens, and the row persisted to `public.usage_ledger` sums to
+exactly the figure the admission check used — `prompt_tokens + completion_tokens` —
+so the durable total and the enforced cap cannot drift apart. (The table has no
+reasoning column, so the reasoning tokens are folded into `completion_tokens`
+rather than dropped.)
 
 **What the budget does not cover.** Embedding requests are not metered, because
 that API reports no token usage. `HORIZON_MAX_EMBEDDING_CALLS` bounds their
@@ -223,14 +237,40 @@ Never prefix a secret with `NEXT_PUBLIC_`. Never commit `.env.local`.
 
 ## Database
 
-The schema and the search functions are authored at
+The schema and the search functions live at
 [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and
-[`supabase/migrations/0002_search_functions.sql`](supabase/migrations/0002_search_functions.sql)
-and are **not applied**. Follow [docs/apply-migration.md](docs/apply-migration.md)
-to apply them through the Supabase Dashboard SQL Editor and verify the result.
+[`supabase/migrations/0002_search_functions.sql`](supabase/migrations/0002_search_functions.sql).
 
-Until then the app uses the labelled fixture corpus, and `/api/v1/health` keeps
-reporting the database as unconfigured. Nothing pretends otherwise.
+**Both are applied to the connected project**, verified this session by read-only
+inspection rather than inferred from a variable being set:
+
+| Probe | Result |
+|---|---|
+| Tables in `public` | all six present (`courses`, `resources`, `blocks`, `conversations`, `turns`, `usage_ledger`), every one with RLS enabled |
+| `pgvector` | installed, `0.8.2` |
+| Search functions | `horizon_is_eligible`, `horizon_search_fts`, `horizon_search_vector`, `horizon_list_eligible`, `horizon_has_matching_ineligible` all present |
+| Column-level schema | matches `0001_init.sql`: enums, check constraints, generated `fts` column and the `usage_ledger` foreign key all agree |
+| Migration *history* | empty — the SQL was applied through the Dashboard editor, which does not record history. The schema, not the history table, is the evidence |
+
+Two advisor findings, neither of which blocks the app:
+
+- **RLS enabled with no policies** (INFO, all six tables). Every read and write in
+  this app goes through the **service-role** client, which bypasses RLS; the anon
+  key is used only to probe reachability. Deny-by-default is therefore the safe
+  posture here, not a gap — but it does mean an anon-key client would correctly
+  see zero rows.
+- **Mutable `search_path`** on six functions (WARN). None is `SECURITY DEFINER`,
+  so this is hardening rather than a privilege-escalation hole; pinning
+  `search_path` is the recommended follow-up.
+
+**The database path is still not exercised.** Applying the migrations did not
+configure the app: no Supabase name is present in `.env.local`, so
+`/api/v1/health` correctly reports `database.configured: false`,
+`evidenceSource` stays `fixture`, and `pnpm seed:demo` has still never run. For
+that path to engage, all three of `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` must be set — the
+configuration check requires the anon key even though the server writes with the
+service role.
 
 ### Enabling the real model path
 
@@ -245,6 +285,16 @@ cp .env.example .env.local
 pnpm build && pnpm start
 pnpm canary --base http://127.0.0.1:4321 --label configured
 ```
+
+**A free-tier generation quota is separate from the budget and can run out.**
+`gemini-3.6-flash` has a *daily* free-tier request allowance with its own reset;
+when it is spent the pipeline returns `TEMPORARILY_UNAVAILABLE` with reason
+`PROVIDER_RATE_LIMITED` and the provider reports a retry delay measured in
+hours. Embeddings are a different quota and keep working, so a run can pass its
+embedding checks and fail every generation. The server log now carries the
+provider's own `retryDelay` and quota id (never content), and `/api/v1/health`
+still reports `spendGuard: permitted` — this is not the budget refusing, and the
+two must not be confused.
 
 **`HORIZON_DAILY_TOKEN_BUDGET=0` is a real hard stop.** With the budget at zero
 the pipeline sends no provider request at all — not even the embedding call —
@@ -282,15 +332,18 @@ Specific consequences of that rule:
 ```
 pnpm lint       exit 0
 pnpm typecheck  exit 0
-pnpm test       exit 0   140 tests, 11 files   (all mocked)
+pnpm test       exit 0   145 tests, 11 files   (all mocked)
 pnpm build      exit 0
-pnpm smoke      exit 0   2 live calls
-pnpm canary     exit 0   27 passed, 0 failed   (live model, fixture corpus)
+pnpm smoke      exit 1   1 live embedding call OK; generation refused by the provider (429, daily free-tier quota)
+pnpm canary     exit 1   24 passed, 1 failed, 2 not run   (live; answer half quota-blocked)
 ```
 
 Live checks against `next start` on `127.0.0.1:4321`: health, courses, scope at
 five playheads, and the question endpoint before and after the canary unlock
 time. All model-dependent tests are **mocked**, not real inference.
+
+**No deployment has been performed and no public URL exists.** Every live check
+was against loopback, and nothing here is a hosting claim.
 
 Every case, its evidence kind, its actual result and everything that was **not**
 run is recorded in [docs/EVALUATION.md](docs/EVALUATION.md).

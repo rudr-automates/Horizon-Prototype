@@ -26,6 +26,7 @@ import type {
 import { isBlockEligible } from "@/lib/eligibility/predicate";
 import { fuseRanked } from "@/lib/retrieval/fusion";
 import {
+  count,
   decideAdmission,
   estimatePromptTokens,
   USAGE_COVERAGE_NOTE,
@@ -265,8 +266,9 @@ export async function answerQuestion(
   ): Promise<void> => {
     if (!reported) return;
 
-    const promptTokens = Math.max(0, reported.promptTokens ?? 0);
-    const completionTokens = Math.max(0, reported.completionTokens ?? 0);
+    const promptTokens = count(reported.promptTokens);
+    const completionTokens = count(reported.completionTokens);
+    const reasoningTokens = count(reported.thoughtsTokens);
     // Prompt + completion + reasoning: all three are billed, so all three count.
     turnTokens += meteredTokens(reported);
 
@@ -278,6 +280,7 @@ export async function answerQuestion(
         turnId: null,
         promptTokens,
         completionTokens,
+        reasoningTokens,
         operation,
       });
     } catch {

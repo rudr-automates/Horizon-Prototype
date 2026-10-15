@@ -2,8 +2,10 @@
 
 **Read this as a log of what was actually run, not as a quality claim.**
 
-This document spans two revisions. **Part 03 (below) is the current record**;
-the Part 02 log is retained unchanged further down as history.
+This document spans several revisions. **Part 04 (immediately below) is the
+current record**; Parts 03 and 02 are retained unchanged further down as history,
+and they describe an earlier revision whose results still stand as history for
+that revision and are not claimed for the current code.
 
 Three kinds of evidence appear below, and they are never mixed:
 
@@ -12,11 +14,131 @@ Three kinds of evidence appear below, and they are never mixed:
 | **MOCKED** | The model boundary was replaced by a scripted fake. Proves the *pipeline* logic, proves nothing about model quality. |
 | **SYNTHETIC** | Ran against the labelled sample fixture corpus and the offline lexical embedder. Proves *policy and eligibility* behaviour. |
 | **LIVE** | Observed by hitting the running server over HTTP. |
-| **NOT RUN** | Requires a runtime model credential that does not exist. Explicitly not claimed. |
+| **NOT RUN** | Blocked by a missing prerequisite — a credential, an applied migration, or (as in Part 04) an exhausted provider quota. Explicitly not claimed. |
 
 There is no held-out accuracy number, no latency benchmark and no response-quality
-metric in this document, because no real inference has been executed. A test that
-was designed is not a test that passed.
+metric in this document. Some real inference has now been executed (Parts 03 and
+04), but a handful of live calls is a demonstration, not a measurement. A test
+that was designed is not a test that passed, and a call that was refused is not a
+call that succeeded.
+
+---
+
+# Part 04 — spend-accounting repair, and the quota wall — LIVE where possible
+
+**Date:** 2026-10-15 · **Label:** `live-generation-blocked` · Runtime credential: present.
+
+Evidence: [smoke-live-2026-10-15.txt](evidence/smoke-live-2026-10-15.txt),
+[canary-live-generation-blocked-2026-10-15T08-43-15Z.json](evidence/canary-live-generation-blocked-2026-10-15T08-43-15Z.json).
+
+## Q1. A second under-count, found by reading the deployed schema
+
+The migrations were verified applied this session (six tables, RLS on, pgvector
+`0.8.2` installed), which made the database path concrete enough to audit. The
+Supabase ledger writes to `public.usage_ledger`, and that audit found that the
+Part 03 fix was incomplete: `sumTokensSince` sums `prompt_tokens +
+completion_tokens`, but the recorded `completion_tokens` **excluded reasoning
+tokens**. So the durable ledger — the one the cap reads back — under-counted
+exactly as the in-memory one had before D-013, and the two modes disagreed about
+the same call.
+
+Corrected so the sum is derived from the total rather than from its parts, making
+the identity hold by construction (D-017). Verified three ways:
+
+| Check | Result |
+|---|---|
+| Reasoning is counted in the in-memory ledger | PASS — 417 + 21 + 984 = 1422 |
+| Reasoning survives into the persisted row | PASS — `prompt_tokens + completion_tokens` = 1422 |
+| Both ledger modes report the same total for the same entry | PASS |
+| The tests are load-bearing | PASS — dropping reasoning again fails 2 tests |
+
+**This is a mocked, not live, verification.** Unit tests. Stated plainly because
+the defect was an accounting error that only a live call can fully price.
+
+## Q2. Live embedding — REAL
+
+On the final revision, `pnpm smoke`: `gemini-embedding-001`, 768 dimensions, all
+finite, 676 ms, one request against a cap of 10.
+
+## Q3. Live generation — BLOCKED, not passed
+
+Every generation call on this revision was refused by the provider with HTTP 429.
+The reason was made legible rather than guessed (D-018):
+
+```
+The provider rate limit was reached (retry after 54921s,
+quota generativelanguage.googleapis.com/generate_content_free_tier_requests).
+```
+
+~15 hours of retry delay against the **free-tier daily generation request quota**.
+This is an account limit, not an application defect and not a budget refusal:
+
+| Signal | Reading |
+|---|---|
+| `quota … generate_content_free_tier_requests` | The day's generation allowance is spent |
+| `retry after 54959s` / `54921s` | Resets on the daily boundary, not per minute |
+| Embedding succeeded in the same process | Embeddings are a **separate** quota and still work |
+| Guard state | `permitted`, `spentTokensToday` far below `20000` — the budget did not refuse |
+
+**No live generation result is claimed for the current revision.** The live
+generation evidence in Part 03 (L1–L3) was obtained on the **pre-repair** revision
+and is not evidence about the accounting change.
+
+## Q4. Canary on the final revision — 24 PASS, 1 FAIL, 2 NOT RUN
+
+The model half could not run, so the harness produced exactly the split it was
+built to produce. Positions were spaced 45 s apart (`--delay 45000`), which rules
+out a per-minute burst as the cause.
+
+| Position | Eligible (oracle) | Eligible-set check | Future fact in eligible set | Withheld fact in response | Answer half |
+|---|---|---|---|---|---|
+| 00:00 | 2 (2) | PASS | 0 blocks | **No** | NOT RUN |
+| 06:00 | 10 (10) | PASS | 0 blocks | **No** | NOT RUN |
+| 12:00 | 15 (15) | PASS | 3 blocks | n/a | **FAIL** — 429, 0 claims |
+
+The 12:00 row is recorded as a **FAIL**, not as a pass: an expected answer was not
+produced. The two early rows are **NOT RUN**, because a provider failure renders
+nothing and therefore demonstrates nothing about temporal scoping. The eligibility
+and non-disclosure invariants remain independently oracle-checked at all three
+positions and are unaffected by the quota.
+
+## Q5. Supabase prerequisites — VERIFIED APPLIED (read-only, executed)
+
+Part 03 recorded these as *blocked*. That is now stale, so it is re-checked rather
+than assumed. Each probe is an observation of the remote project:
+
+| Probe | Result | Conclusion |
+|---|---|---|
+| `list_tables(public, verbose)` | six tables, RLS enabled on all six | `0001_init.sql` applied |
+| Column-level detail | enums, check constraints, generated `fts`, `usage_ledger` FK all match the migration | `0001` applied faithfully, not approximately |
+| `list_extensions` | `vector` **installed** `0.8.2` (was `installed_version: null`) | pgvector is live |
+| `get_advisors(security)` | `horizon_is_eligible`, `horizon_search_fts`, `horizon_search_vector`, `horizon_list_eligible`, `horizon_has_matching_ineligible` all exist | `0002_search_functions.sql` applied |
+| `list_migrations` | `[]` | History is empty because the SQL was applied through the Dashboard editor, which does not record history. The **schema** is the evidence, not this table |
+
+The advisors also returned two findings, recorded rather than smoothed over:
+
+- **`rls_enabled_no_policy`** (INFO, 6 tables). Not a defect here: every read and
+  write in the app uses the service-role client, which bypasses RLS, and the anon
+  key is only used to probe reachability. Deny-by-default is the safe posture.
+- **`function_search_path_mutable`** (WARN, 6 functions). None of the functions is
+  `SECURITY DEFINER`, so this is hardening rather than an escalation hole. Left as
+  a documented follow-up.
+
+**Applying the migrations did NOT make the database path live.** No Supabase name
+is set in `.env.local`, so `database.configured` is still `false`,
+`evidenceSource` is still `fixture`, and `pnpm seed:demo` has still never
+executed. `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
+`SUPABASE_SERVICE_ROLE_KEY` are all three required — the configuration check
+requires the anon key even though the server writes with the service role. The
+seed command's own pre-flight list was corrected to match, since checking two of
+three names let it report "2/2 set" and then refuse further down with a vaguer
+message.
+
+## Q6. Deployment
+
+**No deployment was performed and no public URL exists.** Nothing in this document
+should be read as a deployment claim. `GET /api/v1/health` was exercised only on
+`127.0.0.1`.
 
 ---
 

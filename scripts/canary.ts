@@ -3,6 +3,11 @@
  *
  *   pnpm canary                       # against http://127.0.0.1:4321
  *   pnpm canary --base http://... --label after-seed
+ *   pnpm canary --base http://... --delay 45000   # space positions out
+ *
+ * `--delay <ms>` waits between positions. Use it on a free tier: three turns
+ * back to back can exceed the per-minute request quota, and the resulting
+ * PROVIDER_RATE_LIMITED turns the answer half of the run into NOT RUN.
  *
  * Asks the same canary question at three lesson positions and records what the
  * running server ACTUALLY returned. Nothing here is simulated: the script only
@@ -88,6 +93,23 @@ interface Check {
 function argValue(name: string): string | null {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : null;
+}
+
+/**
+ * Pause between positions.
+ *
+ * The three positions fire three full turns back to back, and each turn makes
+ * several provider calls. On a free tier that burst hits the per-minute request
+ * quota, which surfaces as PROVIDER_RATE_LIMITED and turns the answer half of
+ * the canary into NOT RUN — a real limit on the harness, not a finding about the
+ * app. Spacing the positions keeps the run inside the quota. Default 0, so a
+ * paid-tier or already-throttle-aware run is unchanged.
+ */
+function delayMs(): number {
+  const raw = argValue("delay");
+  if (raw === null) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
 function formatClock(totalSeconds: number): string {
@@ -183,7 +205,14 @@ async function main(): Promise<void> {
     checks: Check[];
   }> = [];
 
-  for (const position of POSITIONS) {
+  const interPositionDelay = delayMs();
+
+  for (const [positionIndex, position] of POSITIONS.entries()) {
+    if (positionIndex > 0 && interPositionDelay > 0) {
+      console.log(`   (waiting ${Math.round(interPositionDelay / 1000)}s for the provider rate-limit window)`);
+      await new Promise((resolve) => setTimeout(resolve, interPositionDelay));
+    }
+
     const oracleIds = expectedEligibleFixtureIds(position.seconds);
 
     const scopeResponse = await fetch(
