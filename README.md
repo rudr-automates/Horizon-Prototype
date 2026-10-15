@@ -28,7 +28,11 @@ honest refusal.
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
 | Supabase migrations (schema + search RPCs) **authored** | ✅ (not applied) |
 | Database schema applied remotely | ❌ blocked — verified absent via three read-only checks; see [apply-migration.md](docs/apply-migration.md) |
-| Runtime AI configured / live smoke test | ❌ blocked — no credential available |
+| Live inference (`gemini-3.6-flash`) and live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made and recorded** — `pnpm smoke` |
+| Temporal eligibility end-to-end with a live model | ✅ `pnpm canary` live: 27 passed, 0 failed |
+| Cumulative daily token accounting | ✅ enforced at admission before every billable call |
+| SDK automatic retries | ✅ disabled (`attempts: 1`); they default to 5 |
+| Embedding-request cap | ✅ enforced — it bound and refused during live testing |
 | Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
 | Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ implemented + unit tested; **never executed** against a live database |
 | End-to-end canary harness (`pnpm canary`) | ✅ ran live; recorded in [docs/evidence](docs/evidence) |
@@ -200,9 +204,18 @@ Names only; see [`.env.example`](.env.example).
 | `HORIZON_LLM_MODEL` | **server only** | frozen model id (`gemini-3.6-flash`) |
 | `HORIZON_EMBEDDING_MODEL` | **server only** | `gemini-embedding-001` |
 | `HORIZON_EMBEDDING_DIMENSIONS` | **server only** | `768`; must match the stored vectors |
-| `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | output cap per call |
-| `HORIZON_DAILY_TOKEN_BUDGET` | server | hard stop; `0` permits no calls |
+| `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | output cap per call; must exceed the reasoning budget or JSON gets truncated (default 4096) |
+| `HORIZON_LLM_THINKING_BUDGET` | server | reasoning-token budget; unset sends nothing, `0` disables thinking |
+| `HORIZON_DAILY_TOKEN_BUDGET` | server | cumulative daily token ceiling; `0` permits no calls |
+| `HORIZON_MAX_EMBEDDING_CALLS` | server | ceiling on embedding REQUESTS per process; `0` = no cap |
 | `HORIZON_LLM_TIMEOUT_MS` | server | per-request provider timeout |
+
+**What the budget does not cover.** Embedding requests are not metered, because
+that API reports no token usage. `HORIZON_MAX_EMBEDDING_CALLS` bounds their
+*count*, not their cost. And when no database is configured the ledger is
+in-memory, so the daily total resets on restart and is not shared between
+instances. `/api/v1/health` reports `runtime.usageMode`, `spentTokensToday` and
+`embeddingCalls` so none of this has to be guessed.
 
 Never prefix a secret with `NEXT_PUBLIC_`. Never commit `.env.local`.
 
@@ -269,9 +282,10 @@ Specific consequences of that rule:
 ```
 pnpm lint       exit 0
 pnpm typecheck  exit 0
-pnpm test       exit 0   98 tests, 9 files
+pnpm test       exit 0   140 tests, 11 files   (all mocked)
 pnpm build      exit 0
-pnpm canary     exit 0   24 checks passed, 3 not run (no credential)
+pnpm smoke      exit 0   2 live calls
+pnpm canary     exit 0   27 passed, 0 failed   (live model, fixture corpus)
 ```
 
 Live checks against `next start` on `127.0.0.1:4321`: health, courses, scope at

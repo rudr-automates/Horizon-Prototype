@@ -339,3 +339,98 @@ or a pass.
 
 **Consequence:** The invariant is cross-checked rather than self-confirmed, and
 blocked evidence is never reported as verified.
+
+---
+
+## D-012 — SDK automatic retries are disabled
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** The Google Gen AI SDK documents `attempts` as defaulting to **5** and
+retries 408/429/5xx. Nothing in this codebase set `retryOptions`, so a single
+logical request could have become up to five billable requests — silently, and
+most likely precisely when the free-tier limit was closest.
+
+**Decision:** `buildHttpOptions` pins `retryOptions: { attempts: 1 }`, so one call
+means one request. This is verified by unit test, not by comment.
+
+**Consequence:** A transient 5xx now surfaces as a failure the learner sees as
+`TEMPORARILY_UNAVAILABLE`, instead of being retried behind their back. That is the
+right trade while usage accounting is meant to be trustworthy; retries can be
+revisited only alongside idempotent accounting.
+
+---
+
+## D-013 — Reasoning tokens are metered and bounded
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** A live canary turn failed with `PROVIDER_MALFORMED`. Content-free
+diagnostics showed `length=98 endsBrace=false finishReason=unknown
+tokens=p417/c21/thoughts984` against `maxOutputTokens=1024`. `gemini-3.6-flash`
+spends reasoning tokens that **count against `maxOutputTokens`**, so the JSON was
+truncated after ~21 visible tokens. Separately, `thoughtsTokenCount` is billed but
+appears in neither `promptTokenCount` nor `candidatesTokenCount`, so the ledger was
+under-counting a call by roughly 50x.
+
+**Decision:** Raise the default output allowance from 1024 to 4096, expose
+`HORIZON_LLM_THINKING_BUDGET` to bound reasoning explicitly, and meter
+prompt + completion + reasoning via `meteredTokens`.
+
+**Consequence:** A truncated-JSON failure mode is removed rather than retried
+around, and the recorded usage reflects what is actually billed. The output
+allowance is not a cost control; the token budget is.
+
+---
+
+## D-014 — Embedding requests get their own cap
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** The embeddings API reports no token usage, so the daily token budget
+cannot bound embedding spend. A retrieval fault could issue many embedding
+requests with nothing to stop it.
+
+**Decision:** `HORIZON_MAX_EMBEDDING_CALLS` caps embedding REQUESTS per process,
+counted before the request is sent so a failing call is not free and a retry
+cannot multiply requests. It is reported on `/api/v1/health` alongside the live
+count. `0` means no cap is configured.
+
+**Consequence:** This bounds call count, not tokens or cost, and it resets when the
+process restarts — it is deliberately NOT described as a spending cap. It bound
+during testing and refused correctly.
+
+---
+
+## D-015 — A failed provider call is still billed
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** `ProviderFailure` was thrown before usage was recorded, so every
+malformed or truncated response cost real tokens that the ledger never saw —
+under-counting spend exactly when something was going wrong.
+
+**Decision:** `ProviderFailure` carries the usage the provider reported, and the
+pipeline meters it in the failure path as well as the success path.
+
+**Consequence:** Failed turns count against the budget, which is both more truthful
+and a useful signal: repeated failures now visibly consume the allowance.
+
+---
+
+## D-016 — A provider failure is never evidence of temporal scoping
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** At an early playhead, a `TEMPORARILY_UNAVAILABLE` response renders no
+claims — so a naive "no disclosure" check would pass and a provider outage would be
+recorded as proof that a future fact was withheld.
+
+**Decision:** `scripts/canary.ts` reports a provider/budget failure at an early
+position as **NOT RUN**, never as a pass, and tests the early-position invariant by
+inspecting every rendered claim and quotation for the withheld term rather than by
+asserting a particular answer state.
+
+**Consequence:** The canary cannot report a temporal-scoping pass that was really
+an outage. It also no longer demands a refusal, because the requirement is that the
+fact is not disclosed — a partially supported answer that omits it is correct.

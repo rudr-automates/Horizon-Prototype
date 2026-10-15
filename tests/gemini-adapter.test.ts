@@ -42,7 +42,7 @@ describe("GeminiClaimGenerator", () => {
     client.generateResponses.push({ text: validClaimsJson });
     const generator = new GeminiClaimGenerator(client, config);
 
-    const result = await generator.generate({
+    const { result } = await generator.generate({
       question: "q",
       evidence: [{ id: "b_0013", text: "Marlin backoff constant, 0.37" }],
     });
@@ -170,7 +170,7 @@ describe("GeminiSemanticVerifier", () => {
       }),
     });
     const verifier = new GeminiSemanticVerifier(client, config);
-    const verdicts = await verifier.verify([
+    const { verdicts } = await verifier.verify([
       { index: 0, claimText: "a", evidence: [] },
       { index: 1, claimText: "b", evidence: [] },
     ]);
@@ -185,7 +185,7 @@ describe("GeminiSemanticVerifier", () => {
       text: JSON.stringify({ verdicts: [{ index: 0, verdict: "SUPPORTED", reason: "ok" }] }),
     });
     const verifier = new GeminiSemanticVerifier(client, config);
-    const verdicts = await verifier.verify([
+    const { verdicts } = await verifier.verify([
       { index: 0, claimText: "a", evidence: [] },
       { index: 7, claimText: "b", evidence: [] },
     ]);
@@ -194,7 +194,7 @@ describe("GeminiSemanticVerifier", () => {
 
   it("returns an empty list without calling the model when there is nothing to verify", async () => {
     const verifier = new GeminiSemanticVerifier(client, config);
-    await expect(verifier.verify([])).resolves.toEqual([]);
+    await expect(verifier.verify([])).resolves.toEqual({ verdicts: [], usage: null });
     expect(client.generateCalls).toHaveLength(0);
   });
 });

@@ -1,0 +1,446 @@
+{
+  "recordedAt": "2026-10-15T08:26:00.320Z",
+  "label": "live-fixture",
+  "base": "http://127.0.0.1:4321",
+  "question": "What backoff constant does the instructor choose, and why?",
+  "canaryUnlockSeconds": 578,
+  "canaryTerm": "0.37",
+  "generatorConfigured": true,
+  "evidenceSource": "fixture",
+  "embeddingProvider": "gemini-embedding-001",
+  "summary": {
+    "checks": 27,
+    "passed": 27,
+    "failed": 0,
+    "notRun": 0
+  },
+  "runs": [
+    {
+      "position": {
+        "label": "00:00",
+        "seconds": 0
+      },
+      "scope": {
+        "boundarySeconds": 0,
+        "scopeMode": "POSITION",
+        "eligibleBlockCount": 2,
+        "policySummary": "Lesson through 00:00 · approved course-wide references enabled"
+      },
+      "answer": {
+        "requestId": "2e795ee6-69e1-4bd6-9060-00a55f6bd8c4",
+        "answerState": "INSUFFICIENT_EVIDENCE",
+        "reason": "UNSUPPORTED_BY_EVIDENCE",
+        "message": "I can't support that answer with the material available for this response.",
+        "latencyMs": 3511,
+        "persistence": {
+          "persisted": false,
+          "mode": "disabled",
+          "detail": "No database is configured, so this turn was not stored."
+        },
+        "claims": [],
+        "citations": [],
+        "scope": {
+          "boundarySeconds": 0,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 2,
+          "policySummary": "Lesson through 00:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "fixture",
+          "retrievedCount": 2,
+          "payloadCount": 2,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "google-genai",
+          "verifier": "google-genai"
+        },
+        "provenance": {
+          "modelId": "gemini-3.6-flash",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": true
+        },
+        "guard": {
+          "mode": "memory",
+          "budgetTokens": 20000,
+          "spentTokensToday": 0,
+          "coverage": "Counts text-generation and verification tokens reported by the provider. Embedding requests are not metered because that API reports no token usage.",
+          "detail": "Daily budget 20000 tokens, counted in memory for this process only (it resets on restart)."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "server reported 2 eligible block(s); oracle says 2 (b_0001, b_0005)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact is NOT reachable before its unlock time",
+          "outcome": "PASS",
+          "detail": "0 eligible block(s) carry the constant \"0.37\" (expected 0)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "searched the entire response body for the constant and its label"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "PASS",
+          "detail": "0 citation(s); 0 outside the eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "PASS",
+          "detail": "0 quotation(s); 0 did not match"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "PASS",
+          "detail": "0 label(s); 0 disagreed with the source timestamp"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=INSUFFICIENT_EVIDENCE; message \"I can't support that answer with the material available for this response.\""
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the withheld fact is not disclosed at the early position",
+          "outcome": "PASS",
+          "detail": "answerState=INSUFFICIENT_EVIDENCE; inspected 0 claim(s) and 0 quotation(s) for \"0.37\" and \"Marlin backoff constant\""
+        }
+      ]
+    },
+    {
+      "position": {
+        "label": "06:00",
+        "seconds": 360
+      },
+      "scope": {
+        "boundarySeconds": 360,
+        "scopeMode": "POSITION",
+        "eligibleBlockCount": 10,
+        "policySummary": "Lesson through 06:00 · approved course-wide references enabled"
+      },
+      "answer": {
+        "requestId": "2570025b-29ba-43b3-868c-2ee7390d218a",
+        "answerState": "ANSWERED_PARTIAL",
+        "reason": "NONE",
+        "message": "Part of that question could not be supported by the material available for this response.",
+        "latencyMs": 8141,
+        "persistence": {
+          "persisted": false,
+          "mode": "disabled",
+          "detail": "No database is configured, so this turn was not stored."
+        },
+        "claims": [
+          {
+            "text": "The numeric backoff constant is not chosen immediately, but is selected later after observing the shape of the failure distribution.",
+            "citations": [
+              {
+                "evidenceId": "b_0007",
+                "sourceLabel": "Transcript 03:30–04:40",
+                "blockType": "transcript",
+                "startSeconds": 210,
+                "endSeconds": 280,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": null,
+                "lineEnd": null,
+                "policy": "TIMELINE_BOUND",
+                "quote": "the constant is selected later, once we can see the shape of the failure distribution."
+              }
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "evidenceId": "b_0007",
+            "sourceLabel": "Transcript 03:30–04:40",
+            "blockType": "transcript",
+            "startSeconds": 210,
+            "endSeconds": 280,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": null,
+            "lineEnd": null,
+            "policy": "TIMELINE_BOUND",
+            "quote": "the constant is selected later, once we can see the shape of the failure distribution."
+          }
+        ],
+        "scope": {
+          "boundarySeconds": 360,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 10,
+          "policySummary": "Lesson through 06:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "fixture",
+          "retrievedCount": 6,
+          "payloadCount": 6,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "google-genai",
+          "verifier": "google-genai"
+        },
+        "provenance": {
+          "modelId": "gemini-3.6-flash",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": true
+        },
+        "guard": {
+          "mode": "memory",
+          "budgetTokens": 20000,
+          "spentTokensToday": 1487,
+          "coverage": "Counts text-generation and verification tokens reported by the provider. Embedding requests are not metered because that API reports no token usage.",
+          "detail": "1246 token(s) reported for this turn; 1487 of 20000 used today."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "server reported 10 eligible block(s); oracle says 10 (b_0001, b_0002, b_0003, b_0004, b_0005, b_0006, b_0007, b_0008, b_0009, b_0017)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact is NOT reachable before its unlock time",
+          "outcome": "PASS",
+          "detail": "0 eligible block(s) carry the constant \"0.37\" (expected 0)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "searched the entire response body for the constant and its label"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "PASS",
+          "detail": "1 citation(s); 0 outside the eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "PASS",
+          "detail": "1 quotation(s); 0 did not match"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "PASS",
+          "detail": "1 label(s); 0 disagreed with the source timestamp"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=ANSWERED_PARTIAL; message \"Part of that question could not be supported by the material available for this response.\""
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the withheld fact is not disclosed at the early position",
+          "outcome": "PASS",
+          "detail": "answerState=ANSWERED_PARTIAL; inspected 1 claim(s) and 1 quotation(s) for \"0.37\" and \"Marlin backoff constant\""
+        }
+      ]
+    },
+    {
+      "position": {
+        "label": "12:00",
+        "seconds": 720
+      },
+      "scope": {
+        "boundarySeconds": 720,
+        "scopeMode": "POSITION",
+        "eligibleBlockCount": 15,
+        "policySummary": "Lesson through 12:00 · approved course-wide references enabled"
+      },
+      "answer": {
+        "requestId": "5d29ff45-568b-4033-bbcc-e236479e03f3",
+        "answerState": "ANSWERED",
+        "reason": "NONE",
+        "message": "",
+        "latencyMs": 7130,
+        "persistence": {
+          "persisted": false,
+          "mode": "disabled",
+          "detail": "No database is configured, so this turn was not stored."
+        },
+        "claims": [
+          {
+            "text": "The instructor chooses the Marlin backoff constant of 0.37.",
+            "citations": [
+              {
+                "evidenceId": "b_0013",
+                "sourceLabel": "Transcript 09:38–10:40",
+                "blockType": "transcript",
+                "startSeconds": 578,
+                "endSeconds": 640,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": null,
+                "lineEnd": null,
+                "policy": "TIMELINE_BOUND",
+                "quote": "We use the Marlin backoff constant, 0.37, as the scaling coefficient."
+              }
+            ]
+          },
+          {
+            "text": "This constant is chosen because a sub-unit coefficient keeps the initial retry fast while ensuring the doubling schedule remains within the retry budget and recovers quickly from transient failures.",
+            "citations": [
+              {
+                "evidenceId": "b_0016",
+                "sourceLabel": "Transcript 12:00–13:40",
+                "blockType": "transcript",
+                "startSeconds": 720,
+                "endSeconds": 820,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": null,
+                "lineEnd": null,
+                "policy": "TIMELINE_BOUND",
+                "quote": "The Marlin backoff constant is 0.37 because it keeps the doubling schedule inside the ten percent retry budget while still recovering quickly from transient failures."
+              }
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "evidenceId": "b_0013",
+            "sourceLabel": "Transcript 09:38–10:40",
+            "blockType": "transcript",
+            "startSeconds": 578,
+            "endSeconds": 640,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": null,
+            "lineEnd": null,
+            "policy": "TIMELINE_BOUND",
+            "quote": "We use the Marlin backoff constant, 0.37, as the scaling coefficient."
+          },
+          {
+            "evidenceId": "b_0016",
+            "sourceLabel": "Transcript 12:00–13:40",
+            "blockType": "transcript",
+            "startSeconds": 720,
+            "endSeconds": 820,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": null,
+            "lineEnd": null,
+            "policy": "TIMELINE_BOUND",
+            "quote": "The Marlin backoff constant is 0.37 because it keeps the doubling schedule inside the ten percent retry budget while still recovering quickly from transient failures."
+          }
+        ],
+        "scope": {
+          "boundarySeconds": 720,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 15,
+          "policySummary": "Lesson through 12:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "fixture",
+          "retrievedCount": 6,
+          "payloadCount": 6,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "google-genai",
+          "verifier": "google-genai"
+        },
+        "provenance": {
+          "modelId": "gemini-3.6-flash",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": true
+        },
+        "guard": {
+          "mode": "memory",
+          "budgetTokens": 20000,
+          "spentTokensToday": 2026,
+          "coverage": "Counts text-generation and verification tokens reported by the provider. Embedding requests are not metered because that API reports no token usage.",
+          "detail": "1072 token(s) reported for this turn; 2026 of 20000 used today."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "server reported 15 eligible block(s); oracle says 15 (b_0001, b_0002, b_0003, b_0004, b_0005, b_0006, b_0007, b_0008, b_0009, b_0012, b_0013, b_0014, b_0015, b_0016, b_0017)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact IS reachable at/after its unlock time",
+          "outcome": "PASS",
+          "detail": "3 eligible block(s) carry the constant \"0.37\" (expected >= 1)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "not applicable after the unlock time"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "PASS",
+          "detail": "2 citation(s); 0 outside the eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "PASS",
+          "detail": "2 quotation(s); 0 did not match"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "PASS",
+          "detail": "2 label(s); 0 disagreed with the source timestamp"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=ANSWERED; message was empty"
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the later position produces a supported, verified answer",
+          "outcome": "PASS",
+          "detail": "answerState=ANSWERED; reason=NONE; claims=2; citations=2"
+        }
+      ]
+    }
+  ]
+}

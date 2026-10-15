@@ -20,6 +20,141 @@ was designed is not a test that passed.
 
 ---
 
+# Part 03 continuation — LIVE results
+
+**Date:** 2026-10-15 · **Label:** `live-fixture` · **Runtime credential: present.**
+
+Raw responses: [canary-live-fixture-2026-10-15T08-26-00-321Z.json](evidence/canary-live-fixture-2026-10-15T08-26-00-321Z.json).
+
+These are the first real provider calls in the project's history. Findings are
+kept separate, as requested, because they have different evidentiary strength.
+
+## L1. Live inference — REAL
+
+`pnpm smoke`, one embedding request and one generation request, no other calls:
+
+| Check | Result |
+|---|---|
+| Text model | `gemini-3.6-flash`, invoked for real |
+| Structured output | JSON parsed into 1 claim; `unansweredParts=false` |
+| Embedding model | `gemini-embedding-001`, 768 values, **all finite** |
+| Reported usage | prompt 133, completion 51 |
+| Latency (single observation, not a benchmark) | embed 696 ms, generate 3631 ms |
+
+## L2. Canary `live-fixture` — 27 checks PASS, 0 FAIL, 0 NOT RUN (exit 0)
+
+The fixture unlocks the canary fact at **578 s (09:38)**.
+
+| Position | Eligible | State | Claims | Citations | Withheld fact disclosed? |
+|---|---|---|---|---|---|
+| 00:00 | 2 | `INSUFFICIENT_EVIDENCE` | 0 | 0 | **No** |
+| 06:00 | 10 | `ANSWERED_PARTIAL` | 1 | 1 | **No** |
+| 12:00 | 15 | `ANSWERED` | 2 | 2 | Yes — correctly, past the unlock |
+
+**00:00** — a real refusal. The eligible set contains no block carrying `0.37`,
+and the response body contains neither the constant nor its label.
+
+**06:00** — a *partially supported* answer that does **not** disclose the fact:
+
+> The numeric backoff constant is not chosen immediately, but is selected later
+> after observing the shape of the failure distribution.
+>
+> cited to `b_0007`, *Transcript 03:30–04:40*, quote `"the constant is selected
+> later, once we can see the shape of the failure distribution."`
+
+**12:00** — the withheld fact, cited:
+
+> The instructor chooses the Marlin backoff constant of 0.37.
+> This constant is chosen because a sub-unit coefficient keeps the initial retry
+> fast while ensuring the doubling schedule remains within the retry budget…
+>
+> cited to `b_0013` (*Transcript 09:38–10:40*, quote `"We use the Marlin backoff
+> constant, 0.37, as the scaling coefficient."`) and `b_0016` (*Transcript
+> 12:00–13:40*).
+
+That is the headline behaviour: **the same question, refused or hedged before the
+unlock point and answered with verbatim citations after it.**
+
+## L3. Citation integrity and temporal eligibility — REAL, checked independently
+
+Verified per position by inspecting the returned artifact, not by trusting the app:
+
+| Invariant | 00:00 | 06:00 | 12:00 |
+|---|---|---|---|
+| Eligible-block count equals an independently written oracle | PASS (2) | PASS (10) | PASS (15) |
+| No withheld fact in the eligible set before unlock | PASS | PASS | n/a |
+| Every returned citation id is in the eligible set | PASS | PASS | PASS |
+| Every quotation is verbatim in its cited source | PASS | PASS | PASS |
+| Every citation label carries the source's true clock | PASS | PASS | PASS |
+| No collapsed internal state leaks | PASS | PASS | PASS |
+| Refusal/partial messaging is clear | PASS | PASS | PASS |
+
+Two harness corrections were needed, and both are recorded rather than quietly made:
+
+1. The early-position assertion originally demanded a *refusal*. The actual
+   requirement is that the withheld fact is **not disclosed**, and the 06:00 run
+   met that while legitimately answering a related sub-question. The check now
+   inspects every rendered claim and quotation for the withheld term — a more
+   direct test of the real invariant — rather than asserting a state.
+2. A provider or budget failure is now reported as **NOT RUN**, never as a pass:
+   nothing rendered means nothing demonstrated about temporal scoping.
+
+## L4. Spending safeguards — enforced, and the holes left
+
+`HORIZON_DAILY_TOKEN_BUDGET=20000`, `HORIZON_MAX_EMBEDDING_CALLS=10`.
+
+| Safeguard | Status |
+|---|---|
+| SDK automatic retries | **Discovered ON by default (5 attempts, retrying 429/5xx).** Now explicitly `attempts: 1`. Verified by unit test. |
+| Cumulative token accounting | Enforced at admission before every billable call. Observed live: `spentTokensToday` 0 → 1487 → 2026 across the run. |
+| Reasoning tokens metered | **Was a real defect.** `thoughtsTokenCount` is billed and is reported separately from `candidatesTokenCount`; observed live at **984 thinking vs 21 visible** tokens, so ignoring it under-counted that call by ~50x. Now counted. |
+| Failed calls metered | **Was a real defect.** A malformed response threw before usage was recorded, so failing calls cost tokens invisibly. Usage now travels out on the failure. |
+| Embedding-request cap | Enforced. It **bound during testing** and refused with `embeddingCalls=10 cap=10`, which is how the 12:00 case failed once and why the final run was restarted. |
+| NaN safety | Fixed: a single `NaN` component would have made the total `NaN`, and every comparison against `NaN` is false — the guard would have silently *stopped* refusing. |
+
+**Limits that remain UNENFORCED — do not read the budget as a spending cap:**
+
+- **Embedding tokens and cost are not metered at all**, because that API reports
+  no token usage. The call cap bounds *how many requests*, not how much they cost.
+- **The ledger is in-memory** (`usageMode: "memory"`), so the daily total is real
+  for one process only: it resets on restart and is not shared between instances.
+  This run restarted several times, so the exact cross-run token total is **not
+  recoverable**; the per-process figures above are the only trustworthy ones.
+- **Reservation is not atomic.** Two concurrent turns can both be admitted
+  against the same remaining budget.
+- **No cost figure is recorded.** `estimated_cost_usd` is left NULL because
+  pricing needs a dated price source.
+- **The output allowance is not a cost control.** `maxOutputTokens` was raised
+  from 1024 to 4096 because reasoning alone consumed 984 of the original cap and
+  truncated the JSON mid-object.
+
+## L5. Database status — BLOCKED, unchanged
+
+Read-only probes still report no tables in `public` and no migration history, and
+no Supabase name is configured. **`pnpm seed:demo` has still never executed**, and
+no Supabase connectivity is claimed anywhere. All retrieval above is the **labelled
+synthetic fixture corpus**, and the embedder in use is the real
+`gemini-embedding-001` operating over fixture text — the *corpus* is synthetic and
+the *labelled* fixture ranking is lexical-plus-cosine, not a database vector index.
+
+## L6. Command outcomes
+
+```
+pnpm lint       exit 0
+pnpm typecheck  exit 0
+pnpm test       exit 0   140 tests, 11 files   (all MOCKED)
+pnpm build      exit 0
+pnpm smoke      exit 0   2 LIVE calls
+pnpm canary     exit 0   27 passed, 0 failed, 0 not run   (LIVE model, fixture corpus)
+pnpm seed:demo  exit 1   refused — nothing written (no database)
+```
+
+**Mocked:** every test file. **Live:** the smoke test, the 3-position canary, the
+health endpoint, and the browser walkthrough. **Synthetic:** the corpus and its
+fixture ranking.
+
+---
+
 # Part 03 — real integration, evaluation and release
 
 **Date:** 2026-10-15 · **Baseline:** `e56bea7` · **Outcome: prerequisites missing, so the real integrations are BLOCKED. This section records exactly which.**

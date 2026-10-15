@@ -11,6 +11,16 @@ import type { ServerEnv } from "@/lib/env";
 export type LlmProvider = "google-genai" | "unconfigured";
 
 export const DEFAULT_TEXT_MODEL = "gemini-3.6-flash";
+/**
+ * Raised from 1024 after a live failure.
+ *
+ * gemini-3.6-flash spends REASONING tokens, and reasoning counts against
+ * maxOutputTokens. Observed live: 984 thinking tokens against a 1024 cap, which
+ * left only 21 visible tokens and truncated the JSON mid-object. A cap that does
+ * not leave room for thinking above the answer is not a safe default for
+ * structured output.
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 export const DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001";
 export const DEFAULT_EMBEDDING_DIMENSIONS = 768;
 
@@ -25,6 +35,18 @@ export interface RuntimeConfig {
   baseUrlOverride: string;
   maxOutputTokens: number;
   dailyTokenBudget: number;
+  /**
+   * Explicit ceiling on embedding REQUESTS per process. Kept separate from the
+   * token budget because the embeddings API reports no token usage. 0 = no cap.
+   */
+  maxEmbeddingCalls: number;
+  /**
+   * Explicit reasoning-token budget. null means "do not send thinkingConfig",
+   * leaving the model's own default in place. 0 disables thinking; -1 is the
+   * provider's "automatic". Bounding this keeps reasoning from consuming the
+   * whole output allowance and keeps per-call cost predictable.
+   */
+  thinkingBudget: number | null;
   requestTimeoutMs: number;
 }
 
@@ -46,6 +68,8 @@ export function readRuntimeConfig(env: ServerEnv): RuntimeConfig {
     baseUrlOverride: env.llmBaseUrl,
     maxOutputTokens: env.llmMaxOutputTokens,
     dailyTokenBudget: env.dailyTokenBudget,
+    maxEmbeddingCalls: env.maxEmbeddingCalls,
+    thinkingBudget: env.llmThinkingBudget,
     requestTimeoutMs: env.requestTimeoutMs,
   };
 }

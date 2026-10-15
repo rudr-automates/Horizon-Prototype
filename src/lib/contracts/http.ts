@@ -60,6 +60,18 @@ export const runtimeInfoSchema = z.object({
    * here because a learner-facing refusal must not describe budgets.
    */
   spendGuard: z.enum(["blocked", "permitted"]),
+  /**
+   * Which ledger backs the daily total. "memory" is real per process but resets
+   * on restart, so it is reported rather than presented as a durable cap.
+   */
+  usageMode: z.enum(["supabase", "memory"]),
+  /** Tokens recorded for the current UTC day; null when the ledger was unreadable. */
+  spentTokensToday: z.number().int().nullable(),
+  usageCoverage: z.string(),
+  /** Embedding requests attempted in this process (the token budget cannot meter these). */
+  embeddingCalls: z.number().int(),
+  /** Configured embedding-request ceiling; 0 means none is configured. */
+  maxEmbeddingCalls: z.number().int(),
 });
 export type RuntimeInfo = z.infer<typeof runtimeInfoSchema>;
 

@@ -3,8 +3,10 @@ import { isRuntimeAiConfigured } from "@/lib/config";
 import { healthResponseSchema, type HealthResponse } from "@/lib/contracts/http";
 import { isDatabaseConfigured, probeDatabaseReachable } from "@/lib/db/server";
 import { readServerEnv } from "@/lib/env";
+import { embeddingCallCount } from "@/lib/answer/capped-embedder";
 import { errorResponse, newRequestId } from "@/lib/http/api";
 import { createServerContext } from "@/lib/server/context";
+import { USAGE_COVERAGE_NOTE } from "@/lib/usage/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,7 +26,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
   try {
     const env = readServerEnv();
     const context = createServerContext();
-    const { config, providers, storeResolution } = context;
+    const { config, providers, storeResolution, usageResolution } = context;
 
     const databaseConfigured = isDatabaseConfigured(env);
     const databaseReachable = await probeDatabaseReachable(env);
@@ -48,6 +50,16 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
 
     const spendGuardBlocked = config.dailyTokenBudget <= 0;
 
+    // Report the real cumulative total so a positive budget is never mistaken
+    // for a cap that is actually being applied. The ledger is reported as
+    // unreadable rather than as zero when it cannot be queried.
+    let spentTokensToday: number | null = null;
+    try {
+      spentTokensToday = await usageResolution.ledger.spentToday();
+    } catch {
+      spentTokensToday = null;
+    }
+
     const runtimeAiCheck = {
       configured: runtimeAiConfigured,
       // Never claim a model is reachable without a real smoke test.
@@ -55,7 +67,9 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
       detail: runtimeAiConfigured
         ? spendGuardBlocked
           ? "Names are present, but HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard permits no provider call and every turn will refuse with BUDGET_EXHAUSTED."
-          : "Environment variable names are present, but no live smoke test has been run or recorded."
+          : spentTokensToday === null
+            ? "Names are present, but the usage ledger could not be read, so the daily spend is unknown and calls will be refused."
+            : `Names are present. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour.`
         : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.",
     };
 
@@ -83,6 +97,11 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
         evidenceReason: storeResolution.reason,
         demoContent: storeResolution.store.demoContent,
         spendGuard: spendGuardBlocked ? "blocked" : "permitted",
+        usageMode: usageResolution.ledger.mode,
+        spentTokensToday,
+        usageCoverage: USAGE_COVERAGE_NOTE,
+        embeddingCalls: embeddingCallCount(),
+        maxEmbeddingCalls: config.maxEmbeddingCalls,
       },
     };
 

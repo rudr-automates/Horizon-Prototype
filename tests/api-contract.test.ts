@@ -11,14 +11,25 @@ import { questionRequestSchema, questionResponseSchema } from "@/lib/contracts/q
 import { DEMO_COURSE } from "@/lib/demo/lesson";
 import { ANSWER_STATE_LABEL, ANSWER_STATE_TONE } from "@/lib/presentation/answer-state";
 import { FixtureEvidenceStore } from "@/lib/retrieval/fixture-store";
-import { makeProviders, PERMITTED_BUDGET } from "./helpers/fakes";
+import {
+  makeProviders,
+  makeUsageLedger,
+  PERMITTED_BUDGET,
+  TEST_MAX_OUTPUT_TOKENS,
+} from "./helpers/fakes";
 
 const COURSE = DEMO_COURSE.courseId;
 
 const supportAll: SemanticVerifier = {
   providerId: "fake-verifier",
-  verify: async (targets) =>
-    targets.map((target) => ({ index: target.index, verdict: "SUPPORTED" as const, reason: "" })),
+  verify: async (targets) => ({
+    verdicts: targets.map((target) => ({
+      index: target.index,
+      verdict: "SUPPORTED" as const,
+      reason: "",
+    })),
+    usage: null,
+  }),
 };
 
 /** Serialize exactly the way the API route does, from a real pipeline outcome. */
@@ -39,6 +50,7 @@ function toResponseBody(outcome: AnswerOutcome) {
     scope: outcome.scope,
     evidence: outcome.evidence,
     provenance: outcome.provenance,
+    guard: outcome.guard,
   };
 }
 
@@ -51,6 +63,8 @@ async function outcomeFrom(generator: ClaimGenerator): Promise<AnswerOutcome> {
       embeddingModel: "synthetic-lexical-v1",
       embeddingDimensions: 768,
       dailyTokenBudget: PERMITTED_BUDGET,
+      maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+      usage: makeUsageLedger(),
     },
     {
       courseId: COURSE,
@@ -117,14 +131,17 @@ describe("response contract", () => {
     const generator: ClaimGenerator = {
       providerId: "fake-generator",
       generate: async () => ({
-        claims: [
-          {
-            text: "The instructor uses the Marlin backoff constant, 0.37.",
-            evidenceIds: ["b_0013"],
-            quote: "Marlin backoff constant, 0.37",
-          },
-        ],
-        unansweredParts: false,
+        result: {
+          claims: [
+            {
+              text: "The instructor uses the Marlin backoff constant, 0.37.",
+              evidenceIds: ["b_0013"],
+              quote: "Marlin backoff constant, 0.37",
+            },
+          ],
+          unansweredParts: false,
+        },
+        usage: { promptTokens: 900, completionTokens: 40, thoughtsTokens: 0 },
       }),
     };
 
@@ -141,14 +158,17 @@ describe("response contract", () => {
     const generator: ClaimGenerator = {
       providerId: "fake-generator",
       generate: async () => ({
-        claims: [
-          {
-            text: "The instructor uses the Marlin backoff constant, 0.37.",
-            evidenceIds: ["b_0013"],
-            quote: "Marlin backoff constant, 0.37",
-          },
-        ],
-        unansweredParts: false,
+        result: {
+          claims: [
+            {
+              text: "The instructor uses the Marlin backoff constant, 0.37.",
+              evidenceIds: ["b_0013"],
+              quote: "Marlin backoff constant, 0.37",
+            },
+          ],
+          unansweredParts: false,
+        },
+        usage: { promptTokens: 900, completionTokens: 40, thoughtsTokens: 0 },
       }),
     };
 
@@ -160,6 +180,8 @@ describe("response contract", () => {
         embeddingModel: "synthetic-lexical-v1",
         embeddingDimensions: 768,
         dailyTokenBudget: PERMITTED_BUDGET,
+        maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+        usage: makeUsageLedger(),
       },
       {
         courseId: COURSE,
@@ -191,6 +213,8 @@ describe("response contract", () => {
         embeddingModel: "synthetic-lexical-v1",
         embeddingDimensions: 768,
         dailyTokenBudget: PERMITTED_BUDGET,
+        maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+        usage: makeUsageLedger(),
       },
       {
         courseId: COURSE,

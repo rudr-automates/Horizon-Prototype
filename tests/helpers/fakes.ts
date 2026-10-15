@@ -1,4 +1,4 @@
-import type { GeminiClientLike } from "@/lib/answer/gemini";
+import type { GeminiClientLike, GeminiUsageMetadata } from "@/lib/answer/gemini";
 import type { RuntimeProviders } from "@/lib/answer/providers";
 import type {
   ClaimGenerator,
@@ -7,6 +7,7 @@ import type {
 } from "@/lib/answer/provider";
 import { SyntheticLexicalEmbedder } from "@/lib/answer/synthetic-embedder";
 import type { ServerEnv } from "@/lib/env";
+import { InMemoryUsageLedger } from "@/lib/usage/memory-ledger";
 
 export function makeEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
   return {
@@ -21,6 +22,8 @@ export function makeEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
     embeddingDimensions: 768,
     llmMaxOutputTokens: 1024,
     dailyTokenBudget: 0,
+    maxEmbeddingCalls: 0,
+    llmThinkingBudget: null,
     requestTimeoutMs: 30_000,
     ...overrides,
   };
@@ -32,6 +35,17 @@ export function makeEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
  * call at all — tests that expect inference must opt in to a permitted budget.
  */
 export const PERMITTED_BUDGET = 1_000_000;
+
+/** Worst-case completion size used when reserving budget in tests. */
+export const TEST_MAX_OUTPUT_TOKENS = 1024;
+
+/**
+ * A FRESH ledger per call. Sharing one across cases would let one test's
+ * recorded spend refuse a later test's call — a real cross-test dependency.
+ */
+export function makeUsageLedger(): InMemoryUsageLedger {
+  return new InMemoryUsageLedger();
+}
 
 export interface RecordedGenerateCall {
   model: string;
@@ -49,14 +63,27 @@ export interface RecordedEmbedCall {
  * A fake Google Gen AI client. Every response is scripted by the test; this
  * exists so the real adapter code can be exercised without a credential.
  */
+/**
+ * A scripted generation response. Usage and finish reason are modellable here
+ * because the real client reports them, and a fake that could not would hide
+ * the accounting behaviour they exist to drive.
+ */
+export type FakeGenerateResponse =
+  | { text?: string; usageMetadata?: GeminiUsageMetadata; finishReason?: string }
+  | Error;
+
 export class FakeGeminiClient implements GeminiClientLike {
-  generateResponses: Array<{ text?: string } | Error> = [];
+  generateResponses: FakeGenerateResponse[] = [];
   embedResponses: Array<{ embeddings?: Array<{ values?: number[] }> } | Error> = [];
   generateCalls: RecordedGenerateCall[] = [];
   embedCalls: RecordedEmbedCall[] = [];
 
   models = {
-    generateContent: async (params: unknown): Promise<{ text?: string }> => {
+    generateContent: async (params: unknown): Promise<{
+      text?: string;
+      usageMetadata?: GeminiUsageMetadata;
+      finishReason?: string;
+    }> => {
       const call = params as RecordedGenerateCall;
       this.generateCalls.push(call);
       const next = this.generateResponses.shift();
@@ -99,7 +126,10 @@ export function makeProviders(options: FakeProvidersOptions = {}): RuntimeProvid
     options.generator === undefined
       ? {
           providerId: "fake-generator",
-          generate: async () => ({ claims: [], unansweredParts: true }),
+          generate: async () => ({
+            result: { claims: [], unansweredParts: true },
+            usage: null,
+          }),
         }
       : options.generator;
   return {

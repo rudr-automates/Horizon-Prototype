@@ -67,6 +67,7 @@ interface AnswerBody {
   answerState?: string;
   reason?: string;
   message?: string;
+  claims?: Array<{ text?: string }>;
   citations?: CitationBody[];
   evidence?: {
     source?: string;
@@ -335,35 +336,64 @@ async function main(): Promise<void> {
       }`,
     });
 
-    // Refuse-versus-answer can only be observed with a model behind it. Without
-    // one, this is NOT RUN — a missing prerequisite, never a pass and never a
-    // verdict on the pipeline.
-    const description = beforeUnlock
-      ? "the early position refuses without disclosing the future-only fact"
-      : "the later position produces a supported, verified answer";
+    // ------------------------------------------------------------------
+    // The temporal requirement at an EARLY position is that the withheld fact
+    // is not revealed — not that the app must refuse. A refusal is one correct
+    // outcome; another is a supported answer that does not disclose the fact.
+    // So this inspects every rendered claim and quotation for the withheld
+    // term, which is a strictly more direct test of the actual invariant.
+    //
+    // A provider or budget failure is NOT accepted as evidence of temporal
+    // scoping: nothing was rendered, so nothing was demonstrated. That case is
+    // reported as NOT RUN rather than as a pass.
+    // ------------------------------------------------------------------
+    const claimsText = (answer.claims ?? []).map((claim) => String(claim.text ?? "")).join("\n");
+    const quotesText = citations.map((citation) => String(citation.quote ?? "")).join("\n");
+    const rendered = `${claimsText}\n${quotesText}\n${String(answer.message ?? "")}`;
+
+    const disclosesFact =
+      normalize(rendered).includes(normalize(DEMO_CANARY.term)) ||
+      normalize(rendered).includes(normalize(DEMO_CANARY.label));
 
     if (!generatorConfigured) {
       checks.push({
         id: "expected-outcome",
-        description,
+        description: beforeUnlock
+          ? "the withheld fact is not disclosed at the early position"
+          : "the later position produces a supported, verified answer",
         outcome: "NOT RUN",
         detail:
           `blocked: no runtime credential is configured (answerState=${state}, reason=${String(
             answer?.reason,
           )}). ` +
           (beforeUnlock
-            ? "The refusal itself is still checked above by future-fact-availability and no-fact-in-response."
+            ? "The withheld material is still checked above by future-fact-availability and no-fact-in-response."
             : "Eligible evidence did exist, so the missing prerequisite is the model, not the scope."),
       });
-    } else {
-      const acceptable = beforeUnlock
-        ? state === "INSUFFICIENT_EVIDENCE"
-        : state === "ANSWERED" || state === "ANSWERED_PARTIAL";
+    } else if (beforeUnlock) {
+      const providerFailure = state === "TEMPORARILY_UNAVAILABLE";
+
       checks.push({
         id: "expected-outcome",
-        description,
+        description: "the withheld fact is not disclosed at the early position",
+        outcome: providerFailure ? "NOT RUN" : disclosesFact ? "FAIL" : "PASS",
+        detail: providerFailure
+          ? `inconclusive: the turn failed for provider/budget reasons (reason=${String(
+              answer?.reason,
+            )}), so nothing was rendered and temporal scoping was NOT demonstrated. This is not counted as a refusal.`
+          : `answerState=${state}; inspected ${answer.claims?.length ?? 0} claim(s) and ${
+              citations.length
+            } quotation(s) for "${DEMO_CANARY.term}" and "${DEMO_CANARY.label}"`,
+      });
+    } else {
+      const acceptable = state === "ANSWERED" || state === "ANSWERED_PARTIAL";
+      checks.push({
+        id: "expected-outcome",
+        description: "the later position produces a supported, verified answer",
         outcome: acceptable ? "PASS" : "FAIL",
-        detail: `answerState=${state}; reason=${String(answer?.reason)}; citations=${citations.length}`,
+        detail: `answerState=${state}; reason=${String(answer?.reason)}; claims=${
+          answer.claims?.length ?? 0
+        }; citations=${citations.length}`,
       });
     }
 

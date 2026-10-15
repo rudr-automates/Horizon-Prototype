@@ -12,10 +12,12 @@ import {
   verifierResultSchema,
   type ClaimGenerationRequest,
   type ClaimGenerator,
-  type ClaimGenerationResult,
   type EmbedPurpose,
   type Embedder,
+  type GenerationOutcome,
   type SemanticVerifier,
+  type TokenUsage,
+  type VerificationOutcome,
   type VerificationTarget,
   type VerifierVerdict,
 } from "@/lib/answer/provider";
@@ -34,13 +36,58 @@ import type { RuntimeConfig } from "@/lib/config";
  * are covered by unit tests against an injected fake client.
  */
 
+/**
+ * Token accounting as the provider reports it. Optional on purpose: the field is
+ * absent on some responses, and an absent count must record as unknown rather
+ * than as zero, so the spend guard never overstates its own knowledge.
+ */
+export interface GeminiUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
+  /**
+   * Reasoning tokens, which are billed and which count against maxOutputTokens.
+   * Recorded because they are the most likely cause of a JSON response being
+   * cut off with a large maxOutputTokens value.
+   */
+  thoughtsTokenCount?: number;
+}
+
+export interface GeminiGenerationResult {
+  text?: string;
+  usageMetadata?: GeminiUsageMetadata;
+  /** "STOP", "MAX_TOKENS", … — the decisive signal for a truncated response. */
+  finishReason?: string;
+}
+
 /** Structural subset of the SDK client, so tests can inject a fake. */
 export interface GeminiClientLike {
   models: {
-    generateContent(params: GenerateContentParameters): Promise<{ text?: string }>;
+    generateContent(params: GenerateContentParameters): Promise<GeminiGenerationResult>;
     embedContent(
       params: EmbedContentParameters,
     ): Promise<{ embeddings?: Array<{ values?: number[] }> }>;
+  };
+}
+
+/**
+ * HTTP options for the SDK.
+ *
+ * `attempts: 1` is DELIBERATE and load-bearing. The SDK documents `attempts` as
+ * defaulting to 5 and retries 408/429/5xx, so one logical request could become
+ * five billable requests — silently, and precisely when the account is closest
+ * to a limit. Disabling retries keeps "one call" meaning one call, which is a
+ * precondition for any honest usage accounting.
+ */
+export function buildHttpOptions(config: RuntimeConfig): {
+  timeout: number;
+  retryOptions: { attempts: number };
+  baseUrl?: string;
+} {
+  return {
+    timeout: config.requestTimeoutMs,
+    retryOptions: { attempts: 1 },
+    ...(config.baseUrlOverride ? { baseUrl: config.baseUrlOverride } : {}),
   };
 }
 
@@ -53,10 +100,7 @@ export function createGeminiClient(config: RuntimeConfig): GoogleGenAI {
   }
   return new GoogleGenAI({
     apiKey: config.apiKey,
-    httpOptions: {
-      timeout: config.requestTimeoutMs,
-      ...(config.baseUrlOverride ? { baseUrl: config.baseUrlOverride } : {}),
-    },
+    httpOptions: buildHttpOptions(config),
   });
 }
 
@@ -121,6 +165,72 @@ const GENERATOR_INSTRUCTION = [
   "If the provided evidence cannot support an answer, return an empty claims array and set unansweredParts to true.",
 ].join(" ");
 
+/**
+ * Strip a markdown code fence if the model wrapped its JSON in one.
+ *
+ * `responseMimeType: "application/json"` does not guarantee a bare object, so a
+ * fenced payload is unwrapped before parsing. This weakens NOTHING: the parsed
+ * value still has to satisfy the full Zod schema and every downstream check.
+ * Without it, fencing would be reported as malformed output and a valid answer
+ * would be lost.
+ */
+export function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return fenced ? fenced[1].trim() : trimmed;
+}
+
+/**
+ * Content-free description of what came back, so a malformed response can be
+ * told apart from a truncated one without logging the model's text.
+ */
+export function describeResponseShape(
+  text: string,
+  finishReason?: string,
+  usage?: GeminiUsageMetadata,
+): string {
+  const body = text.trim();
+  return [
+    `length=${text.length}`,
+    `startsBrace=${body.startsWith("{")}`,
+    `endsBrace=${body.endsWith("}")}`,
+    `fenced=${text.includes("```")}`,
+    `finishReason=${finishReason ?? "unknown"}`,
+    usage
+      ? `tokens=p${usage.promptTokenCount ?? "?"}/c${usage.candidatesTokenCount ?? "?"}/thoughts${usage.thoughtsTokenCount ?? "?"}`
+      : "tokens=unreported",
+  ].join(" ");
+}
+
+/**
+ * Describe WHICH field failed validation, without echoing the model's content.
+ * Field paths and issue codes only: enough to act on, nothing that could leak
+ * generated text or user material into a log.
+ */
+function describeIssues(error: { issues: Array<{ path: PropertyKey[]; code: string }> }): string {
+  return error.issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.join(".") || "(root)"}:${issue.code}`)
+    .join(", ");
+}
+
+/** Normalise the provider's usage report, preserving "unknown" as null. */
+export function toTokenUsage(metadata: GeminiUsageMetadata | undefined): TokenUsage | null {
+  if (!metadata) return null;
+
+  const read = (value: number | undefined): number | null =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+
+  const prompt = read(metadata.promptTokenCount);
+  const completion = read(metadata.candidatesTokenCount);
+  // Reasoning tokens are billed and are reported separately; dropping them
+  // under-counts usage badly on a thinking model.
+  const thoughts = read(metadata.thoughtsTokenCount);
+
+  if (prompt === null && completion === null && thoughts === null) return null;
+  return { promptTokens: prompt, completionTokens: completion, thoughtsTokens: thoughts };
+}
+
 function formatEvidence(request: ClaimGenerationRequest): string {
   return request.evidence
     .map((item) => `[${item.id}]\n${item.text}`)
@@ -135,13 +245,16 @@ export class GeminiClaimGenerator implements ClaimGenerator {
     private readonly config: RuntimeConfig,
   ) {}
 
-  async generate(request: ClaimGenerationRequest): Promise<ClaimGenerationResult> {
+  async generate(request: ClaimGenerationRequest): Promise<GenerationOutcome> {
     const contents = [
       `QUESTION:\n${request.question}`,
       `ELIGIBLE EVIDENCE (cite only these ids):\n${formatEvidence(request)}`,
     ].join("\n\n");
 
     let text: string | undefined;
+    let usage: TokenUsage | null = null;
+    let finishReason: string | undefined;
+    let rawUsage: GeminiUsageMetadata | undefined;
     try {
       const response = await this.client.models.generateContent({
         model: this.config.model,
@@ -150,11 +263,19 @@ export class GeminiClaimGenerator implements ClaimGenerator {
           systemInstruction: GENERATOR_INSTRUCTION,
           temperature: 0,
           maxOutputTokens: this.config.maxOutputTokens,
+          // Bounded when configured, so reasoning cannot consume the whole
+          // output allowance and truncate the JSON.
+          ...(this.config.thinkingBudget === null
+            ? {}
+            : { thinkingConfig: { thinkingBudget: this.config.thinkingBudget } }),
           responseMimeType: "application/json",
           responseSchema: claimResponseSchema,
         },
       });
       text = response.text;
+      finishReason = response.finishReason;
+      rawUsage = response.usageMetadata;
+      usage = toTokenUsage(response.usageMetadata);
     } catch (error) {
       throw toProviderFailure(error);
     }
@@ -165,19 +286,27 @@ export class GeminiClaimGenerator implements ClaimGenerator {
 
     let parsedJson: unknown;
     try {
-      parsedJson = JSON.parse(text);
+      parsedJson = JSON.parse(stripCodeFence(text));
     } catch {
-      throw new ProviderFailure("malformed_response", "The model returned invalid JSON.");
+      throw new ProviderFailure(
+        "malformed_response",
+        `The model returned invalid JSON (${describeResponseShape(text, finishReason, rawUsage)}).`,
+        null,
+        // The call was made and billed, so its usage must still be accounted.
+        toTokenUsage(rawUsage),
+      );
     }
 
     const parsed = claimGenerationResultSchema.safeParse(parsedJson);
     if (!parsed.success) {
       throw new ProviderFailure(
         "malformed_response",
-        "The model response did not match the claim schema.",
+        `The model response did not match the claim schema (${describeIssues(parsed.error)}).`,
+        null,
+        toTokenUsage(rawUsage),
       );
     }
-    return parsed.data;
+    return { result: parsed.data, usage };
   }
 }
 
@@ -224,8 +353,8 @@ export class GeminiSemanticVerifier implements SemanticVerifier {
     private readonly config: RuntimeConfig,
   ) {}
 
-  async verify(targets: VerificationTarget[]): Promise<VerifierVerdict[]> {
-    if (targets.length === 0) return [];
+  async verify(targets: VerificationTarget[]): Promise<VerificationOutcome> {
+    if (targets.length === 0) return { verdicts: [], usage: null };
 
     const contents = targets
       .map((target) => {
@@ -237,6 +366,9 @@ export class GeminiSemanticVerifier implements SemanticVerifier {
       .join("\n\n");
 
     let text: string | undefined;
+    let usage: TokenUsage | null = null;
+    let finishReason: string | undefined;
+    let rawUsage: GeminiUsageMetadata | undefined;
     try {
       const response = await this.client.models.generateContent({
         model: this.config.model,
@@ -245,11 +377,17 @@ export class GeminiSemanticVerifier implements SemanticVerifier {
           systemInstruction: VERIFIER_INSTRUCTION,
           temperature: 0,
           maxOutputTokens: this.config.maxOutputTokens,
+          ...(this.config.thinkingBudget === null
+            ? {}
+            : { thinkingConfig: { thinkingBudget: this.config.thinkingBudget } }),
           responseMimeType: "application/json",
           responseSchema: verifierSchema,
         },
       });
       text = response.text;
+      finishReason = response.finishReason;
+      rawUsage = response.usageMetadata;
+      usage = toTokenUsage(response.usageMetadata);
     } catch (error) {
       throw toProviderFailure(error);
     }
@@ -260,22 +398,29 @@ export class GeminiSemanticVerifier implements SemanticVerifier {
 
     let parsedJson: unknown;
     try {
-      parsedJson = JSON.parse(text);
+      parsedJson = JSON.parse(stripCodeFence(text));
     } catch {
-      throw new ProviderFailure("malformed_response", "The verifier returned invalid JSON.");
+      throw new ProviderFailure(
+        "malformed_response",
+        `The verifier returned invalid JSON (${describeResponseShape(text, finishReason, rawUsage)}).`,
+        null,
+        toTokenUsage(rawUsage),
+      );
     }
 
     const parsed = verifierResultSchema.safeParse(parsedJson);
     if (!parsed.success) {
       throw new ProviderFailure(
         "malformed_response",
-        "The verifier response did not match the verdict schema.",
+        `The verifier response did not match the verdict schema (${describeIssues(parsed.error)}).`,
+        null,
+        toTokenUsage(rawUsage),
       );
     }
 
     const known = new Set(targets.map((target) => target.index));
     // Fail closed: any requested index with no returned verdict is NOT_SUPPORTED.
-    return targets.map((target) => {
+    const verdicts: VerifierVerdict[] = targets.map((target) => {
       const found = parsed.data.verdicts.find((verdict) => verdict.index === target.index);
       if (!found || !known.has(found.index)) {
         return {
@@ -286,6 +431,8 @@ export class GeminiSemanticVerifier implements SemanticVerifier {
       }
       return found;
     });
+
+    return { verdicts, usage };
   }
 }
 

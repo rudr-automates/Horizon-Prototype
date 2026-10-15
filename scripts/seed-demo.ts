@@ -95,6 +95,11 @@ async function main(): Promise<void> {
   // source of truth for whether real embeddings are possible.
   const { providers, config } = createServerContext();
   console.log(`Active embedder: ${providers.embeddingProviderId}`);
+  // Being explicit matters: an operator could otherwise assume the daily token
+  // budget bounds this command, and it does not.
+  console.log(
+    `Spend guard: budget ${config.dailyTokenBudget} tokens; embedding calls are NOT metered by it.`,
+  );
 
   if (!providers.configured) {
     fail([

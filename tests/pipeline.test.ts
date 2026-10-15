@@ -6,7 +6,12 @@ import {
   type EvidenceItem,
   type SemanticVerifier,
 } from "@/lib/answer/provider";
-import { makeProviders, PERMITTED_BUDGET } from "./helpers/fakes";
+import {
+  makeProviders,
+  makeUsageLedger,
+  PERMITTED_BUDGET,
+  TEST_MAX_OUTPUT_TOKENS,
+} from "./helpers/fakes";
 import { SyntheticLexicalEmbedder } from "@/lib/answer/synthetic-embedder";
 import { DEMO_COURSE, DEMO_QUESTIONS } from "@/lib/demo/lesson";
 import { FixtureEvidenceStore } from "@/lib/retrieval/fixture-store";
@@ -17,12 +22,14 @@ const embedder = new SyntheticLexicalEmbedder(768);
 
 const supportAll: SemanticVerifier = {
   providerId: "fake-verifier",
-  verify: async (targets) =>
-    targets.map((target) => ({
+  verify: async (targets) => ({
+    verdicts: targets.map((target) => ({
       index: target.index,
       verdict: "SUPPORTED" as const,
       reason: "supported by cited evidence",
     })),
+    usage: null,
+  }),
 };
 
 function scriptedGenerator(
@@ -34,7 +41,7 @@ function scriptedGenerator(
     providerId: "fake-generator",
     generate: async (request) => {
       calls.push(request);
-      return { claims, unansweredParts };
+      return { result: { claims, unansweredParts }, usage: null };
     },
   };
   return { generator, calls };
@@ -52,6 +59,8 @@ function makeDeps(
     embeddingModel: "synthetic-lexical-v1",
     embeddingDimensions: 768,
     dailyTokenBudget: PERMITTED_BUDGET,
+    maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+    usage: makeUsageLedger(),
   };
 }
 
@@ -165,12 +174,14 @@ describe("verification gates", () => {
   it("does not render a claim the semantic verifier marks NOT_SUPPORTED", async () => {
     const unsupportive: SemanticVerifier = {
       providerId: "fake-verifier",
-      verify: async (targets) =>
-        targets.map((target) => ({
+      verify: async (targets) => ({
+        verdicts: targets.map((target) => ({
           index: target.index,
           verdict: "NOT_SUPPORTED" as const,
           reason: "topically related but not supporting",
         })),
+        usage: null,
+      }),
     };
 
     const { generator } = scriptedGenerator([
@@ -191,12 +202,14 @@ describe("verification gates", () => {
   it("returns only the supported claims and marks the answer partial", async () => {
     const partialVerifier: SemanticVerifier = {
       providerId: "fake-verifier",
-      verify: async (targets) =>
-        targets.map((target) => ({
+      verify: async (targets) => ({
+        verdicts: targets.map((target) => ({
           index: target.index,
           verdict: target.index === 0 ? ("SUPPORTED" as const) : ("NOT_SUPPORTED" as const),
           reason: "",
         })),
+        usage: null,
+      }),
     };
 
     const { generator } = scriptedGenerator([
@@ -409,5 +422,180 @@ describe("the documented spend guard is real", () => {
     const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
 
     expect(outcome.reason).not.toBe("BUDGET_EXHAUSTED");
+  });
+});
+
+describe("cumulative daily usage accounting", () => {
+  /** A generator that always succeeds and reports real token counts. */
+  function meteredGenerator(promptTokens: number, completionTokens: number) {
+    const calls: number[] = [];
+    return {
+      calls,
+      generator: {
+        providerId: "metered-generator",
+        generate: async () => {
+          calls.push(1);
+          return {
+            result: {
+              claims: [
+                {
+                  text: "The instructor chooses the Marlin backoff constant, 0.37.",
+                  evidenceIds: ["b_0013"],
+                  quote: "0.37",
+                },
+              ],
+              unansweredParts: false,
+            },
+            usage: { promptTokens, completionTokens, thoughtsTokens: 0 },
+          };
+        },
+      } as ClaimGenerator,
+    };
+  }
+
+  it("records what the provider reported and exposes the running total", async () => {
+    const ledger = makeUsageLedger();
+    const { generator } = meteredGenerator(900, 100);
+
+    const outcome = await ask(
+      { ...makeDeps(generator), usage: ledger, dailyTokenBudget: 20_000 },
+      DEMO_QUESTIONS.canary,
+      720,
+    );
+
+    expect(outcome.answerState).toBe("ANSWERED");
+    expect(await ledger.spentToday()).toBe(1000);
+    expect(outcome.guard.spentTokensToday).toBe(1000);
+    expect(outcome.guard.mode).toBe("memory");
+    expect(outcome.guard.coverage).toMatch(/Embedding requests are not metered/);
+  });
+
+  it("refuses a later turn because an EARLIER turn's spend was counted", async () => {
+    // The whole point of the fix: a positive budget must stop binding once the
+    // day's total reaches it, not merely because the value is zero.
+    const ledger = makeUsageLedger();
+    await ledger.record({
+      provider: "google-genai",
+      modelId: null,
+      requestId: null,
+      turnId: null,
+      promptTokens: 19_500,
+      completionTokens: 0,
+      operation: "generate",
+    });
+
+    let embedCalls = 0;
+    const { generator, calls } = meteredGenerator(10, 10);
+    const deps: AnswerPipelineDeps = {
+      ...makeDeps(generator),
+      usage: ledger,
+      dailyTokenBudget: 20_000,
+      providers: makeProviders({
+        generator,
+        verifier: supportAll,
+        embedder: {
+          providerId: "counting-embedder",
+          dimensions: 768,
+          embed: async (texts) => {
+            embedCalls += 1;
+            return texts.map(() => new Array<number>(768).fill(0.1));
+          },
+        },
+      }),
+    };
+
+    const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
+
+    expect(outcome.answerState).toBe("TEMPORARILY_UNAVAILABLE");
+    expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
+    expect(outcome.claims).toHaveLength(0);
+    expect(embedCalls).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(outcome.guard.spentTokensToday).toBe(19_500);
+    expect(outcome.guard.budgetTokens).toBe(20_000);
+  });
+
+  it("does not send a call that would cross the ceiling", async () => {
+    const ledger = makeUsageLedger();
+    // Pre-existing spend leaves far less room than this call needs.
+    await ledger.record({
+      provider: "google-genai",
+      modelId: null,
+      requestId: null,
+      turnId: null,
+      promptTokens: 990,
+      completionTokens: 0,
+      operation: "generate",
+    });
+
+    let embedCalls = 0;
+    const { generator, calls } = meteredGenerator(10, 10);
+    const deps: AnswerPipelineDeps = {
+      ...makeDeps(generator),
+      usage: ledger,
+      dailyTokenBudget: 1_000,
+      providers: makeProviders({
+        generator,
+        verifier: supportAll,
+        embedder: {
+          providerId: "counting-embedder",
+          dimensions: 768,
+          embed: async (texts) => {
+            embedCalls += 1;
+            return texts.map(() => new Array<number>(768).fill(0.1));
+          },
+        },
+      }),
+    };
+
+    const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
+
+    // The guard must stop the request, not merely report a limit afterwards.
+    expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
+    expect(embedCalls).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("fails closed when the ledger cannot be read, rather than assuming zero spend", async () => {
+    const { generator, calls } = meteredGenerator(10, 10);
+    const brokenLedger = {
+      mode: "supabase" as const,
+      spentToday: async () => {
+        throw new Error("usage_ledger is unreachable");
+      },
+      record: async () => {},
+    };
+
+    const outcome = await ask(
+      { ...makeDeps(generator), usage: brokenLedger },
+      DEMO_QUESTIONS.canary,
+      720,
+    );
+
+    expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
+    expect(outcome.guard.detail).toMatch(/could not be read/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps a spend that was incurred even when recording it fails", async () => {
+    const ledger = makeUsageLedger();
+    const { generator } = meteredGenerator(700, 300);
+    const failingRecord = {
+      mode: "supabase" as const,
+      spentToday: () => ledger.spentToday(),
+      record: async () => {
+        throw new Error("write failed");
+      },
+    };
+
+    const outcome = await ask(
+      { ...makeDeps(generator), usage: failingRecord, dailyTokenBudget: 20_000 },
+      DEMO_QUESTIONS.canary,
+      720,
+    );
+
+    // The call happened, so the tokens are real and must still be reported.
+    expect(outcome.answerState).toBe("ANSWERED");
+    expect(outcome.guard.spentTokensToday).toBe(1000);
   });
 });

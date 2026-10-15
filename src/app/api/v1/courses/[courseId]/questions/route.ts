@@ -55,7 +55,7 @@ export async function POST(
   const startedAt = Date.now();
 
   try {
-    const { config, providers, storeResolution } = createServerContext();
+    const { config, providers, storeResolution, usageResolution } = createServerContext();
     const store = storeResolution.store;
 
     const course = await store.getCourse(courseId);
@@ -76,6 +76,8 @@ export async function POST(
         embeddingModel: config.embeddingModel,
         embeddingDimensions: config.embeddingDimensions,
         dailyTokenBudget: config.dailyTokenBudget,
+        maxOutputTokens: config.maxOutputTokens,
+        usage: usageResolution.ledger,
       },
       {
         courseId,
@@ -128,6 +130,7 @@ export async function POST(
       scope: outcome.scope,
       evidence: outcome.evidence,
       provenance: outcome.provenance,
+      guard: outcome.guard,
     };
 
     return NextResponse.json(questionResponseSchema.parse(response));

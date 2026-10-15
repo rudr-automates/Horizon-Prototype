@@ -30,9 +30,61 @@ export interface ClaimGenerationRequest {
   evidence: EvidenceItem[];
 }
 
+/**
+ * Tokens the provider reported for one call.
+ *
+ * `null` means "the provider did not report it", which is different from zero.
+ * The spend guard treats null as unknown rather than free.
+ */
+export interface TokenUsage {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  /**
+   * Billable reasoning tokens. The provider reports these SEPARATELY from
+   * candidatesTokenCount, so ignoring them under-counts real usage — observed
+   * live at 984 thinking tokens against only 21 visible output tokens.
+   */
+  thoughtsTokens: number | null;
+}
+
+/**
+ * Tokens that actually count against the budget.
+ *
+ * Prompt, completion and reasoning are all billed, so all three are metered. A
+ * null field means "the provider did not report it" and contributes zero, which
+ * is the only defensible reading of an absent report.
+ */
+/**
+ * A reported count contributes only when it is a usable number. Without the
+ * isFinite guard a single NaN component would make the whole total NaN, and
+ * every comparison against NaN is false — which would silently turn the spend
+ * guard off rather than trip it. Negative counts are not credits either.
+ */
+function countable(value: number | null): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function meteredTokens(usage: TokenUsage | null): number {
+  if (!usage) return 0;
+  return (
+    countable(usage.promptTokens) +
+    countable(usage.completionTokens) +
+    countable(usage.thoughtsTokens)
+  );
+}
+
+/**
+ * A generator result carries its own usage, because metering is a real output of
+ * the call and hiding it on the instance would make concurrent turns race.
+ */
+export interface GenerationOutcome {
+  result: ClaimGenerationResult;
+  usage: TokenUsage | null;
+}
+
 export interface ClaimGenerator {
   readonly providerId: string;
-  generate(request: ClaimGenerationRequest): Promise<ClaimGenerationResult>;
+  generate(request: ClaimGenerationRequest): Promise<GenerationOutcome>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -57,9 +109,14 @@ export interface VerificationTarget {
   evidence: EvidenceItem[];
 }
 
+export interface VerificationOutcome {
+  verdicts: VerifierVerdict[];
+  usage: TokenUsage | null;
+}
+
 export interface SemanticVerifier {
   readonly providerId: string;
-  verify(targets: VerificationTarget[]): Promise<VerifierVerdict[]>;
+  verify(targets: VerificationTarget[]): Promise<VerificationOutcome>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -88,12 +145,25 @@ export type ProviderFailureKind =
 export class ProviderFailure extends Error {
   readonly kind: ProviderFailureKind;
   readonly status: number | null;
+  /**
+   * Usage the provider DID report before the failure. A failed call still costs
+   * money, so this is carried out of the adapter and metered by the caller.
+   * Without it, real spend disappears from the ledger exactly when something is
+   * going wrong.
+   */
+  readonly usage: TokenUsage | null;
 
-  constructor(kind: ProviderFailureKind, message: string, status: number | null = null) {
+  constructor(
+    kind: ProviderFailureKind,
+    message: string,
+    status: number | null = null,
+    usage: TokenUsage | null = null,
+  ) {
     super(message);
     this.name = "ProviderFailure";
     this.kind = kind;
     this.status = status;
+    this.usage = usage;
   }
 }
 

@@ -10,6 +10,7 @@ import type {
   Embedder,
   SemanticVerifier,
 } from "@/lib/answer/provider";
+import { CappedEmbedder } from "@/lib/answer/capped-embedder";
 import { SyntheticLexicalEmbedder } from "@/lib/answer/synthetic-embedder";
 import { isRuntimeAiConfigured, type RuntimeConfig } from "@/lib/config";
 
@@ -43,7 +44,12 @@ export function createRuntimeProviders(
       configured: true,
       generator: new GeminiClaimGenerator(client, config),
       verifier: new GeminiSemanticVerifier(client, config),
-      embedder: new GeminiEmbedder(client, config),
+      // Wrapped so embedding REQUESTS are bounded even though the token budget
+      // cannot meter them.
+      embedder: new CappedEmbedder(
+        new GeminiEmbedder(client, config),
+        config.maxEmbeddingCalls,
+      ),
       embeddingProviderId: config.embeddingModel,
       modelId: config.model,
     };

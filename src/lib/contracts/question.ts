@@ -76,6 +76,22 @@ export const persistenceSummarySchema = z.object({
 });
 export type PersistenceSummary = z.infer<typeof persistenceSummarySchema>;
 
+/**
+ * The spend state in effect for this turn.
+ *
+ * `mode` matters: "memory" means the running total is real for this process but
+ * resets on restart, so a positive budget does NOT guarantee a durable daily
+ * ceiling. `coverage` states what is and is not metered.
+ */
+export const spendGuardSchema = z.object({
+  mode: z.enum(["supabase", "memory"]),
+  budgetTokens: z.number().int(),
+  spentTokensToday: z.number().int(),
+  coverage: z.string(),
+  detail: z.string(),
+});
+export type SpendGuardSummary = z.infer<typeof spendGuardSchema>;
+
 export const questionResponseSchema = z.object({
   requestId: z.string(),
   answerState: publicAnswerStateSchema,
@@ -102,6 +118,7 @@ export const questionResponseSchema = z.object({
     verification: z.enum(["none", "model_assisted"]),
     demoContent: z.boolean(),
   }),
+  guard: spendGuardSchema,
 });
 export type QuestionResponse = z.infer<typeof questionResponseSchema>;
 

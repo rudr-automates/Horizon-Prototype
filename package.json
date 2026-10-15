@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "canary": "tsx scripts/canary.ts"
+    "canary": "tsx scripts/canary.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@google/genai": "^2.29.1",

@@ -1,6 +1,9 @@
 import {
+  meteredTokens,
   ProviderFailure,
   type GeneratedClaim,
+  type ClaimGenerationResult,
+  type TokenUsage,
   type VerificationTarget,
 } from "@/lib/answer/provider";
 import type { RuntimeProviders } from "@/lib/answer/providers";
@@ -22,6 +25,12 @@ import type {
 } from "@/lib/contracts/question";
 import { isBlockEligible } from "@/lib/eligibility/predicate";
 import { fuseRanked } from "@/lib/retrieval/fusion";
+import {
+  decideAdmission,
+  estimatePromptTokens,
+  USAGE_COVERAGE_NOTE,
+  type UsageLedger,
+} from "@/lib/usage/types";
 import { formatSeconds } from "@/lib/retrieval/source-label";
 import type {
   EvidenceBlock,
@@ -58,12 +67,16 @@ export interface AnswerPipelineDeps {
   embeddingModel: string;
   embeddingDimensions: number;
   /**
-   * Spend guard. `<= 0` means no provider call is permitted at all. Enforced
-   * BEFORE the first request so the documented hard stop is real, not a claim.
-   * Only meaningful when a credential exists; an unconfigured deployment still
-   * reports PROVIDER_UNAVAILABLE, which is the more informative signal.
+   * Cumulative daily token ceiling. Enforced at admission, before every billable
+   * request, against what the ledger has actually recorded. `<= 0` still means
+   * "no provider call at all". Only meaningful when a credential exists; an
+   * unconfigured deployment reports PROVIDER_UNAVAILABLE, which is more useful.
    */
   dailyTokenBudget: number;
+  /** Worst-case completion size, used to reserve before a call is sent. */
+  maxOutputTokens: number;
+  /** Where the cumulative total comes from. */
+  usage: UsageLedger;
 }
 
 export interface AnswerOutcome {
@@ -90,6 +103,35 @@ export interface AnswerOutcome {
     verification: "none" | "model_assisted";
     demoContent: boolean;
   };
+  /**
+   * The spend state actually in effect for this turn. Reported so nobody has to
+   * infer a cap from a budget value that may not be backing anything.
+   */
+  guard: {
+    mode: "supabase" | "memory";
+    budgetTokens: number;
+    spentTokensToday: number;
+    /** What the recorded number does and does not cover. */
+    coverage: string;
+    detail: string;
+  };
+}
+
+/**
+ * Server-side diagnostics for a provider failure.
+ *
+ * The learner only ever sees a coarse reason code, which is correct. That left
+ * a real gap: distinguishing "the generator returned off-schema JSON" from "the
+ * verifier did" was impossible, so a live failure could not be acted on. The
+ * stage and the validated error message are logged server-side only. The
+ * message reports which field failed validation, never the model's content.
+ */
+function noteProviderFailure(stage: string, error: unknown): void {
+  if (error instanceof ProviderFailure) {
+    console.error(`[horizon] provider failure at ${stage}: ${error.kind} — ${error.message}`);
+  } else {
+    console.error(`[horizon] provider failure at ${stage}: unexpected error type`);
+  }
 }
 
 function failureReason(failure: ProviderFailure): AnswerReason {
@@ -142,6 +184,109 @@ export async function answerQuestion(
     verifier: deps.providers.verifier?.providerId ?? null,
   };
 
+  // ---------------------------------------------------------------------
+  // 0. Spend guard — cumulative, and enforced at admission.
+  //
+  //    The ledger total is read ONCE per turn; everything recorded during the
+  //    turn accumulates in `turnTokens`, so admission stays accurate without a
+  //    query per call. A call is sent only when the day's recorded spend plus a
+  //    reservation for this call still fits the budget, which is what makes the
+  //    ceiling hard rather than advisory.
+  // ---------------------------------------------------------------------
+  const usageLedger = deps.usage;
+  let recordedToday = 0;
+  let ledgerReadable = true;
+  try {
+    recordedToday = await usageLedger.spentToday();
+  } catch {
+    ledgerReadable = false;
+  }
+
+  let turnTokens = 0;
+
+  const guardState: AnswerOutcome["guard"] = {
+    mode: usageLedger.mode,
+    budgetTokens: deps.dailyTokenBudget,
+    spentTokensToday: 0,
+    coverage: USAGE_COVERAGE_NOTE,
+    detail: "",
+  };
+
+  const refreshGuard = (detail: string): void => {
+    guardState.spentTokensToday = recordedToday + turnTokens;
+    guardState.detail = detail;
+  };
+
+  refreshGuard(
+    deps.providers.configured
+      ? usageLedger.mode === "memory"
+        ? `Daily budget ${deps.dailyTokenBudget} tokens, counted in memory for this process only (it resets on restart).`
+        : `Daily budget ${deps.dailyTokenBudget} tokens, counted durably in the database.`
+      : "No runtime credential is configured, so no provider request is sent and nothing is metered.",
+  );
+
+  /**
+   * Decide whether a billable request may be sent. Fails CLOSED: if the ledger
+   * cannot be read then spend is unknown, and an unknown spend must not be
+   * treated as zero spend.
+   */
+  const admit = (promptText: string): boolean => {
+    if (!deps.providers.configured) return true;
+
+    if (!ledgerReadable) {
+      refreshGuard(
+        "The usage ledger could not be read, so the day's spend is unknown and the provider call was refused.",
+      );
+      return false;
+    }
+
+    const decision = decideAdmission(
+      recordedToday + turnTokens,
+      deps.dailyTokenBudget,
+      estimatePromptTokens(promptText) + deps.maxOutputTokens,
+    );
+
+    if (!decision.admitted) {
+      refreshGuard(decision.detail);
+      return false;
+    }
+    return true;
+  };
+
+  /**
+   * Record what the provider actually reported. A missing report is recorded as
+   * nothing rather than as zero, so the ledger never claims to know more than
+   * the provider told it.
+   */
+  const meter = async (
+    providerId: string,
+    operation: "generate" | "verify",
+    reported: TokenUsage | null,
+  ): Promise<void> => {
+    if (!reported) return;
+
+    const promptTokens = Math.max(0, reported.promptTokens ?? 0);
+    const completionTokens = Math.max(0, reported.completionTokens ?? 0);
+    // Prompt + completion + reasoning: all three are billed, so all three count.
+    turnTokens += meteredTokens(reported);
+
+    try {
+      await usageLedger.record({
+        provider: providerId,
+        modelId: deps.modelId,
+        requestId: null,
+        turnId: null,
+        promptTokens,
+        completionTokens,
+        operation,
+      });
+    } catch {
+      // The call already happened, so the spend is real either way. Keep it in
+      // the turn total and let the next turn re-read the ledger, which will
+      // fail closed if the ledger is still unwritable.
+    }
+  };
+
   const unavailable = (reason: AnswerReason): AnswerOutcome => ({
     answerState: "TEMPORARILY_UNAVAILABLE",
     internalState: "TEMPORARILY_UNAVAILABLE",
@@ -152,6 +297,7 @@ export async function answerQuestion(
     scope: baseScope,
     evidence: evidenceBase,
     provenance: baseProvenance,
+    guard: { ...guardState },
   });
 
   const refuse = (internal: InternalAnswerState, reason: AnswerReason): AnswerOutcome => ({
@@ -164,11 +310,11 @@ export async function answerQuestion(
     scope: baseScope,
     evidence: evidenceBase,
     provenance: baseProvenance,
+    guard: { ...guardState },
   });
 
-  // 0. Spend guard. This must run before the first provider request, because
-  //    the embedding call below is itself a billable provider call.
-  if (deps.providers.configured && deps.dailyTokenBudget <= 0) {
+  // The embedding request is itself billable, so the guard runs before it.
+  if (!admit(input.question)) {
     return unavailable("BUDGET_EXHAUSTED");
   }
 
@@ -182,6 +328,7 @@ export async function answerQuestion(
     }
     questionEmbedding = first;
   } catch (error) {
+    noteProviderFailure("embed", error);
     return unavailable(error instanceof ProviderFailure ? failureReason(error) : "EMBEDDING_UNAVAILABLE");
   }
 
@@ -263,13 +410,29 @@ export async function answerQuestion(
   }
 
   // 8. Generate structured claims from eligible evidence only.
-  let generated;
+  const generationPrompt = [
+    input.question,
+    ...payloadBlocks.map((block) => block.text),
+  ].join("\n");
+
+  if (!admit(generationPrompt)) {
+    return unavailable("BUDGET_EXHAUSTED");
+  }
+
+  let generated: ClaimGenerationResult;
   try {
-    generated = await generator.generate({
+    const outcome = await generator.generate({
       question: input.question,
       evidence: payloadBlocks.map((block) => ({ id: block.id, text: block.text })),
     });
+    generated = outcome.result;
+    await meter(generator.providerId, "generate", outcome.usage);
   } catch (error) {
+    noteProviderFailure("generate", error);
+    // A failed call is still billed, so meter whatever the provider reported.
+    if (error instanceof ProviderFailure) {
+      await meter(generator.providerId, "generate", error.usage);
+    }
     return unavailable(error instanceof ProviderFailure ? failureReason(error) : "PROVIDER_UNAVAILABLE");
   }
 
@@ -305,10 +468,24 @@ export async function answerQuestion(
     })),
   }));
 
+  const verificationPrompt = targets
+    .map((target) => `${target.claimText}\n${target.evidence.map((item) => item.text).join("\n")}`)
+    .join("\n");
+
+  if (!admit(verificationPrompt)) {
+    return unavailable("BUDGET_EXHAUSTED");
+  }
+
   let verdicts;
   try {
-    verdicts = await verifier.verify(targets);
+    const outcome = await verifier.verify(targets);
+    verdicts = outcome.verdicts;
+    await meter(verifier.providerId, "verify", outcome.usage);
   } catch (error) {
+    noteProviderFailure("verify", error);
+    if (error instanceof ProviderFailure) {
+      await meter(verifier.providerId, "verify", error.usage);
+    }
     return unavailable(error instanceof ProviderFailure ? failureReason(error) : "PROVIDER_UNAVAILABLE");
   }
 
@@ -338,6 +515,10 @@ export async function answerQuestion(
 
   const internal: InternalAnswerState = partial ? "ANSWERED_PARTIAL" : "ANSWERED";
 
+  refreshGuard(
+    `${turnTokens} token(s) reported for this turn; ${recordedToday + turnTokens} of ${deps.dailyTokenBudget} used today.`,
+  );
+
   return {
     answerState: toPublicAnswerState(internal),
     internalState: internal,
@@ -348,6 +529,7 @@ export async function answerQuestion(
     scope: baseScope,
     evidence: evidenceBase,
     provenance: baseProvenance,
+    guard: { ...guardState },
   };
 }
 
