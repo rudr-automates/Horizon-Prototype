@@ -7,10 +7,13 @@ honest refusal.
 
 > **Repository state:** this is the **Part 02 vertical slice**. The learner
 > interface, timestamp-scoped retrieval, claims-only generation, deterministic +
-> model-assisted verification and safe refusals are built. Two things are still
-> NOT true: **no Supabase migration has been applied** and **no runtime AI
-> credential is configured**, so the answer path has never run against a real
-> model. See [docs/DECISIONS.md](docs/DECISIONS.md).
+> model-assisted verification and safe refusals are built. **Both Supabase
+> migrations are applied and a runtime AI credential is configured**, so the demo
+> corpus now lives in the database with real embeddings and the database-backed
+> retrieval path has run against it. What is still NOT true: **the answer path
+> has produced no live answer on this revision** — the provider's free-tier daily
+> generation quota refuses every call, so generation, verification and turn
+> persistence remain unexercised. See [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ---
 
@@ -27,18 +30,22 @@ honest refusal.
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
 | Supabase migrations (schema + search RPCs) | ✅ **applied** — six tables with RLS, pgvector `0.8.2` installed |
-| Database-backed retrieval, seeding and persistence | ❌ blocked — migrations are applied but no Supabase credential is configured, so the fixture corpus is still in use and `pnpm seed:demo` has never run |
-| Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke` |
+| Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
+| Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
 | Live inference (`gemini-3.6-flash`) | ⚠️ real calls were made and recorded in an earlier revision; on the current revision generation is **429-blocked by the free-tier daily quota** with a ~15 h retry delay |
 | Temporal eligibility end-to-end with a live model | ⚠️ 24 live checks pass on the current revision (eligibility, oracle cross-check, non-disclosure). The answer half is **NOT RUN** — refused by the quota, never counted as a pass |
-| Cumulative daily token accounting | ✅ enforced at admission, per call, including billable **reasoning** tokens; the persisted row sums to the same figure the cap was checked against |
+| Cumulative daily token accounting | ✅ enforced at admission, per call, including billable **reasoning** tokens; the persisted charge is the same figure the cap was checked against |
+| Atomic budget admission across requests AND instances | ⚠️ implemented and unit tested (including concurrency tests), but **requires migration `0003_atomic_budget.sql`, which is AUTHORED AND NOT APPLIED** — see [apply-migration.md](docs/apply-migration.md#applying-0003-required). Until a human applies it the answer path fails closed: `BUDGET_EXHAUSTED` with `durableLedger: "unreadable"` |
+| A refused call releases its hold; a timeout keeps it | ✅ unit tested — a 429 is the provider refusing before processing, so it charges nothing, while an unanswered call keeps its reservation rather than erasing spend |
+| `GET /api/v1/health` separates authentication from reachability | ✅ **verified live** — reports `querySucceeded: true` (a real authenticated read) alongside `durableLedger: "unreadable"` and `ok: false`, i.e. it refuses to call a database healthy just because a request answered |
+| Durable usage ledger (`public.usage_ledger`) | ✅ **verified live** — `spentToday()` reads the table and `record()` writes to it; a labelled probe row was inserted, read back (66 tokens: 11 prompt + 55 completion, reasoning folded in) and deleted, leaving the table empty again |
 | SDK automatic retries | ✅ disabled (`attempts: 1`); they default to 5 |
 | Embedding-request cap | ✅ enforced — it bound and refused during live testing |
 | Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
-| Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ implemented + unit tested; **never executed** against a live database |
+| Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ **executed live** — 1 course / 6 resources / 18 blocks upserted on primary key, using 1 embedding request against a cap of 10 |
 | End-to-end canary harness (`pnpm canary`) | ✅ ran live; recorded in [docs/evidence](docs/evidence) |
-| Turn persistence to a real database | ❌ reports `persisted: false` honestly |
-| Public deployment | ❌ not attempted; procedure in [DEPLOY.md](docs/DEPLOY.md). No URL exists |
+| Turn persistence to a real database | ⚠️ implemented and now selected when Supabase is configured, but **still unexercised** — a turn is written only after a successful generation, which the quota refuses. The unconfigured path still reports `persisted: false` honestly |
+| Public deployment | ❌ not attempted; staged procedure and the four-part release gate are in [DEPLOY.md](docs/DEPLOY.md). **No public URL exists** |
 | Ingestion (transcription, OCR, parsing) | ❌ deferred — the demo corpus is a fixture |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
@@ -137,24 +144,49 @@ It never returns credential values, and it never reports a dependency as healthy
 just because an env var exists. `runtimeAi.reachable` stays `null` until a real
 smoke test is run.
 
+The database check reports five separate facts, and `ok` is true only when they
+all hold. This is the real payload for the current revision, in the state it is
+actually in — migration `0003` not yet applied:
+
 ```jsonc
 {
   "ok": false,
   "status": "degraded",
   "service": "horizon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "requestId": "…",
   "timestamp": "…",
   "checks": {
-    "app":        { "configured": true,  "reachable": true,  "detail": "…" },
-    "database":   { "configured": false, "reachable": null,  "detail": "Supabase URL/anon key not set." },
-    "runtimeAi":  { "configured": false, "reachable": null,  "detail": "Runtime AI not configured; no model calls are possible." }
-  }
+    "app":       { "configured": true, "reachable": true, "detail": "Next.js route handler responded." },
+    "database":  {
+      "configured": true,          // names present (URL + anon key)
+      "reachable": true,           // kept in step with querySucceeded
+      "urlConfigured": true,
+      "credentialsPresent": true,  // the key the DATA PATH authenticates with
+      "querySucceeded": true,      // a real authenticated read, not a ping
+      "schemaObjects": "unknown",  // probe could not run yet
+      "durableLedger": "unreadable",// the budget table cannot be read → fail closed
+      "detail": "An authenticated read of the database succeeded; the schema probe could not run, which is expected until migration 0003 is applied; the durable budget ledger could NOT be read, so provider calls are refused."
+    },
+    "runtimeAi": { "configured": true, "reachable": null, "detail": "Names are present, but the usage ledger could not be read…" }
+  },
+  "runtime": { "evidenceSource": "supabase", "usageMode": "supabase", "embeddingCapMode": "supabase", "demoContent": false, "spendGuard": "permitted", "spentTokensToday": null }
 }
 ```
 
-> `database.reachable` proves only that the Supabase REST host answered. It does
-> **not** prove the migration was applied or that any table exists.
+Once `0003` is applied, `schemaObjects` becomes `"verified"`, `durableLedger`
+becomes `"usable"`, `spentTokensToday` becomes a number, and `ok` becomes `true`.
+
+`runtimeAi.reachable` stays `null` because this endpoint makes no provider call:
+the health response reports that names are *present*, never that the provider
+works. Only `pnpm smoke` and `pnpm canary` establish that.
+
+> `database.reachable` no longer means "some HTTP response arrived". It means an
+authenticated read succeeded. It still does **not** mean the schema is complete or
+that the budget ledger can be read — those are `schemaObjects` and
+`durableLedger`, and both are reported separately for exactly that reason. The
+anon key, for instance, authenticates and still gets `42501` on the public tables
+because it holds no table-level `SELECT` grant.
 
 ---
 
@@ -263,14 +295,23 @@ Two advisor findings, neither of which blocks the app:
   so this is hardening rather than a privilege-escalation hole; pinning
   `search_path` is the recommended follow-up.
 
-**The database path is still not exercised.** Applying the migrations did not
-configure the app: no Supabase name is present in `.env.local`, so
-`/api/v1/health` correctly reports `database.configured: false`,
-`evidenceSource` stays `fixture`, and `pnpm seed:demo` has still never run. For
-that path to engage, all three of `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` must be set — the
-configuration check requires the anon key even though the server writes with the
-service role.
+**The database path is now exercised.** All three names —
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
+`SUPABASE_SERVICE_ROLE_KEY` — are set, `/api/v1/health` reports
+`database.configured: true` with `evidenceSource: "supabase"`, and
+`pnpm seed:demo` has run: 1 course, 6 resources and 18 blocks with real
+768-dimensional embeddings, confirmed by re-reading the rows. The configuration
+check still requires the anon key even though the server writes with the service
+role.
+
+The migrations cannot fix the *answer* path, and did not: generation is blocked
+by the provider's free-tier quota, so no live answer exists on this revision.
+
+One consequence worth knowing: the anon key authenticates but holds no
+table-level `SELECT` grant on the public tables, so a direct anon-key read fails
+with `42501 permission denied`. That is consistent with the deny-by-default
+posture above — the app never reads with the anon key, and the health "reachable"
+probe only proves the host answered, not that the key can read anything.
 
 ### Enabling the real model path
 
@@ -325,22 +366,45 @@ Specific consequences of that rule:
 - Timings reported in the UI are measured for that single request. They are not
   benchmarks and no accuracy or latency claim is derived from them.
 - A migration that has been written and unit tested is still reported as
-  **not applied**.
+  **not applied** until an artifact shows it applied. Both migrations cleared that
+  bar on 2026-10-15, and the seed that followed is recorded in
+  [docs/evidence](docs/evidence).
 
 ## Verified in this revision
 
 ```
-pnpm lint       exit 0
-pnpm typecheck  exit 0
-pnpm test       exit 0   145 tests, 11 files   (all mocked)
-pnpm build      exit 0
-pnpm smoke      exit 1   1 live embedding call OK; generation refused by the provider (429, daily free-tier quota)
-pnpm canary     exit 1   24 passed, 1 failed, 2 not run   (live; answer half quota-blocked)
+pnpm lint         exit 0
+pnpm typecheck    exit 0
+pnpm test         exit 0   172 tests, 12 files   (all mocked, incl. the concurrency cases)
+pnpm build        exit 0
+pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
+pnpm verify:budget exit 1  refuses before writing a row: migration 0003 is not applied yet
+pnpm smoke        exit 1   1 live embedding call OK; generation refused by the provider (429, daily free-tier quota)
+pnpm canary       exit 1   24 passed, 1 failed, 2 not run   (live; answer half quota-blocked)
 ```
 
-Live checks against `next start` on `127.0.0.1:4321`: health, courses, scope at
-five playheads, and the question endpoint before and after the canary unlock
-time. All model-dependent tests are **mocked**, not real inference.
+The concurrency tests are unit tests over a shared ledger: they prove no two
+turns can both hold the same budget, and that a refused turn reaches the provider
+zero times. They **cannot** prove Postgres serializes admission — that is what
+`pnpm verify:budget` does against the real functions, and it is the reason the
+migration is a required human step rather than something this revision claims.
+
+Live checks against `next start` on `127.0.0.1:4321`: `evidenceSource` and
+`usageMode` are `"supabase"`; `GET /api/v1/courses`, the course detail route and
+`/scope` all answer from Supabase (eligible-block counts 2 / 4 / 7 / 10 / 16
+across playheads 0–900 s), a negative playhead returns 400 and an unknown course
+404. The store's course, full-text, vector and eligibility reads were exercised
+directly, as were both halves of the durable usage ledger (a labelled probe row was
+written and then removed).
+
+On the current revision the question endpoint **fails closed**: it returns
+`TEMPORARILY_UNAVAILABLE` with `BUDGET_EXHAUSTED` and makes **no provider call at
+all**, because the budget ledger cannot be read until migration `0003` is applied.
+Health simultaneously reports `ok: false` with `durableLedger: "unreadable"`.
+That pair is the honest state of the answer path today, and it is deliberate: an
+unreadable budget must never be treated as an unspent one. The full record is in
+[docs/evidence](docs/evidence/db-path-verification-2026-10-15T09-28-15-146Z.json).
+All model-dependent tests are **mocked**, not real inference.
 
 **No deployment has been performed and no public URL exists.** Every live check
 was against loopback, and nothing here is a hosting claim.

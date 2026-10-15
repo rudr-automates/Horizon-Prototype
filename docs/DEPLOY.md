@@ -51,8 +51,10 @@ explicitly public).
 | `HORIZON_EMBEDDING_MODEL` | server | retrieval | `gemini-embedding-001` |
 | `HORIZON_EMBEDDING_DIMENSIONS` | server | retrieval | `768`. Must match the stored vectors exactly |
 | `HORIZON_DAILY_TOKEN_BUDGET` | server | inference | **`0` permits no provider call at all.** See §5 |
+| `HORIZON_MAX_EMBEDDING_CALLS` | server | retrieval | **`0` permits no embedding request at all** under the durable cap. The token budget cannot bound embeddings, so this is the only control on their request count. It is a REQUEST cap, never a cost cap |
 | `HORIZON_LLM_TIMEOUT_MS` | server | inference | `30000` is a sane start |
-| `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | inference | `1024` |
+| `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | inference | `4096`. Reasoning tokens count against this, and a 1024 cap was observed live leaving only 21 visible tokens |
+| `HORIZON_LLM_THINKING_BUDGET` | server | inference | Leave **unset** to send no `thinkingConfig`; `-1` is the provider's automatic mode |
 | `HORIZON_LLM_BASE_URL` | server | — | Leave **empty**. The official SDK resolves its own endpoint |
 
 `vercel env add <NAME> production` is the CLI equivalent; the dashboard path is
@@ -87,6 +89,16 @@ provider call at all and every turn returns `TEMPORARY_UNAVAILABLE` with reason
 `BUDGET_EXHAUSTED`. This is deliberate — it fails closed rather than promising a
 spend cap it does not enforce.
 
+**Migration `0003_atomic_budget.sql` must be applied first.** The budget is now
+enforced by reserving capacity atomically in Postgres before each call, so with a
+database configured and 0003 missing, every turn fails closed with
+`BUDGET_EXHAUSTED` and the health endpoint reports `durableLedger: "unreadable"`.
+That is the guard working, not a deployment bug.
+
+With 0003 applied, the daily ceiling is shared by every instance rather than
+per process, because admission takes an advisory lock keyed on the UTC day. Two
+concurrent requests cannot both be admitted against the same remaining budget.
+
 To allow inference, set a positive value, for example `HORIZON_DAILY_TOKEN_BUDGET=200000`.
 
 Confirm the guard's state from the public health endpoint rather than guessing:
@@ -106,6 +118,8 @@ Open the URL in a clean browser session and then:
 | Home page | Loads; the sample lesson and the "synthetic demo" labelling are visible |
 | `GET /api/v1/health` | HTTP 200; `checks.database.configured` and `checks.runtimeAi.configured` reflect reality; `runtime.spendGuard` is reported |
 | Health must not overclaim | `runtimeAi.reachable` is `null` unless a live smoke test was actually recorded |
+| Database is genuinely usable | `checks.database.querySucceeded: true` (an authenticated read, not a reachability ping), `schemaObjects: "verified"`, `durableLedger: "usable"`, `ok: true` |
+| Concurrency is really enforced | `pnpm verify:budget` prints `RESULT: PASS` and `CLEANUP: complete` against the deployed project's database |
 | Timestamp controls | Moving the slider or a preset changes the eligible-block count |
 | Early canary (00:00, 06:00) | Refuses. The constant `0.37` must not appear anywhere in the page or the response |
 | Late canary (12:00) | A supported answer **only** if the model is configured, in budget, and the eligible set actually contains the fact |
@@ -122,15 +136,34 @@ pnpm canary --base https://<project>.vercel.app --label prod
 
 ## 7. Things that are still missing after a successful deploy
 
-- **Migrations are not applied by this procedure.** `0001_init.sql` and
-  `0002_search_functions.sql` must be applied separately through the Supabase
-  SQL Editor (`docs/apply-migration.md`). Until they are, the app runs in
-  fixture mode and says so in `/api/v1/health` (`evidenceSource: "fixture"`).
+- **Migrations are not applied by this procedure.** `0001_init.sql`,
+  `0002_search_functions.sql` **and `0003_atomic_budget.sql`** must be applied
+  separately through the Supabase SQL Editor (`docs/apply-migration.md`). Until
+  `0001`/`0002` are, the app runs in fixture mode and says so in
+  `/api/v1/health` (`evidenceSource: "fixture"`); until `0003` is, the answer path
+  refuses every turn.
 - **The corpus is synthetic.** Deploying does not make the demo database-backed.
 - **No approximate vector index**, no auth, no rate limiting beyond the spend
   guard and request-size validation.
+- **Embedding COST is unmeasured.** The durable cap bounds how many embedding
+  requests are made, not what they cost. `estimated_cost_usd` is still NULL.
 
-## 8. If access cannot be connected
+## 8. Release gate — do not call this a working AI product until all four hold
+
+1. Atomic budget admission is implemented **and verified against the real
+   database** (`pnpm verify:budget` → PASS, with cleanup complete).
+2. `/api/v1/health` reports actual database connectivity truthfully
+   (`querySucceeded`, `schemaObjects: "verified"`, `durableLedger: "usable"`).
+3. A **real generation call succeeds** (`pnpm smoke` exit 0). Until the provider's
+   free-tier quota resets, this is blocked and must be reported as blocked.
+4. The timestamp-aware canary demonstrates non-disclosure before the unlock time
+   **and** a properly supported, cited answer once eligible evidence is available.
+
+Until 3 and 4 hold, the correct description is: "the retrieval, database and
+budget paths are verified; live answer generation is not". No public URL exists,
+so nothing here is a hosting claim.
+
+## 9. If access cannot be connected
 
 The blocking action is a human one: someone with Vercel account access must
 authorise the GitHub repository connection in the Vercel dashboard (§4) and add

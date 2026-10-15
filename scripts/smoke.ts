@@ -17,6 +17,7 @@
  */
 import { buildHttpOptions } from "@/lib/answer/gemini";
 import { embeddingCallCount } from "@/lib/answer/capped-embedder";
+import { estimatePromptTokens } from "@/lib/usage/types";
 import { loadEnvFile } from "./env-file";
 
 const SMOKE_TEXT =
@@ -98,6 +99,22 @@ async function main(): Promise<void> {
   }
 
   // ---- Call 1 of 2: one real embedding request ---------------------------
+  //
+  // Claimed against the SAME durable cap the serving path uses. Letting a
+  // diagnostic command sit outside the limit would make the limit a convention
+  // rather than a control.
+  const embeddingAdmission = await usage.ledger.admitEmbedding({
+    maxCalls: config.maxEmbeddingCalls,
+    provider: providers.embeddingProviderId,
+    modelId: config.model,
+  });
+  console.log(
+    `Embedding admission (${usage.ledger.mode} cap): ${embeddingAdmission.admitted ? "granted" : "refused"} — ${embeddingAdmission.detail}`,
+  );
+  if (!embeddingAdmission.admitted) {
+    refuse([embeddingAdmission.detail, "No provider call was made."]);
+  }
+
   console.log(`\nEmbedding request 1/1 (cap ${config.maxEmbeddingCalls}) ...`);
   const embedStarted = Date.now();
   let vector: number[];
@@ -128,18 +145,37 @@ async function main(): Promise<void> {
   );
 
   // ---- Call 2 of 2: one real structured generation request ---------------
-  if (!providers.generator) {
+  const generator = providers.generator;
+  if (!generator) {
     refuse(["No generator is available, so the generation smoke test cannot run."]);
   }
 
   console.log("\nGeneration request 1/1 (JSON structured output, temperature 0) ...");
+
+  // Capacity is reserved ATOMICALLY before the request is sent, so this run
+  // cannot overshoot a budget another instance is also spending.
+  const question = "What happens to each successive delay in exponential backoff?";
+  const admission = await usage.ledger.admitGeneration({
+    reserveTokens:
+      estimatePromptTokens(`${question}\n${SMOKE_TEXT}`) + config.maxOutputTokens,
+    budgetTokens: config.dailyTokenBudget,
+    provider: generator.providerId,
+    modelId: config.model,
+    operation: "generate",
+  });
+  console.log(`  admission: ${admission.admitted ? "granted" : "refused"} — ${admission.detail}`);
+  if (!admission.admitted) {
+    refuse([admission.detail, "No generation request was sent."]);
+  }
+
   const generateStarted = Date.now();
   let claimCount: number;
   let unanswered: boolean;
   let usageReported: string;
+  let settlement: string;
   try {
-    const outcome = await providers.generator.generate({
-      question: "What happens to each successive delay in exponential backoff?",
+    const outcome = await generator.generate({
+      question,
       evidence: [{ id: "smoke_1", text: SMOKE_TEXT }],
     });
     claimCount = outcome.result.claims.length;
@@ -147,9 +183,36 @@ async function main(): Promise<void> {
     usageReported = outcome.usage
       ? `prompt ${outcome.usage.promptTokens ?? "unknown"}, completion ${outcome.usage.completionTokens ?? "unknown"}`
       : "the provider reported no usage metadata";
+
+    const settled = await usage.ledger.settle(admission.reservation, {
+      promptTokens: outcome.usage?.promptTokens ?? null,
+      completionTokens: outcome.usage?.completionTokens ?? null,
+      reasoningTokens: outcome.usage?.thoughtsTokens ?? null,
+    });
+    settlement = `${settled.outcome} — charged ${settled.chargedTokens}, reported ${settled.reportedTokens}`;
   } catch (error) {
+    const { ProviderFailure } = await import("@/lib/answer/provider");
+    const reported = error instanceof ProviderFailure ? error.usage : null;
+    // A failed call may still have been billed: settle it rather than letting
+    // the reservation be treated as unspent. A 429 is the exception — the
+    // provider refused the request before processing it, so nothing was billed.
+    const settled = await usage.ledger
+      .settle(
+        admission.reservation,
+        {
+          promptTokens: reported?.promptTokens ?? null,
+          completionTokens: reported?.completionTokens ?? null,
+          reasoningTokens: reported?.thoughtsTokens ?? null,
+        },
+        { failed: true, notBillable: error instanceof ProviderFailure && error.kind === "rate_limited" },
+      )
+      .catch(() => null);
+
     refuse([
       `The generation request failed: ${error instanceof Error ? error.message : "unknown error"}.`,
+      settled
+        ? `The reservation was settled as ${settled.outcome}, charged ${settled.chargedTokens} token(s).`
+        : "The reservation could not be settled and remains charged against today.",
       "No further live call will be made.",
     ]);
   }
@@ -157,12 +220,14 @@ async function main(): Promise<void> {
 
   console.log(`  OK  parsed ${claimCount} structured claim(s), unansweredParts=${unanswered}, ${generateMs} ms`);
   console.log(`  usage: ${usageReported}`);
+  console.log(`  settlement: ${settlement}`);
 
   console.log("\nLive smoke test complete: 1 embedding request, 1 generation request.");
   console.log(`Embedding requests attempted by this process: ${embeddingCallCount()}`);
+  console.log(`Spent today after settlement: ${await usage.ledger.spentToday()} tokens`);
   console.log(
     "\nEmbedding requests are NOT covered by the token budget. The embedding cap bounds\n" +
-      "call COUNT only — it is not a spending cap, and it resets when the process restarts.",
+      "call COUNT only — it is not a spending cap, and in memory mode it is per process.",
   );
 }
 

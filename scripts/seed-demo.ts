@@ -106,7 +106,7 @@ async function main(): Promise<void> {
 
   // The provider bundle decides which embedder is active, so it is the single
   // source of truth for whether real embeddings are possible.
-  const { providers, config } = createServerContext();
+  const { providers, config, usageResolution } = createServerContext();
   console.log(`Active embedder: ${providers.embeddingProviderId}`);
   // Being explicit matters: an operator could otherwise assume the daily token
   // budget bounds this command, and it does not.
@@ -119,6 +119,25 @@ async function main(): Promise<void> {
       "The runtime provider is not configured, so no real embeddings can be produced.",
       "Set HORIZON_LLM_PROVIDER=google-genai, HORIZON_LLM_MODEL and the credential,",
       "then run this command again. The demo corpus will not be seeded with placeholder vectors.",
+    ]);
+  }
+
+  // This command makes a REAL embedding request, so it claims the same durable
+  // request cap the serving path uses instead of quietly sitting outside it.
+  // Refusing here is the correct outcome when the day's cap is already spent.
+  const embeddingAdmission = await usageResolution.ledger.admitEmbedding({
+    maxCalls: config.maxEmbeddingCalls,
+    provider: providers.embeddingProviderId,
+    modelId: config.model,
+  });
+  console.log(
+    `Embedding request admission (${usageResolution.ledger.mode} cap): ${embeddingAdmission.admitted ? "granted" : "refused"} — ${embeddingAdmission.detail}`,
+  );
+  if (!embeddingAdmission.admitted) {
+    fail([
+      embeddingAdmission.detail,
+      `Ledger mode: ${usageResolution.ledger.mode}.`,
+      "No embedding request was sent, so nothing was written and no capacity was consumed beyond this refusal.",
     ]);
   }
 
@@ -151,6 +170,7 @@ async function main(): Promise<void> {
     fail([
       `Unexpected failure: ${error instanceof Error ? error.name : "unknown error"}.`,
       "No partial-success claim is made; re-run after fixing the cause.",
+      "Note: the embedding request was already admitted, so it still counts against the day's embedding cap.",
     ]);
   }
 }

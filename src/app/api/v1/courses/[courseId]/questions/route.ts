@@ -77,6 +77,7 @@ export async function POST(
         embeddingDimensions: config.embeddingDimensions,
         dailyTokenBudget: config.dailyTokenBudget,
         maxOutputTokens: config.maxOutputTokens,
+        maxEmbeddingCalls: config.maxEmbeddingCalls,
         usage: usageResolution.ledger,
       },
       {

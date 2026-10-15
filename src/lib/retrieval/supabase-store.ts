@@ -20,10 +20,18 @@ import type {
 /**
  * Database-backed evidence store.
  *
- * IMPORTANT STATUS: this path is IMPLEMENTED but NOT EXECUTED. The Supabase
- * migration has not been applied and no database credential is configured, so
- * it has never run against a real database. It is covered by unit tests using
- * a fake SqlGateway. Do not describe it as verified end to end.
+ * STATUS: the READ path has been EXECUTED against the live database
+ * (2026-10-15). Against the seeded corpus, `listCourses`, `getCourse`,
+ * `listEligible` at several boundaries, `searchFullText`, `searchVector` and
+ * `hasMatchingIneligible` all ran for real, including a stored vector matching
+ * itself at distance 0 and eligibility enforced twice (in SQL and again in
+ * `isBlockEligible`).
+ *
+ * The WRITE paths this store feeds (turn persistence) are still UNEXERCISED,
+ * because a turn is only written after a successful generation and every
+ * generation is currently refused by the provider's free-tier quota. Unit tests
+ * still use a fake SqlGateway for the mapping. Do not describe the answer path
+ * as verified end to end.
  */
 
 export class StoreFailure extends Error {

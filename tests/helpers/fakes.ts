@@ -40,6 +40,16 @@ export const PERMITTED_BUDGET = 1_000_000;
 export const TEST_MAX_OUTPUT_TOKENS = 1024;
 
 /**
+ * Permissive embedding-request cap for tests that expect inference to proceed.
+ *
+ * It must be stated explicitly rather than defaulted, because 0 means "no cap is
+ * configured" and the durable ledger treats an unconfigured cap as a refusal —
+ * a test that forgot it would fail closed for the right reason and look
+ * like a pipeline bug.
+ */
+export const TEST_MAX_EMBEDDING_CALLS = 1_000;
+
+/**
  * A FRESH ledger per call. Sharing one across cases would let one test's
  * recorded spend refuse a later test's call — a real cross-test dependency.
  */

@@ -244,6 +244,13 @@ error.
 no — <reason>` field, and once the migration is applied and real rows exist the
 same field reports `yes`.
 
+**Update (2026-10-15):** the precondition now holds — both migrations are applied
+and the database holds a seeded course with real rows — but the path is still
+**unexercised**, because a turn is recorded only after a successful generation,
+and generation is refused by the provider's free-tier quota. The `persisted:
+false` branch is what the current revision actually produces, and it is not a
+stand-in for a passing write path.
+
 ---
 
 ## D-012 — Sample timeline simulation instead of a lesson video
@@ -486,3 +493,60 @@ is unrecognised so it cannot mask the plain reason.
 with a ~15-hour retry delay, while embeddings — a separate quota — still work.
 The canary gained `--delay <ms>` so three back-to-back turns do not exhaust a
 per-minute limit on their own.
+
+---
+
+## D-019 — Admission is an atomic reservation, not a read-then-record
+
+**Date:** 2026-10-15
+**Status:** Accepted. **Requires migration `0003_atomic_budget.sql`, which is
+AUTHORED AND NOT YET APPLIED.**
+
+**Context:** The daily token budget was enforced by reading the day's total,
+deciding in the application, and recording usage afterwards. Those are three
+operations, so two turns in flight at once could each read the same remaining
+budget and both be admitted: the ceiling was soft by exactly the number of
+concurrent calls. The embedding-request cap had the same shape in a different
+place — a process-local counter, so N instances got N caps.
+
+**Decision:** Capacity is HELD before a billable request is sent. A single SQL
+function takes an advisory transaction lock keyed on `(kind, UTC day)`, compares
+the day's settled charges plus outstanding reservations against the budget, and
+inserts a reservation row if it fits — one statement, one transaction. The same
+mechanism counts embedding requests by row count. Reservation state lives in
+`usage_ledger` itself rather than in a second table, because two tables would
+mean two answers to "what has been spent today" and the wrong one would
+eventually be read.
+
+**Consequence:** "Two concurrent turns cannot both be admitted against the same
+remaining budget" is now a property of the database rather than an assumption
+about the application. A reservation that is never settled keeps counting against
+the day, which over-counts a crashed process rather than under-counting real
+spend. The cost is a new required migration and one extra round trip per call.
+
+---
+
+## D-020 — A refused request releases its hold; a timed-out one does not
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Context:** Once a call holds a reservation, what should happen when it fails?
+Charging nothing would let a timeout erase spend that may well have been billed.
+Charging the full reservation unconditionally is also wrong: a 429 is the
+provider REFUSING the request before processing it, so nothing was consumed — and
+during an outage a burst of refusals would drain the day's budget and turn a
+provider problem into a self-inflicted `BUDGET_EXHAUSTED`.
+
+**Decision:** The charge follows billability, not the outcome label. Reported
+usage is always charged. With no report: a provider rejection
+(`rate_limited`) releases the hold at zero and is labelled
+`failed_not_billable`; anything ambiguous — a timeout, a network failure, a
+successful call that reported no metadata — keeps the reservation as the charge.
+`notBillable` is therefore only ever set for an explicit rejection, and the
+parameter is named for the claim it makes rather than for the failure it
+accompanies.
+
+**Consequence:** The settle function carries one extra boolean, and the pipeline
+must know which failures are rejections. In exchange, neither direction of error
+is silent: no timeout can under-count, and no outage can drain the budget.

@@ -1,0 +1,129 @@
+{
+  "recordedAt": "2026-10-15T09:28:15.146Z",
+  "label": "db-path-verification",
+  "revision": "73d731a",
+  "command": "pnpm seed:demo (once), then read-only checks through the app's own store, then HTTP probes on the running server",
+  "environment": {
+    "database": "supabase",
+    "evidenceSource": "supabase",
+    "usageMode": "supabase",
+    "embeddingModel": "gemini-embedding-001",
+    "embeddingDimensions": 768,
+    "embeddingCallCap": 10,
+    "dailyTokenBudget": 20000
+  },
+  "seed": {
+    "command": "pnpm seed:demo",
+    "exitStatus": 0,
+    "embeddingRequestsUsed": 1,
+    "counts": {
+      "courses": 1,
+      "resources": 6,
+      "blocks": 18
+    },
+    "courseId": "83eafd47-15d8-50e0-9edc-ee6fb580cb83",
+    "idempotentBy": "upsert on primary key with name-derived stable uuids",
+    "embeddingRequestCountBasis": [
+      "buildSeedPlan() makes exactly one embed() call, with all 18 document texts",
+      "CappedEmbedder increments once per embed() call, so its counter equals the call count, not the HTTP count",
+      "the installed @google/genai SDK posts one embed() to {model}:batchEmbedContents on the Developer API path (read from the vendored SDK, not assumed)",
+      "the cap therefore did NOT independently bound HTTP requests; this figure is a code-level finding, and no runtime request counter was observed"
+    ]
+  },
+  "persistedRows": {
+    "verifiedBy": "independent read through the Supabase REST API, service-role key",
+    "vectorLengthHistogram": {
+      "768": 18
+    },
+    "embeddingDimColumn768": 18,
+    "vectorsAllFinite": 18,
+    "vectorsNotAllZero": 18,
+    "distinctVectorPrefixes": 18,
+    "embeddingModelLabel": "gemini-embedding-001",
+    "nullTextNormalized": 0,
+    "policyTally": {
+      "TIMELINE_BOUND": 16,
+      "COURSE_WIDE": 2
+    },
+    "reviewStateTally": {
+      "AUTO_APPROVED": 15,
+      "HUMAN_APPROVED": 2,
+      "PENDING": 1
+    },
+    "lintStatusTally": {
+      "NA": 16,
+      "PASSED": 1,
+      "FLAGGED": 1
+    },
+    "nonNullUnlockSeconds": 16
+  },
+  "usageLedger": {
+    "mode": "supabase",
+    "table": "public.usage_ledger",
+    "rowsBefore": 0,
+    "spentTodayBefore": 0,
+    "readPath": "verified - real SELECT against the table",
+    "writePath": {
+      "method": "one labelled probe row written through the app's own record(), then deleted in a finally block",
+      "probeRequestId": "ledger-write-probe-2026-10-15",
+      "observedSpentTodayAfterInsert": 66,
+      "expected": "66 = 11 prompt + (22 completion + 33 reasoning folded into completion)",
+      "storedRow": "prompt_tokens 11, completion_tokens 55, estimated_cost_usd null, price_source_date null",
+      "cleanup": "probe row deleted; rows back to 0 and spentToday back to 0, table left as found"
+    }
+  },
+  "storeReadsAgainstSeededCorpus": {
+    "listCourses": 1,
+    "getCourse": "returns the seeded sample lesson, 900 seconds",
+    "listEligibleByBoundary": {
+      "0": 2,
+      "200": 7,
+      "899": 16,
+      "900": 16
+    },
+    "eligibilityNote": "18 blocks minus the 1 PENDING and 1 FLAGGED block = 16, so the predicate is doing the excluding rather than the RPC alone",
+    "searchFullText": {
+      "backoff": 2,
+      "exponential backoff": 1,
+      "jitter": 2
+    },
+    "hasMatchingIneligible": {
+      "backoff": true,
+      "zzz-not-present": false
+    },
+    "searchVector": {
+      "queryVectorSource": "a stored block embedding, so no provider call was made",
+      "topHitIsSelf": true,
+      "selfDistance": 0
+    }
+  },
+  "httpProbes": {
+    "base": "http://127.0.0.1:4321",
+    "health": "ok:true, evidenceSource supabase, usageMode supabase, demoContent false",
+    "getCourses": "200, 1 course",
+    "getCourse": "200",
+    "scopeByPlayhead": {
+      "0": 2,
+      "45": 4,
+      "200": 7,
+      "480": 10,
+      "900": 16
+    },
+    "scopeNegativePlayhead": "400 INVALID_REQUEST",
+    "scopeUnknownCourse": "404 NOT_FOUND"
+  },
+  "notRun": [
+    "live generation - provider free-tier daily quota is exhausted (429); the recorded retry-after was roughly 15 h from 2026-10-15T08:43:15Z",
+    "live canary answer half - remains NOT RUN for the same reason, never counted as a pass",
+    "turn persistence to the database - only reached after a successful generation",
+    "pnpm smoke - one generation call is required, and the retry-after window had not elapsed"
+  ],
+  "limitations": [
+    "estimated_cost_usd stays NULL: no dated price source, and inventing zero would understate spend",
+    "the embedding-request cap bounds request COUNT per process, not tokens or cost, and resets on restart",
+    "budget reservation is not atomic, so concurrent turns can both be admitted against the same remainder",
+    "the anon key has no table-level SELECT grant on the public tables (42501), so the health reachability probe proves only that the host answered",
+    "four foreign keys still lack indexes and the six functions carry a mutable search_path"
+  ],
+  "secretsPrinted": 0
+}

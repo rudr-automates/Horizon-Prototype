@@ -15,6 +15,7 @@ import {
   makeProviders,
   makeUsageLedger,
   PERMITTED_BUDGET,
+  TEST_MAX_EMBEDDING_CALLS,
   TEST_MAX_OUTPUT_TOKENS,
 } from "./helpers/fakes";
 
@@ -64,6 +65,7 @@ async function outcomeFrom(generator: ClaimGenerator): Promise<AnswerOutcome> {
       embeddingDimensions: 768,
       dailyTokenBudget: PERMITTED_BUDGET,
       maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+      maxEmbeddingCalls: TEST_MAX_EMBEDDING_CALLS,
       usage: makeUsageLedger(),
     },
     {
@@ -181,6 +183,7 @@ describe("response contract", () => {
         embeddingDimensions: 768,
         dailyTokenBudget: PERMITTED_BUDGET,
         maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+        maxEmbeddingCalls: TEST_MAX_EMBEDDING_CALLS,
         usage: makeUsageLedger(),
       },
       {
@@ -214,6 +217,7 @@ describe("response contract", () => {
         embeddingDimensions: 768,
         dailyTokenBudget: PERMITTED_BUDGET,
         maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+        maxEmbeddingCalls: TEST_MAX_EMBEDDING_CALLS,
         usage: makeUsageLedger(),
       },
       {

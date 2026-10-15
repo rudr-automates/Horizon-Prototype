@@ -1,0 +1,349 @@
+{
+  "recordedAt": "2026-10-15T08:52:08.628Z",
+  "label": "post-migration-verify",
+  "base": "http://127.0.0.1:4321",
+  "question": "What backoff constant does the instructor choose, and why?",
+  "canaryUnlockSeconds": 578,
+  "canaryTerm": "0.37",
+  "generatorConfigured": true,
+  "evidenceSource": "fixture",
+  "embeddingProvider": "gemini-embedding-001",
+  "summary": {
+    "checks": 27,
+    "passed": 24,
+    "failed": 1,
+    "notRun": 2
+  },
+  "runs": [
+    {
+      "position": {
+        "label": "00:00",
+        "seconds": 0
+      },
+      "scope": {
+        "boundarySeconds": 0,
+        "scopeMode": "POSITION",
+        "eligibleBlockCount": 2,
+        "policySummary": "Lesson through 00:00 · approved course-wide references enabled"
+      },
+      "answer": {
+        "requestId": "ab4b83c7-5556-409e-b2c8-f81a23da6216",
+        "answerState": "TEMPORARILY_UNAVAILABLE",
+        "reason": "PROVIDER_RATE_LIMITED",
+        "message": "The assistant is temporarily unavailable, so no answer was generated.",
+        "latencyMs": 2688,
+        "persistence": {
+          "persisted": false,
+          "mode": "disabled",
+          "detail": "No database is configured, so this turn was not stored."
+        },
+        "claims": [],
+        "citations": [],
+        "scope": {
+          "boundarySeconds": 0,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 2,
+          "policySummary": "Lesson through 00:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "fixture",
+          "retrievedCount": 2,
+          "payloadCount": 2,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "google-genai",
+          "verifier": "google-genai"
+        },
+        "provenance": {
+          "modelId": "gemini-3.6-flash",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": true
+        },
+        "guard": {
+          "mode": "memory",
+          "budgetTokens": 20000,
+          "spentTokensToday": 0,
+          "coverage": "Counts text-generation and verification tokens reported by the provider, including billable reasoning tokens. Embedding requests are not metered because that API reports no token usage.",
+          "detail": "Daily budget 20000 tokens, counted in memory for this process only (it resets on restart)."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "server reported 2 eligible block(s); oracle says 2 (b_0001, b_0005)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact is NOT reachable before its unlock time",
+          "outcome": "PASS",
+          "detail": "0 eligible block(s) carry the constant \"0.37\" (expected 0)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "searched the entire response body for the constant and its label"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "PASS",
+          "detail": "0 citation(s); 0 outside the eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "PASS",
+          "detail": "0 quotation(s); 0 did not match"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "PASS",
+          "detail": "0 label(s); 0 disagreed with the source timestamp"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=TEMPORARILY_UNAVAILABLE; message \"The assistant is temporarily unavailable, so no answer was generated.\""
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the withheld fact is not disclosed at the early position",
+          "outcome": "NOT RUN",
+          "detail": "inconclusive: the turn failed for provider/budget reasons (reason=PROVIDER_RATE_LIMITED), so nothing was rendered and temporal scoping was NOT demonstrated. This is not counted as a refusal."
+        }
+      ]
+    },
+    {
+      "position": {
+        "label": "06:00",
+        "seconds": 360
+      },
+      "scope": {
+        "boundarySeconds": 360,
+        "scopeMode": "POSITION",
+        "eligibleBlockCount": 10,
+        "policySummary": "Lesson through 06:00 · approved course-wide references enabled"
+      },
+      "answer": {
+        "requestId": "6c65db6e-2553-486a-a615-e593713d4110",
+        "answerState": "TEMPORARILY_UNAVAILABLE",
+        "reason": "PROVIDER_RATE_LIMITED",
+        "message": "The assistant is temporarily unavailable, so no answer was generated.",
+        "latencyMs": 2701,
+        "persistence": {
+          "persisted": false,
+          "mode": "disabled",
+          "detail": "No database is configured, so this turn was not stored."
+        },
+        "claims": [],
+        "citations": [],
+        "scope": {
+          "boundarySeconds": 360,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 10,
+          "policySummary": "Lesson through 06:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "fixture",
+          "retrievedCount": 6,
+          "payloadCount": 6,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "google-genai",
+          "verifier": "google-genai"
+        },
+        "provenance": {
+          "modelId": "gemini-3.6-flash",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": true
+        },
+        "guard": {
+          "mode": "memory",
+          "budgetTokens": 20000,
+          "spentTokensToday": 0,
+          "coverage": "Counts text-generation and verification tokens reported by the provider, including billable reasoning tokens. Embedding requests are not metered because that API reports no token usage.",
+          "detail": "Daily budget 20000 tokens, counted in memory for this process only (it resets on restart)."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "server reported 10 eligible block(s); oracle says 10 (b_0001, b_0002, b_0003, b_0004, b_0005, b_0006, b_0007, b_0008, b_0009, b_0017)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact is NOT reachable before its unlock time",
+          "outcome": "PASS",
+          "detail": "0 eligible block(s) carry the constant \"0.37\" (expected 0)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "searched the entire response body for the constant and its label"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "PASS",
+          "detail": "0 citation(s); 0 outside the eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "PASS",
+          "detail": "0 quotation(s); 0 did not match"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "PASS",
+          "detail": "0 label(s); 0 disagreed with the source timestamp"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=TEMPORARILY_UNAVAILABLE; message \"The assistant is temporarily unavailable, so no answer was generated.\""
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the withheld fact is not disclosed at the early position",
+          "outcome": "NOT RUN",
+          "detail": "inconclusive: the turn failed for provider/budget reasons (reason=PROVIDER_RATE_LIMITED), so nothing was rendered and temporal scoping was NOT demonstrated. This is not counted as a refusal."
+        }
+      ]
+    },
+    {
+      "position": {
+        "label": "12:00",
+        "seconds": 720
+      },
+      "scope": {
+        "boundarySeconds": 720,
+        "scopeMode": "POSITION",
+        "eligibleBlockCount": 15,
+        "policySummary": "Lesson through 12:00 · approved course-wide references enabled"
+      },
+      "answer": {
+        "requestId": "ee37f2ad-5bf7-4416-a037-33f42b676d93",
+        "answerState": "TEMPORARILY_UNAVAILABLE",
+        "reason": "PROVIDER_RATE_LIMITED",
+        "message": "The assistant is temporarily unavailable, so no answer was generated.",
+        "latencyMs": 1529,
+        "persistence": {
+          "persisted": false,
+          "mode": "disabled",
+          "detail": "No database is configured, so this turn was not stored."
+        },
+        "claims": [],
+        "citations": [],
+        "scope": {
+          "boundarySeconds": 720,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 15,
+          "policySummary": "Lesson through 12:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "fixture",
+          "retrievedCount": 6,
+          "payloadCount": 6,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "google-genai",
+          "verifier": "google-genai"
+        },
+        "provenance": {
+          "modelId": "gemini-3.6-flash",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": true
+        },
+        "guard": {
+          "mode": "memory",
+          "budgetTokens": 20000,
+          "spentTokensToday": 0,
+          "coverage": "Counts text-generation and verification tokens reported by the provider, including billable reasoning tokens. Embedding requests are not metered because that API reports no token usage.",
+          "detail": "Daily budget 20000 tokens, counted in memory for this process only (it resets on restart)."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "server reported 15 eligible block(s); oracle says 15 (b_0001, b_0002, b_0003, b_0004, b_0005, b_0006, b_0007, b_0008, b_0009, b_0012, b_0013, b_0014, b_0015, b_0016, b_0017)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact IS reachable at/after its unlock time",
+          "outcome": "PASS",
+          "detail": "3 eligible block(s) carry the constant \"0.37\" (expected >= 1)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "not applicable after the unlock time"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "PASS",
+          "detail": "0 citation(s); 0 outside the eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "PASS",
+          "detail": "0 quotation(s); 0 did not match"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "PASS",
+          "detail": "0 label(s); 0 disagreed with the source timestamp"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=TEMPORARILY_UNAVAILABLE; message \"The assistant is temporarily unavailable, so no answer was generated.\""
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the later position produces a supported, verified answer",
+          "outcome": "FAIL",
+          "detail": "answerState=TEMPORARILY_UNAVAILABLE; reason=PROVIDER_RATE_LIMITED; claims=0; citations=0"
+        }
+      ]
+    }
+  ]
+}

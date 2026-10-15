@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:demo": "tsx scripts/seed-demo.ts",
+    "verify:budget": "tsx scripts/verify-budget-concurrency.ts",
     "canary": "tsx scripts/canary.ts",
     "smoke": "tsx scripts/smoke.ts"
   },

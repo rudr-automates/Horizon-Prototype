@@ -1,5 +1,4 @@
 import {
-  meteredTokens,
   ProviderFailure,
   type GeneratedClaim,
   type ClaimGenerationResult,
@@ -26,10 +25,11 @@ import type {
 import { isBlockEligible } from "@/lib/eligibility/predicate";
 import { fuseRanked } from "@/lib/retrieval/fusion";
 import {
-  count,
   decideAdmission,
   estimatePromptTokens,
   USAGE_COVERAGE_NOTE,
+  type GenerationReservation,
+  type ReportedUsage,
   type UsageLedger,
 } from "@/lib/usage/types";
 import { formatSeconds } from "@/lib/retrieval/source-label";
@@ -76,7 +76,13 @@ export interface AnswerPipelineDeps {
   dailyTokenBudget: number;
   /** Worst-case completion size, used to reserve before a call is sent. */
   maxOutputTokens: number;
-  /** Where the cumulative total comes from. */
+  /**
+   * Durable ceiling on embedding REQUESTS for the day. Separate from the token
+   * budget because the embeddings API reports no token usage, so nothing can be
+   * metered for it. This bounds request COUNT, never cost.
+   */
+  maxEmbeddingCalls: number;
+  /** Where the cumulative total comes from, and how capacity is reserved. */
   usage: UsageLedger;
 }
 
@@ -133,6 +139,38 @@ function noteProviderFailure(stage: string, error: unknown): void {
   } else {
     console.error(`[horizon] provider failure at ${stage}: unexpected error type`);
   }
+}
+
+/**
+ * Convert the provider's usage report into the ledger's shape.
+ *
+ * `null` is preserved rather than flattened to zeros: "the provider told us
+ * nothing" and "the provider told us zero" lead to different charges, and only
+ * the ledger may decide which one applies.
+ */
+function reportedFromUsage(usage: TokenUsage | null): ReportedUsage | null {
+  if (!usage) return null;
+  return {
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    reasoningTokens: usage.thoughtsTokens,
+  };
+}
+
+/**
+ * Whether a provider failure can have consumed nothing at all.
+ *
+ * A rate-limited (429) response is the provider REFUSING the request before it
+ * is processed, so no tokens were billed and the reservation must be released.
+ * Charging it would be wrong in the other direction: a burst of refused attempts
+ * during an outage would drain the day's budget and turn a provider problem into
+ * a self-inflicted BUDGET_EXHAUSTED.
+ *
+ * A timeout is deliberately NOT included: an unanswered request may well have
+ * been processed and billed, so its reservation stands.
+ */
+function isNotBillable(failure: unknown): boolean {
+  return failure instanceof ProviderFailure && failure.kind === "rate_limited";
 }
 
 function failureReason(failure: ProviderFailure): AnswerReason {
@@ -203,7 +241,8 @@ export async function answerQuestion(
     ledgerReadable = false;
   }
 
-  let turnTokens = 0;
+  /** Tokens the ledger has actually charged for this turn so far. */
+  let turnCharged = 0;
 
   const guardState: AnswerOutcome["guard"] = {
     mode: usageLedger.mode,
@@ -214,7 +253,7 @@ export async function answerQuestion(
   };
 
   const refreshGuard = (detail: string): void => {
-    guardState.spentTokensToday = recordedToday + turnTokens;
+    guardState.spentTokensToday = recordedToday + turnCharged;
     guardState.detail = detail;
   };
 
@@ -227,11 +266,14 @@ export async function answerQuestion(
   );
 
   /**
-   * Decide whether a billable request may be sent. Fails CLOSED: if the ledger
-   * cannot be read then spend is unknown, and an unknown spend must not be
-   * treated as zero spend.
+   * Advisory pre-flight: can the day admit even the smallest generation call?
+   *
+   * Its ONLY job is to avoid spending an embedding request on a turn that is
+   * certainly going to be refused. It is deliberately NOT the gate: it reads the
+   * total without holding anything, so it can only refuse EARLY, never admit
+   * more. The authoritative decision is the atomic reservation below.
    */
-  const admit = (promptText: string): boolean => {
+  const canAffordAnyCall = (questionText: string): boolean => {
     if (!deps.providers.configured) return true;
 
     if (!ledgerReadable) {
@@ -241,12 +283,8 @@ export async function answerQuestion(
       return false;
     }
 
-    const decision = decideAdmission(
-      recordedToday + turnTokens,
-      deps.dailyTokenBudget,
-      estimatePromptTokens(promptText) + deps.maxOutputTokens,
-    );
-
+    const minimum = estimatePromptTokens(questionText) + deps.maxOutputTokens;
+    const decision = decideAdmission(recordedToday, deps.dailyTokenBudget, minimum);
     if (!decision.admitted) {
       refreshGuard(decision.detail);
       return false;
@@ -255,38 +293,115 @@ export async function answerQuestion(
   };
 
   /**
-   * Record what the provider actually reported. A missing report is recorded as
-   * nothing rather than as zero, so the ledger never claims to know more than
-   * the provider told it.
+   * Reserve capacity for one billable call BEFORE it is sent.
+   *
+   * The reservation is granted by the ledger in a single atomic step, so two
+   * concurrent turns cannot both be admitted against the same remaining budget.
+   * Every failure mode — an unreadable ledger, a refusal, or a thrown error —
+   * fails CLOSED and returns null, because a call that cannot be accounted for
+   * must not be sent.
    */
-  const meter = async (
-    providerId: string,
+  const reserveCall = async (
+    promptText: string,
     operation: "generate" | "verify",
-    reported: TokenUsage | null,
-  ): Promise<void> => {
-    if (!reported) return;
+    providerId: string,
+  ): Promise<GenerationReservation | null> => {
+    if (!deps.providers.configured) return null;
 
-    const promptTokens = count(reported.promptTokens);
-    const completionTokens = count(reported.completionTokens);
-    const reasoningTokens = count(reported.thoughtsTokens);
-    // Prompt + completion + reasoning: all three are billed, so all three count.
-    turnTokens += meteredTokens(reported);
+    if (!ledgerReadable) {
+      refreshGuard(
+        "The usage ledger could not be read, so the day's spend is unknown and the provider call was refused.",
+      );
+      return null;
+    }
+
+    const reserveTokens = estimatePromptTokens(promptText) + deps.maxOutputTokens;
 
     try {
-      await usageLedger.record({
+      const decision = await usageLedger.admitGeneration({
+        reserveTokens,
+        budgetTokens: deps.dailyTokenBudget,
         provider: providerId,
         modelId: deps.modelId,
-        requestId: null,
-        turnId: null,
-        promptTokens,
-        completionTokens,
-        reasoningTokens,
         operation,
       });
-    } catch {
-      // The call already happened, so the spend is real either way. Keep it in
-      // the turn total and let the next turn re-read the ledger, which will
-      // fail closed if the ledger is still unwritable.
+      refreshGuard(decision.detail);
+      return decision.admitted ? decision.reservation : null;
+    } catch (error) {
+      console.error(
+        `[horizon] budget reservation failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      refreshGuard(
+        "The durable budget ledger could not grant a reservation, so the provider call was refused.",
+      );
+      return null;
+    }
+  };
+
+  /**
+   * Reconcile a granted reservation with what the provider reported.
+   *
+   * The ledger applies the settlement policy: a call that was SENT is charged
+   * even when the provider reports nothing, so a timeout or a crash cannot erase
+   * spend that may have been billed. A settlement failure is logged and NOT
+   * treated as a free call — the reservation stays outstanding in the ledger and
+   * keeps counting against the day until it is reconciled.
+   */
+  const settleCall = async (
+    reservation: GenerationReservation | null,
+    reported: ReportedUsage | null,
+    options: { failed: boolean; notBillable?: boolean },
+  ): Promise<void> => {
+    if (!reservation) return;
+    try {
+      const result = await usageLedger.settle(reservation, reported, options);
+      turnCharged += result.chargedTokens;
+      refreshGuard(result.detail);
+    } catch (error) {
+      console.error(
+        `[horizon] usage settlement failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      // The ledger still counts the reservation against today, so the reported
+      // total must include it. Reporting zero here would tell the operator that
+      // an unreconciled call was free.
+      turnCharged += reservation.reservedTokens;
+      refreshGuard(
+        "The call was sent but its usage could not be reconciled; the reservation remains charged against today.",
+      );
+    }
+  };
+
+  /**
+   * Claim one embedding request from the durable daily cap.
+   *
+   * This bounds the NUMBER of embedding requests across every instance, which
+   * the previous process-local counter could not do. It does NOT bound cost: the
+   * embeddings API reports no token usage, so no honest cost figure exists.
+   */
+  const admitEmbeddingCall = async (): Promise<boolean> => {
+    if (!ledgerReadable) {
+      refreshGuard(
+        "The usage ledger could not be read, so the embedding request could not be counted and was refused.",
+      );
+      return false;
+    }
+
+    try {
+      const decision = await usageLedger.admitEmbedding({
+        maxCalls: deps.maxEmbeddingCalls,
+        provider: deps.providers.embeddingProviderId,
+        modelId: deps.modelId,
+      });
+      refreshGuard(decision.detail);
+      return decision.admitted;
+    } catch (error) {
+      console.error(
+        `[horizon] embedding admission failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      refreshGuard(
+        "The durable budget ledger could not record the embedding request, so it was refused.",
+      );
+      return false;
     }
   };
 
@@ -316,8 +431,23 @@ export async function answerQuestion(
     guard: { ...guardState },
   });
 
-  // The embedding request is itself billable, so the guard runs before it.
-  if (!admit(input.question)) {
+  // A zero budget permits NO provider request at all, not even the embedding
+  // call, so that state has to be visible as a refusal before anything is sent.
+  if (deps.providers.configured && deps.dailyTokenBudget <= 0) {
+    refreshGuard(
+      "HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard permits no provider call at all.",
+    );
+    return unavailable("BUDGET_EXHAUSTED");
+  }
+
+  // Refuse before spending an embedding request on a turn that cannot finish.
+  if (deps.providers.configured && !canAffordAnyCall(input.question)) {
+    return unavailable("BUDGET_EXHAUSTED");
+  }
+
+  // The embedding request is itself billable, so the durable request cap is
+  // claimed before it is sent.
+  if (deps.providers.configured && !(await admitEmbeddingCall())) {
     return unavailable("BUDGET_EXHAUSTED");
   }
 
@@ -418,7 +548,12 @@ export async function answerQuestion(
     ...payloadBlocks.map((block) => block.text),
   ].join("\n");
 
-  if (!admit(generationPrompt)) {
+  const generationReservation = await reserveCall(
+    generationPrompt,
+    "generate",
+    generator.providerId,
+  );
+  if (!generationReservation) {
     return unavailable("BUDGET_EXHAUSTED");
   }
 
@@ -429,13 +564,17 @@ export async function answerQuestion(
       evidence: payloadBlocks.map((block) => ({ id: block.id, text: block.text })),
     });
     generated = outcome.result;
-    await meter(generator.providerId, "generate", outcome.usage);
+    await settleCall(generationReservation, reportedFromUsage(outcome.usage), { failed: false });
   } catch (error) {
     noteProviderFailure("generate", error);
-    // A failed call is still billed, so meter whatever the provider reported.
-    if (error instanceof ProviderFailure) {
-      await meter(generator.providerId, "generate", error.usage);
-    }
+    // A failed call may still have been billed, so the reservation is settled
+    // against whatever the provider reported — and kept in full when it reported
+    // nothing at all. The exception is a rejection the provider never processed.
+    await settleCall(
+      generationReservation,
+      reportedFromUsage(error instanceof ProviderFailure ? error.usage : null),
+      { failed: true, notBillable: isNotBillable(error) },
+    );
     return unavailable(error instanceof ProviderFailure ? failureReason(error) : "PROVIDER_UNAVAILABLE");
   }
 
@@ -475,7 +614,12 @@ export async function answerQuestion(
     .map((target) => `${target.claimText}\n${target.evidence.map((item) => item.text).join("\n")}`)
     .join("\n");
 
-  if (!admit(verificationPrompt)) {
+  const verificationReservation = await reserveCall(
+    verificationPrompt,
+    "verify",
+    verifier.providerId,
+  );
+  if (!verificationReservation) {
     return unavailable("BUDGET_EXHAUSTED");
   }
 
@@ -483,12 +627,14 @@ export async function answerQuestion(
   try {
     const outcome = await verifier.verify(targets);
     verdicts = outcome.verdicts;
-    await meter(verifier.providerId, "verify", outcome.usage);
+    await settleCall(verificationReservation, reportedFromUsage(outcome.usage), { failed: false });
   } catch (error) {
     noteProviderFailure("verify", error);
-    if (error instanceof ProviderFailure) {
-      await meter(verifier.providerId, "verify", error.usage);
-    }
+    await settleCall(
+      verificationReservation,
+      reportedFromUsage(error instanceof ProviderFailure ? error.usage : null),
+      { failed: true, notBillable: isNotBillable(error) },
+    );
     return unavailable(error instanceof ProviderFailure ? failureReason(error) : "PROVIDER_UNAVAILABLE");
   }
 
@@ -519,7 +665,7 @@ export async function answerQuestion(
   const internal: InternalAnswerState = partial ? "ANSWERED_PARTIAL" : "ANSWERED";
 
   refreshGuard(
-    `${turnTokens} token(s) reported for this turn; ${recordedToday + turnTokens} of ${deps.dailyTokenBudget} used today.`,
+    `${turnCharged} token(s) charged for this turn; ${recordedToday + turnCharged} of ${deps.dailyTokenBudget} used today.`,
   );
 
   return {

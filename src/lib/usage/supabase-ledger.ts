@@ -1,13 +1,39 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { count, entryTotalTokens, utcDayStart, type UsageEntry, type UsageLedger } from "@/lib/usage/types";
+import {
+  count,
+  entryTotalTokens,
+  reportedTotal,
+  utcDayKey,
+  type EmbeddingAdmissionDecision,
+  type EmbeddingAdmissionRequest,
+  type GenerationAdmissionRequest,
+  type GenerationReservation,
+  type ReportedUsage,
+  type ReservationDecision,
+  type SettlementResult,
+  type UsageEntry,
+  type UsageLedger,
+} from "@/lib/usage/types";
 
 /**
- * Database-backed usage ledger, reading and writing `public.usage_ledger`.
+ * Database-backed usage ledger, built on the atomic admission functions added
+ * by migration 0003.
  *
- * This is the durable form of the daily cap: the total survives restarts and is
- * shared by every server instance. It requires the migration to have been
- * applied; when the table is missing, every call throws and the pipeline fails
- * closed rather than spending unmetered.
+ * WHY THIS SHAPE
+ *   Reading the day's total and then inserting a record are two round trips, so
+ *   two concurrent turns could both see the same remaining budget and both be
+ *   admitted. Every admission decision here is delegated to ONE SQL statement
+ *   that takes an advisory transaction lock, so serialization happens in the
+ *   database rather than being assumed in the application.
+ *
+ * FAIL CLOSED
+ *   Every method throws on any error. A caller that cannot distinguish "0 used"
+ *   from "could not read" must not spend, and swallowing an error here would
+ *   silently disable the cap. The pipeline turns a throw into a refusal.
+ *
+ * WHAT IT DOES NOT CLAIM
+ *   The embedding path is bounded by REQUEST COUNT, not by cost. The embeddings
+ *   API reports no token usage, so no honest cost figure exists to enforce.
  */
 
 export class UsageLedgerFailure extends Error {
@@ -20,50 +46,93 @@ export class UsageLedgerFailure extends Error {
   }
 }
 
-export interface UsageGateway {
-  /** Sum of prompt+completion tokens recorded at or after the instant. */
-  sumTokensSince(isoInstant: string): Promise<number>;
-  insert(row: Record<string, unknown>): Promise<void>;
+export interface GenerationAdmissionRow {
+  admitted: boolean;
+  reservation_id: string | null;
+  spent_tokens: number | string | null;
+  reserved_tokens: number | string | null;
+  detail: string | null;
+}
+
+export interface EmbeddingAdmissionRow {
+  admitted: boolean;
+  used_today: number | string | null;
+  detail: string | null;
+}
+
+export interface SettlementRow {
+  charged_tokens: number | string | null;
+  reported_tokens: number | string | null;
+  outcome: string | null;
+  detail: string | null;
 }
 
 export interface UsageRow {
-  prompt_tokens: number | string | null;
-  completion_tokens: number | string | null;
+  state: string | null;
+  charged_tokens: number | string | null;
+  reserved_tokens: number | string | null;
 }
 
-function toCount(value: number | string | null): number {
-  if (value === null) return 0;
+export interface UsageGateway {
+  /** Settled spend and outstanding held capacity for one UTC day. */
+  dayTotals(day: string): Promise<{ settledTokens: number; reservedTokens: number }>;
+  admitGenerationTokens(input: {
+    budgetTokens: number;
+    reserveTokens: number;
+    provider: string;
+    modelId: string | null;
+    operation: string;
+  }): Promise<GenerationAdmissionRow>;
+  admitEmbeddingRequest(input: {
+    maxCalls: number;
+    provider: string;
+    modelId: string | null;
+  }): Promise<EmbeddingAdmissionRow>;
+  settleReservation(input: {
+    reservationId: string;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    reasoningTokens: number | null;
+    failed: boolean;
+    detail: string | null;
+    notBillable: boolean;
+  }): Promise<SettlementRow>;
+  insert(row: Record<string, unknown>): Promise<void>;
+}
+
+function toCount(value: number | string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
   const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
   return count(parsed);
 }
 
 /**
- * The row written for one metered call.
+ * The row written for one metered call that never held a reservation.
  *
- * `sumTokensSince` reads only `prompt_tokens + completion_tokens`, so the row
- * MUST sum to the same figure the admission check counted. The reasoning tokens
- * are therefore folded into `completion_tokens` rather than dropped: persisting
- * the visible completion alone made the daily cap count tens of times less than
- * the provider billed, while `spentToday()` still returned a plausible number.
- * `completion_tokens` is derived from the total instead of recomputed from its
- * parts, so the equality below holds by construction rather than by convention:
- *
- *   prompt_tokens + completion_tokens === entryTotalTokens(entry)
- *
- * The schema has no reasoning column, and adding one would invalidate the
- * migration an operator has already applied, so the split stays in this comment
- * and the total is what is persisted. A `reasoning_tokens` column is the honest
- * follow-up.
+ * `charged_tokens` is the authoritative figure, and it equals
+ * `entryTotalTokens(entry)` — the same sum the in-memory ledger uses, so a mode
+ * switch cannot change what counts as spend. Reasoning tokens are ALSO stored in
+ * their own column now that 0003 adds one; before that they had to be folded
+ * into `completion_tokens` to survive at all.
  */
 export function usageRow(entry: UsageEntry): Record<string, unknown> {
-  const promptTokens = count(entry.promptTokens);
   return {
+    kind: "generation_tokens",
+    state: "settled",
+    day: utcDayKey(),
     provider: entry.provider,
+    // The column exists only from migration 0003 onward; before it, the value
+    // had nowhere to go and was dropped rather than smuggled into another field.
+    operation: entry.operation,
     model_id: entry.modelId,
     request_id: entry.requestId,
     turn_id: entry.turnId,
-    prompt_tokens: promptTokens,
-    completion_tokens: Math.max(0, entryTotalTokens(entry) - promptTokens),
+    prompt_tokens: count(entry.promptTokens),
+    completion_tokens: count(entry.completionTokens),
+    reasoning_tokens: count(entry.reasoningTokens),
+    charged_tokens: entryTotalTokens(entry),
+    reserved_tokens: 0,
+    outcome: "reported",
     // Left NULL deliberately: a cost figure without a dated price source
     // would understate spend.
     estimated_cost_usd: null,
@@ -77,9 +146,76 @@ export class SupabaseUsageLedger implements UsageLedger {
   constructor(private readonly gateway: UsageGateway) {}
 
   async spentToday(): Promise<number> {
-    // The gateway sums server rows and throws on failure; the pipeline fails
-    // closed on that throw, so a wrong number is never used as a limit.
-    return this.gateway.sumTokensSince(utcDayStart());
+    const totals = await this.gateway.dayTotals(utcDayKey());
+    // Settled spend plus capacity currently held by in-flight calls.
+    return totals.settledTokens + totals.reservedTokens;
+  }
+
+  async admitGeneration(request: GenerationAdmissionRequest): Promise<ReservationDecision> {
+    const row = await this.gateway.admitGenerationTokens({
+      budgetTokens: request.budgetTokens,
+      reserveTokens: Math.max(0, count(request.reserveTokens)),
+      provider: request.provider,
+      modelId: request.modelId,
+      operation: request.operation,
+    });
+
+    const spentTokens = toCount(row.spent_tokens);
+    const reservedTokens = toCount(row.reserved_tokens);
+    const detail = row.detail ?? "";
+
+    if (!row.admitted || !row.reservation_id) {
+      return { admitted: false, reservation: null, spentTokens, reservedTokens, detail };
+    }
+
+    return {
+      admitted: true,
+      reservation: {
+        id: row.reservation_id,
+        kind: "generation_tokens",
+        reservedTokens: Math.max(0, count(request.reserveTokens)),
+      },
+      spentTokens,
+      reservedTokens,
+      detail,
+    };
+  }
+
+  async admitEmbedding(request: EmbeddingAdmissionRequest): Promise<EmbeddingAdmissionDecision> {
+    const row = await this.gateway.admitEmbeddingRequest({
+      maxCalls: Math.max(0, Math.floor(count(request.maxCalls))),
+      provider: request.provider,
+      modelId: request.modelId,
+    });
+
+    return {
+      admitted: row.admitted,
+      usedToday: toCount(row.used_today),
+      detail: row.detail ?? "",
+    };
+  }
+
+  async settle(
+    reservation: GenerationReservation,
+    reported: ReportedUsage | null,
+    options: { failed?: boolean; detail?: string; notBillable?: boolean } = {},
+  ): Promise<SettlementResult> {
+    const row = await this.gateway.settleReservation({
+      reservationId: reservation.id,
+      promptTokens: reported?.promptTokens ?? null,
+      completionTokens: reported?.completionTokens ?? null,
+      reasoningTokens: reported?.reasoningTokens ?? null,
+      failed: options.failed ?? false,
+      detail: options.detail ?? null,
+      notBillable: options.notBillable ?? false,
+    });
+
+    return {
+      chargedTokens: toCount(row.charged_tokens),
+      reportedTokens: toCount(row.reported_tokens) || reportedTotal(reported),
+      outcome: (row.outcome ?? "unknown") as SettlementResult["outcome"],
+      detail: row.detail ?? "",
+    };
   }
 
   async record(entry: UsageEntry): Promise<void> {
@@ -89,31 +225,78 @@ export class SupabaseUsageLedger implements UsageLedger {
 
 /** Build a UsageGateway from a Supabase service-role client. */
 export function createSupabaseUsageGateway(client: SupabaseClient): UsageGateway {
+  async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+    const { data, error } = await client.rpc(fn, args);
+    if (error) {
+      throw new UsageLedgerFailure(
+        fn,
+        `Database function ${fn} failed: ${error.message}. Confirm migration 0003 is applied.`,
+      );
+    }
+    // A function declared `returns table (...)` comes back as an array with one
+    // row. Anything else means the shim changed shape, which must not be read as
+    // a successful admission.
+    const rows = Array.isArray(data) ? data : [data];
+    if (!rows[0]) {
+      throw new UsageLedgerFailure(fn, `Database function ${fn} returned no row.`);
+    }
+    return rows[0] as T;
+  }
+
   return {
-    async sumTokensSince(isoInstant: string): Promise<number> {
-      // Range-select rather than COUNT/SUM: PostgREST cannot aggregate without a
-      // server-side function. Acceptable at demo volume; a dated aggregate RPC
-      // is the right follow-up once the ledger is large.
+    async dayTotals(day: string) {
+      // Range-select rather than SUM: PostgREST cannot aggregate without a
+      // server-side function. Acceptable at demo volume; a dated aggregate RPC is
+      // the right follow-up once the ledger is large.
       const { data, error } = await client
         .from("usage_ledger")
-        .select("prompt_tokens, completion_tokens")
-        .gte("occurred_at", isoInstant);
+        .select("state, charged_tokens, reserved_tokens")
+        .eq("day", day);
 
       if (error) {
         throw new UsageLedgerFailure(
-          "sum_usage",
-          `Could not read today's usage: ${error.message}. Confirm both migrations are applied.`,
+          "day_totals",
+          `Could not read today's usage: ${error.message}. Confirm migrations 0001 and 0003 are applied.`,
         );
       }
 
-      return (data ?? []).reduce(
-        (total: number, row: UsageRow) =>
-          total + toCount(row.prompt_tokens) + toCount(row.completion_tokens),
-        0,
-      );
+      let settledTokens = 0;
+      let reservedTokens = 0;
+      for (const row of (data ?? []) as UsageRow[]) {
+        if (row.state === "reserved") reservedTokens += toCount(row.reserved_tokens);
+        else settledTokens += toCount(row.charged_tokens);
+      }
+      return { settledTokens, reservedTokens };
     },
 
-    async insert(row: Record<string, unknown>): Promise<void> {
+    admitGenerationTokens: (input) =>
+      rpc<GenerationAdmissionRow>("horizon_admit_generation_tokens", {
+        p_budget_tokens: input.budgetTokens,
+        p_reserve_tokens: input.reserveTokens,
+        p_provider: input.provider,
+        p_model_id: input.modelId,
+        p_operation: input.operation,
+      }),
+
+    admitEmbeddingRequest: (input) =>
+      rpc<EmbeddingAdmissionRow>("horizon_admit_embedding_request", {
+        p_max_calls: input.maxCalls,
+        p_provider: input.provider,
+        p_model_id: input.modelId,
+      }),
+
+    settleReservation: (input) =>
+      rpc<SettlementRow>("horizon_settle_reservation", {
+        p_reservation_id: input.reservationId,
+        p_prompt_tokens: input.promptTokens,
+        p_completion_tokens: input.completionTokens,
+        p_reasoning_tokens: input.reasoningTokens,
+        p_failed: input.failed,
+        p_detail: input.detail,
+        p_not_billable: input.notBillable,
+      }),
+
+    async insert(row: Record<string, unknown>) {
       const { error } = await client.from("usage_ledger").insert(row);
       if (error) {
         throw new UsageLedgerFailure(

@@ -10,6 +10,7 @@ import {
   makeProviders,
   makeUsageLedger,
   PERMITTED_BUDGET,
+  TEST_MAX_EMBEDDING_CALLS,
   TEST_MAX_OUTPUT_TOKENS,
 } from "./helpers/fakes";
 import { SyntheticLexicalEmbedder } from "@/lib/answer/synthetic-embedder";
@@ -28,7 +29,11 @@ const supportAll: SemanticVerifier = {
       verdict: "SUPPORTED" as const,
       reason: "supported by cited evidence",
     })),
-    usage: null,
+    // Non-zero on purpose. A call that reports NOTHING is charged its whole
+    // reservation, which is correct but would make every token total in these
+    // tests depend on the reservation arithmetic rather than on the reported
+    // figures they exist to check.
+    usage: { promptTokens: 1, completionTokens: 1, thoughtsTokens: 0 },
   }),
 };
 
@@ -60,6 +65,7 @@ function makeDeps(
     embeddingDimensions: 768,
     dailyTokenBudget: PERMITTED_BUDGET,
     maxOutputTokens: TEST_MAX_OUTPUT_TOKENS,
+    maxEmbeddingCalls: TEST_MAX_EMBEDDING_CALLS,
     usage: makeUsageLedger(),
   };
 }
@@ -464,10 +470,12 @@ describe("cumulative daily usage accounting", () => {
     );
 
     expect(outcome.answerState).toBe("ANSWERED");
-    expect(await ledger.spentToday()).toBe(1000);
-    expect(outcome.guard.spentTokensToday).toBe(1000);
+    // 1000 for the generation (900 prompt + 100 completion) plus the verifier's
+    // 2. Both calls are billable and both are charged against the same day.
+    expect(await ledger.spentToday()).toBe(1002);
+    expect(outcome.guard.spentTokensToday).toBe(1002);
     expect(outcome.guard.mode).toBe("memory");
-    expect(outcome.guard.coverage).toMatch(/Embedding requests are not metered/);
+    expect(outcome.guard.coverage).toMatch(/their cost is not metered/);
   });
 
   it("refuses a later turn because an EARLIER turn's spend was counted", async () => {
@@ -560,44 +568,139 @@ describe("cumulative daily usage accounting", () => {
 
   it("fails closed when the ledger cannot be read, rather than assuming zero spend", async () => {
     const { generator, calls } = meteredGenerator(10, 10);
-    const brokenLedger = {
-      mode: "supabase" as const,
+    const brokenLedger: AnswerPipelineDeps["usage"] = {
+      mode: "supabase",
       spentToday: async () => {
         throw new Error("usage_ledger is unreachable");
+      },
+      admitGeneration: async () => {
+        throw new Error("must not be reached");
+      },
+      admitEmbedding: async () => {
+        throw new Error("must not be reached");
+      },
+      settle: async () => {
+        throw new Error("must not be reached");
+      },
+      record: async () => {},
+    };
+
+    let embedCalls = 0;
+    const deps: AnswerPipelineDeps = {
+      ...makeDeps(generator),
+      usage: brokenLedger,
+      providers: makeProviders({
+        generator,
+        verifier: supportAll,
+        embedder: {
+          providerId: "counting-embedder",
+          dimensions: 768,
+          embed: async (texts) => {
+            embedCalls += 1;
+            return texts.map(() => new Array<number>(768).fill(0));
+          },
+        },
+      }),
+    };
+
+    const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
+
+    expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
+    expect(outcome.guard.detail).toMatch(/could not be read/);
+    // An unreadable ledger must stop the turn BEFORE any request is sent, so no
+    // embedding request is spent either.
+    expect(embedCalls).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses when the durable ledger will not grant a reservation", async () => {
+    // A ledger that refuses every reservation (for example because concurrent
+    // turns have taken the remaining budget) must produce a refusal, not an
+    // unmetered call.
+    const { generator, calls } = meteredGenerator(10, 10);
+    const refusingLedger: AnswerPipelineDeps["usage"] = {
+      mode: "supabase",
+      spentToday: async () => 0,
+      admitEmbedding: async () => ({ admitted: true, usedToday: 1, detail: "counted" }),
+      admitGeneration: async () => ({
+        admitted: false,
+        reservation: null,
+        spentTokens: 0,
+        reservedTokens: 0,
+        detail: "This call needs about 5000 tokens but only 12 remain of the 20000-token daily budget.",
+      }),
+      settle: async () => {
+        throw new Error("must not be reached");
       },
       record: async () => {},
     };
 
     const outcome = await ask(
-      { ...makeDeps(generator), usage: brokenLedger },
+      { ...makeDeps(generator), usage: refusingLedger, dailyTokenBudget: 20_000 },
       DEMO_QUESTIONS.canary,
       720,
     );
 
     expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
-    expect(outcome.guard.detail).toMatch(/could not be read/);
+    expect(outcome.guard.detail).toMatch(/only 12 remain/);
     expect(calls).toHaveLength(0);
   });
 
-  it("keeps a spend that was incurred even when recording it fails", async () => {
-    const ledger = makeUsageLedger();
-    const { generator } = meteredGenerator(700, 300);
-    const failingRecord = {
-      mode: "supabase" as const,
-      spentToday: () => ledger.spentToday(),
-      record: async () => {
-        throw new Error("write failed");
+  it("fails closed when the ledger throws instead of granting a reservation", async () => {
+    const { generator, calls } = meteredGenerator(10, 10);
+    const throwingLedger: AnswerPipelineDeps["usage"] = {
+      mode: "supabase",
+      spentToday: async () => 0,
+      admitEmbedding: async () => ({ admitted: true, usedToday: 1, detail: "counted" }),
+      admitGeneration: async () => {
+        throw new Error("function horizon_admit_generation_tokens does not exist");
       },
+      settle: async () => {
+        throw new Error("must not be reached");
+      },
+      record: async () => {},
     };
 
     const outcome = await ask(
-      { ...makeDeps(generator), usage: failingRecord, dailyTokenBudget: 20_000 },
+      { ...makeDeps(generator), usage: throwingLedger, dailyTokenBudget: 20_000 },
       DEMO_QUESTIONS.canary,
       720,
     );
 
-    // The call happened, so the tokens are real and must still be reported.
+    // Fail closed: an error is not a grant.
+    expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
+    expect(outcome.guard.detail).toMatch(/could not grant a reservation/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps a spend that was incurred even when reconciliation fails", async () => {
+    // The call was SENT, so it may well have been billed. Losing that because
+    // the settlement write failed is the exact failure this guards against.
+    const ledger = makeUsageLedger();
+    const { generator } = meteredGenerator(700, 300);
+    const failingSettle: AnswerPipelineDeps["usage"] = {
+      mode: "supabase",
+      spentToday: () => ledger.spentToday(),
+      admitGeneration: (request) => ledger.admitGeneration(request),
+      admitEmbedding: (request) => ledger.admitEmbedding(request),
+      settle: async () => {
+        throw new Error("settle failed");
+      },
+      record: (entry) => ledger.record(entry),
+    };
+
+    const outcome = await ask(
+      { ...makeDeps(generator), usage: failingSettle, dailyTokenBudget: 20_000 },
+      DEMO_QUESTIONS.canary,
+      720,
+    );
+
     expect(outcome.answerState).toBe("ANSWERED");
-    expect(outcome.guard.spentTokensToday).toBe(1000);
+    // The reservation is still held by the ledger, so it still counts against
+    // the day — and the reported total must say so rather than claiming zero.
+    // (The turn's final guard message is refreshed by the turn itself, so the
+    // invariant to assert is the TOTAL, not the wording.)
+    expect(await failingSettle.spentToday()).toBeGreaterThan(0);
+    expect(outcome.guard.spentTokensToday).toBe(await failingSettle.spentToday());
   });
 });

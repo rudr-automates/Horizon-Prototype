@@ -13,12 +13,15 @@ import { DEMO_BLOCKS, DEMO_COURSE, type DemoBlockSpec } from "@/lib/demo/lesson"
  *   the service-role client. This module builds those rows and this file is the
  *   only place that decides their shape.
  *
- * STATUS: IMPLEMENTED, NOT YET EXECUTED AGAINST A LIVE DATABASE.
- *   At the time of writing the remote project has no tables, the `vector`
- *   extension is not installed and no database credential is configured. The
- *   row mapping and the guards below are covered by unit tests against a fake
- *   gateway; the actual network insert has never run. Do not describe a seeded
- *   database as verified.
+ * STATUS: EXECUTED AGAINST THE LIVE DATABASE (2026-10-15).
+ *   `pnpm seed:demo` wrote 1 course, 6 resources and 18 blocks using one real
+ *   `gemini-embedding-001` request, and re-reading the rows confirmed every
+ *   vector is 768 values, all finite, none all-zero, labelled with the model
+ *   that produced it. The row mapping and the guards below are ALSO covered by
+ *   unit tests against a fake gateway.
+ *
+ *   This asserts nothing about answer quality: the answer path is still blocked
+ *   by the provider's free-tier generation quota, so no claim here covers it.
  *
  * INTEGRITY GUARD
  *   Vectors are only ever written with the model and dimension that actually

@@ -436,3 +436,84 @@ a model, not a failure of the pipeline.
    whether the citation *set* differed, which is the submission's headline claim.
 4. Apply the migrations, load a real course, and repeat everything with
    `evidenceSource: "supabase"`.
+
+---
+
+# Part 04 — database path verification (2026-10-15)
+
+**Baseline:** `73d731a` · **Outcome: the database path is EXECUTED; the answer path
+is still refused by the provider's generation quota.**
+
+Supabase is configured (all three names present, values never printed), the demo
+corpus is seeded, and the database-backed retrieval path ran for real. Raw record:
+[db-path-verification-2026-10-15T09-28-15-146Z.json](evidence/db-path-verification-2026-10-15T09-28-15-146Z.json).
+
+| # | Case | Evidence | Kind | Result |
+|---|---|---|---|---|
+| D1 | Seed the corpus through the real data path | `pnpm seed:demo` | LIVE — 1 embedding request against a cap of 10 | **PASS** exit 0; 1 course / 6 resources / 18 blocks |
+| D2 | Real embeddings persisted, not placeholders | re-read of `blocks.embedding` via REST | LIVE | **PASS** — 18/18 vectors of 768 values, all finite, none all-zero, 18 distinct prefixes, labelled `gemini-embedding-001` |
+| D3 | Durable usage ledger — read | the app's own `spentToday()` | LIVE | **PASS** — a real `SELECT` against `usage_ledger` |
+| D4 | Durable usage ledger — write | the app's own `record()`, labelled probe row deleted afterwards | LIVE | **PASS** — total moved 0 → 66 (11 prompt + 55 completion, with the 33 reasoning tokens folded in); cleanup left 0 rows / 0 tokens |
+| D5 | Course reads through the store | `listCourses`, `getCourse` | LIVE | **PASS** — the seeded course, 900 s |
+| D6 | Eligibility enforced on real rows | `listEligible` at boundaries 0 / 200 / 899 / 900 s | LIVE | **PASS** — 2 / 7 / 16 / 16, i.e. 18 blocks minus the 1 `PENDING` and the 1 `FLAGGED` block |
+| D7 | Full-text branch | `searchFullText` | LIVE | **PASS** — `backoff` 2 hits, `exponential backoff` 1, `jitter` 2 |
+| D8 | Vector branch | `searchVector` using a **stored** vector as the query, so no provider call was made | LIVE | **PASS** — the source block returns first at distance 0 |
+| D9 | Ineligible-match probe | `hasMatchingIneligible` | LIVE | **PASS** — `backoff` true, `zzz-not-present` false |
+| D10 | HTTP interface | `GET /api/v1/courses`, `/courses/:id`, `/scope` at five playheads | LIVE | **PASS** — 200; counts 2 / 4 / 7 / 10 / 16; negative playhead 400; unknown course 404 |
+| D11 | The answer path | `POST /questions` | LIVE | **NOT RUN as a success** — generation is refused by the provider (429); the observed outcome is the safe refusal `TEMPORARILY_UNAVAILABLE` / `PROVIDER_RATE_LIMITED`. Never counted as a pass |
+| D12 | Turn persistence to the database | — | — | **NOT RUN** — a turn is recorded only after a successful generation |
+
+## Part 04 — what is still not evaluated
+
+Nothing about answer *quality* changed. No live answer exists on this revision, so
+citation precision, claim sufficiency and the two-playhead citation-set comparison
+remain unmeasured, and no accuracy, latency or cost metric is claimed. The
+provider's own retry-after was roughly 15 h from 2026-10-15T08:43:15Z and that
+window had not elapsed when this part was recorded, so the deferred live run is a
+scheduling matter, not a code change.
+
+---
+
+# Part 05 — atomic budget safety and release readiness (2026-10-15)
+
+**Outcome: admission is now an atomic reservation; the migration that makes it
+work is AUTHORED AND NOT APPLIED, and the answer path fails closed until a human
+applies it.**
+
+## P5-1. The defect, and what replaced it
+
+Admission used to be read → decide → record as three operations, so two turns in
+flight could both read the same remaining budget. It is now a single SQL
+statement that takes an advisory transaction lock keyed on `(kind, UTC day)` and
+inserts a reservation only if the day's settled charges plus outstanding holds
+still fit. The same mechanism counts embedding requests by row count, replacing a
+process-local counter that gave N instances N caps. Reservation state lives in
+`usage_ledger` itself rather than a second table, so there is exactly one answer
+to "what has been spent today".
+
+## P5-2. What was verified, and how
+
+| # | Case | Evidence | Kind | Result |
+|---|---|---|---|---|
+| P5-1 | Two concurrent turns cannot over-reserve a budget that fits one | `tests/budget-concurrency.test.ts` — two real pipeline turns over one shared ledger, with the first parked inside its reservation window | MOCKED (unit) | **PASS** — one answered, one `BUDGET_EXHAUSTED`, provider reached once |
+| P5-2 | Several turns started at once | same file, 4 simultaneous turns, budget derived from the pipeline's own reservation arithmetic | MOCKED (unit) | **PASS** — 1 answered, 3 refused, 1 provider call |
+| P5-3 | Reserved capacity cannot be spent by a later call | ledger-level test, 600 + 600 against 1000 | MOCKED (unit) | **PASS** — exactly one grant |
+| P5-4 | A reservation is charged even before settlement | `InMemoryUsageLedger.spentToday()` | MOCKED (unit) | **PASS** |
+| P5-5 | A sent call that reports nothing keeps its reservation | settlement policy tests | MOCKED (unit) | **PASS** — `failed_no_report_charged_reservation` |
+| P5-6 | A provider REJECTION releases its hold at zero | settlement policy tests + live behaviour | MOCKED (unit) | **PASS** — `failed_not_billable` |
+| P5-7 | A duplicate settle does not charge twice | settlement policy tests | MOCKED (unit) | **PASS** |
+| P5-8 | An unreadable ledger refuses instead of assuming zero spend | pipeline test + the live endpoint | LIVE | **PASS** — `TEMPORARILY_UNAVAILABLE` / `BUDGET_EXHAUSTED`, zero provider calls |
+| P5-9 | Health distinguishes authentication from reachability from schema from ledger | `GET /api/v1/health` | LIVE | **PASS** — reports `querySucceeded: true` with `durableLedger: "unreadable"` and `ok: false` |
+| P5-10 | The concurrency claim against real PostgreSQL | `pnpm verify:budget` | — | **NOT RUN — BLOCKED.** The migration is not applied, so the command refuses before writing a row and names the missing migration. It is the check that turns P5-1..P5-3 from "the app is correct" into "the database serializes admission" |
+| P5-11 | Deployment | — | — | **NOT ATTEMPTED.** No public URL exists |
+
+## P5-3. Still not evaluated
+
+- **Live generation.** The free-tier quota is still exhausted; no answer has been
+  produced by a live model on this revision, so citation precision and claim
+  sufficiency remain unmeasured. `pnpm smoke` and `pnpm canary` stay blocked.
+- **Embedding cost.** The durable cap bounds request COUNT. That API reports no
+  token usage, so no cost figure is enforced and `estimated_cost_usd` stays NULL.
+- **Everything downstream of `0003`.** Until it is applied, the durable ledger's
+  read path, the reservation functions and the concurrency proof are all
+  unexecuted against the real database. Do not describe them as verified.
