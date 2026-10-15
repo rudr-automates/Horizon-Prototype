@@ -3,7 +3,10 @@
 #   unrs-resolver  — native binding used by ESLint's import resolver
 #   @google/genai  — Google Gen AI SDK preinstall
 #   protobufjs     — transitive dependency of the SDK
+#   esbuild        — installs the native binary that tsx bundles; required by
+#                    the operational scripts (`pnpm seed:demo`, `pnpm canary`)
 allowBuilds:
   '@google/genai': true
   protobufjs: true
   unrs-resolver: true
+  esbuild: true

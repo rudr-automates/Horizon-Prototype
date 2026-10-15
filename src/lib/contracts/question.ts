@@ -44,6 +44,7 @@ export const answerReasonSchema = z.enum([
   "PROVIDER_TIMEOUT",
   "PROVIDER_MALFORMED",
   "EMBEDDING_UNAVAILABLE",
+  "BUDGET_EXHAUSTED",
   "INVALID_REQUEST",
 ]);
 export type AnswerReason = z.infer<typeof answerReasonSchema>;

@@ -11,7 +11,7 @@ import { questionRequestSchema, questionResponseSchema } from "@/lib/contracts/q
 import { DEMO_COURSE } from "@/lib/demo/lesson";
 import { ANSWER_STATE_LABEL, ANSWER_STATE_TONE } from "@/lib/presentation/answer-state";
 import { FixtureEvidenceStore } from "@/lib/retrieval/fixture-store";
-import { makeProviders } from "./helpers/fakes";
+import { makeProviders, PERMITTED_BUDGET } from "./helpers/fakes";
 
 const COURSE = DEMO_COURSE.courseId;
 
@@ -50,6 +50,7 @@ async function outcomeFrom(generator: ClaimGenerator): Promise<AnswerOutcome> {
       modelId: "fake-model",
       embeddingModel: "synthetic-lexical-v1",
       embeddingDimensions: 768,
+      dailyTokenBudget: PERMITTED_BUDGET,
     },
     {
       courseId: COURSE,
@@ -158,6 +159,7 @@ describe("response contract", () => {
         modelId: "fake-model",
         embeddingModel: "synthetic-lexical-v1",
         embeddingDimensions: 768,
+        dailyTokenBudget: PERMITTED_BUDGET,
       },
       {
         courseId: COURSE,
@@ -188,6 +190,7 @@ describe("response contract", () => {
         modelId: null,
         embeddingModel: "synthetic-lexical-v1",
         embeddingDimensions: 768,
+        dailyTokenBudget: PERMITTED_BUDGET,
       },
       {
         courseId: COURSE,

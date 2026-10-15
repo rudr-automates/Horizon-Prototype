@@ -6,7 +6,7 @@ import {
   type EvidenceItem,
   type SemanticVerifier,
 } from "@/lib/answer/provider";
-import { makeProviders } from "./helpers/fakes";
+import { makeProviders, PERMITTED_BUDGET } from "./helpers/fakes";
 import { SyntheticLexicalEmbedder } from "@/lib/answer/synthetic-embedder";
 import { DEMO_COURSE, DEMO_QUESTIONS } from "@/lib/demo/lesson";
 import { FixtureEvidenceStore } from "@/lib/retrieval/fixture-store";
@@ -51,6 +51,7 @@ function makeDeps(
     modelId: "fake-model",
     embeddingModel: "synthetic-lexical-v1",
     embeddingDimensions: 768,
+    dailyTokenBudget: PERMITTED_BUDGET,
   };
 }
 
@@ -349,5 +350,64 @@ describe("refusal and failure states", () => {
     const outcome = await ask(broken, DEMO_QUESTIONS.canary, 720);
     expect(outcome.answerState).toBe("TEMPORARILY_UNAVAILABLE");
     expect(outcome.reason).toBe("EMBEDDING_UNAVAILABLE");
+  });
+});
+
+describe("the documented spend guard is real", () => {
+  it("makes no provider call at all when the budget permits none", async () => {
+    const { generator, calls } = scriptedGenerator([
+      {
+        text: "The instructor chooses the Marlin backoff constant, 0.37.",
+        evidenceIds: ["b_0013"],
+        quote: "0.37",
+      },
+    ]);
+    let embedCalls = 0;
+
+    const deps: AnswerPipelineDeps = {
+      ...makeDeps(generator),
+      dailyTokenBudget: 0,
+      providers: makeProviders({
+        generator,
+        verifier: supportAll,
+        embedder: {
+          providerId: "counting-embedder",
+          dimensions: 768,
+          embed: async (texts) => {
+            embedCalls += 1;
+            return texts.map(() => new Array<number>(768).fill(0.1));
+          },
+        },
+      }),
+    };
+
+    const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
+
+    expect(outcome.answerState).toBe("TEMPORARILY_UNAVAILABLE");
+    expect(outcome.reason).toBe("BUDGET_EXHAUSTED");
+    // The embedding call is itself a billable provider call, so the guard must
+    // stop it too, not merely the generation call.
+    expect(embedCalls).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(outcome.claims).toHaveLength(0);
+  });
+
+  it("still reports the more informative provider state when nothing is configured", async () => {
+    const deps: AnswerPipelineDeps = {
+      ...makeDeps(null, null),
+      dailyTokenBudget: 0,
+    };
+
+    const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
+
+    // An unconfigured deployment must not be reported as a budget problem.
+    expect(outcome.reason).toBe("PROVIDER_UNAVAILABLE");
+  });
+
+  it("does not refuse on budget grounds when the budget permits calls", async () => {
+    const deps = makeDeps(scriptedGenerator([]).generator);
+    const outcome = await ask(deps, DEMO_QUESTIONS.canary, 720);
+
+    expect(outcome.reason).not.toBe("BUDGET_EXHAUSTED");
   });
 });

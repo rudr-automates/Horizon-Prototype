@@ -27,10 +27,13 @@ honest refusal.
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
 | Supabase migrations (schema + search RPCs) **authored** | ✅ (not applied) |
-| Database schema applied remotely | ❌ blocked — see [apply-migration.md](docs/apply-migration.md) |
+| Database schema applied remotely | ❌ blocked — verified absent via three read-only checks; see [apply-migration.md](docs/apply-migration.md) |
 | Runtime AI configured / live smoke test | ❌ blocked — no credential available |
+| Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
+| Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ implemented + unit tested; **never executed** against a live database |
+| End-to-end canary harness (`pnpm canary`) | ✅ ran live; recorded in [docs/evidence](docs/evidence) |
 | Turn persistence to a real database | ❌ reports `persisted: false` honestly |
-| Public deployment | ❌ not attempted |
+| Public deployment | ❌ not attempted; procedure in [DEPLOY.md](docs/DEPLOY.md). No URL exists |
 | Ingestion (transcription, OCR, parsing) | ❌ deferred — the demo corpus is a fixture |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
@@ -99,6 +102,16 @@ cp .env.example .env.local   # then fill in real values (never commit them)
 | `pnpm lint` | ESLint |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` | Vitest unit tests |
+| `pnpm seed:demo` | Seed the labelled demo corpus into Supabase with real embeddings. Refuses, writing nothing, unless the migrations, the database credential and a real embedding provider are all configured |
+| `pnpm canary` | Ask the canary question at 00:00, 06:00 and 12:00 against a running server and record the real responses to `docs/evidence/` |
+
+```bash
+pnpm canary --base http://127.0.0.1:4321 --label fixture-unconfigured
+```
+
+The canary writes raw responses only after checking that no configured
+credential value appears in them. It reports blocked cases as `NOT RUN`, never
+as passing.
 
 ## Health endpoint
 
@@ -214,10 +227,17 @@ than inventing a result. To enable real inference:
 
 ```bash
 cp .env.example .env.local
-# set HORIZON_LLM_PROVIDER=google-genai and HORIZON_LLM_API_KEY=…
+# set HORIZON_LLM_PROVIDER=google-genai, HORIZON_LLM_MODEL and HORIZON_LLM_API_KEY=…
+# set HORIZON_DAILY_TOKEN_BUDGET to a positive value — see the warning below
 pnpm build && pnpm start
-# then ask the canary question at 00:00 (refusal) and 12:00 (answer)
+pnpm canary --base http://127.0.0.1:4321 --label configured
 ```
+
+**`HORIZON_DAILY_TOKEN_BUDGET=0` is a real hard stop.** With the budget at zero
+the pipeline sends no provider request at all — not even the embedding call —
+and every turn returns `TEMPORARILY_UNAVAILABLE` with reason `BUDGET_EXHAUSTED`.
+Set a positive value to permit inference. `/api/v1/health` reports
+`runtime.spendGuard` so the state is observable rather than guessed.
 
 The free-tier data-use terms must be accepted by the team first, and the demo
 corpus must stay synthetic or team-authored.
@@ -249,8 +269,9 @@ Specific consequences of that rule:
 ```
 pnpm lint       exit 0
 pnpm typecheck  exit 0
-pnpm test       exit 0   76 tests, 8 files
+pnpm test       exit 0   98 tests, 9 files
 pnpm build      exit 0
+pnpm canary     exit 0   24 checks passed, 3 not run (no credential)
 ```
 
 Live checks against `next start` on `127.0.0.1:4321`: health, courses, scope at

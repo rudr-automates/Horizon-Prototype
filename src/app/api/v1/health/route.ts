@@ -46,12 +46,16 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
           : "Supabase REST endpoint did not respond.",
     };
 
+    const spendGuardBlocked = config.dailyTokenBudget <= 0;
+
     const runtimeAiCheck = {
       configured: runtimeAiConfigured,
       // Never claim a model is reachable without a real smoke test.
       reachable: null,
       detail: runtimeAiConfigured
-        ? "Environment variable names are present, but no live smoke test has been run or recorded."
+        ? spendGuardBlocked
+          ? "Names are present, but HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard permits no provider call and every turn will refuse with BUDGET_EXHAUSTED."
+          : "Environment variable names are present, but no live smoke test has been run or recorded."
         : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.",
     };
 
@@ -78,6 +82,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
         evidenceSource: storeResolution.store.mode,
         evidenceReason: storeResolution.reason,
         demoContent: storeResolution.store.demoContent,
+        spendGuard: spendGuardBlocked ? "blocked" : "permitted",
       },
     };
 

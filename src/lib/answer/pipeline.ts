@@ -57,6 +57,13 @@ export interface AnswerPipelineDeps {
   modelId: string | null;
   embeddingModel: string;
   embeddingDimensions: number;
+  /**
+   * Spend guard. `<= 0` means no provider call is permitted at all. Enforced
+   * BEFORE the first request so the documented hard stop is real, not a claim.
+   * Only meaningful when a credential exists; an unconfigured deployment still
+   * reports PROVIDER_UNAVAILABLE, which is the more informative signal.
+   */
+  dailyTokenBudget: number;
 }
 
 export interface AnswerOutcome {
@@ -158,6 +165,12 @@ export async function answerQuestion(
     evidence: evidenceBase,
     provenance: baseProvenance,
   });
+
+  // 0. Spend guard. This must run before the first provider request, because
+  //    the embedding call below is itself a billable provider call.
+  if (deps.providers.configured && deps.dailyTokenBudget <= 0) {
+    return unavailable("BUDGET_EXHAUSTED");
+  }
 
   // 1. Embed the question.
   let questionEmbedding: number[];

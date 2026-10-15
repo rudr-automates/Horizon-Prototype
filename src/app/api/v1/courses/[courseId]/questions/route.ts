@@ -75,6 +75,7 @@ export async function POST(
         modelId: providers.modelId,
         embeddingModel: config.embeddingModel,
         embeddingDimensions: config.embeddingDimensions,
+        dailyTokenBudget: config.dailyTokenBudget,
       },
       {
         courseId,

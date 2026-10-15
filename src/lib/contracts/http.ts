@@ -54,6 +54,12 @@ export const runtimeInfoSchema = z.object({
   evidenceSource: z.enum(["supabase", "fixture"]),
   evidenceReason: z.string(),
   demoContent: z.boolean(),
+  /**
+   * The spend guard actually in effect. "blocked" means no provider call is
+   * permitted at all, so a configured deployment will still refuse. Reported
+   * here because a learner-facing refusal must not describe budgets.
+   */
+  spendGuard: z.enum(["blocked", "permitted"]),
 });
 export type RuntimeInfo = z.infer<typeof runtimeInfoSchema>;
 

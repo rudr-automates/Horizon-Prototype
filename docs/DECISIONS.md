@@ -126,15 +126,41 @@ documented in the migration so nobody "fixes" it with a broad allow policy.
 ## D-007 — Hosting target: Vercel, verified only when a live URL exists
 
 **Date:** 2026-10-15
-**Status:** Tentative — NOT yet verified
+**Status:** Procedure prepared in Part 03; deployment still NOT verified
 **Context:** Public deployment is mandatory for the submission. Vercel's Hobby
 plan is the default path named in the task.
 
-**Decision:** Target a single Vercel deployment of this Next.js app. No Vercel CLI
-is installed and no deployment has been attempted in Part 01.
+**Decision:** Target a single Vercel deployment of this Next.js app, connected
+to the existing GitHub repository. The full procedure — project connection,
+the exact environment-variable names, and the post-deploy checklist — is in
+[docs/DEPLOY.md](DEPLOY.md).
 
-**Consequence:** Deployment is an open prerequisite. It must not be reported as
-successful until a real public URL has been opened in a clean session.
+**Consequence:** No Vercel CLI and no deployment token exist in this
+environment, so the agent cannot perform the connection itself. Deployment is an
+open prerequisite owned by a human with Vercel account access. It must not be
+reported as successful until a real public URL has been opened in a clean
+session; a local `next start` is not a deployment.
+
+---
+
+## D-009 — The spend guard is enforced, not merely documented
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** `.env.example` and the README both stated that
+`HORIZON_DAILY_TOKEN_BUDGET=0` means "no calls permitted (hard stop)". The value
+was read into configuration and then never consulted, so the documented limit
+did not exist. A documented guardrail that does not run is a false claim.
+
+**Decision:** Enforce it in `answerQuestion` at step 0, before the embedding
+request, because the embedding call is itself billable. When the guard trips the
+turn returns `TEMPORARILY_UNAVAILABLE` with reason `BUDGET_EXHAUSTED` and **no**
+provider request is made. `/api/v1/health` reports `runtime.spendGuard`.
+
+**Consequence:** A deployment with a credential but a zero budget still refuses.
+That is correct fail-closed behaviour, but it is easy to mistake for a broken key,
+so the state is reported on the health endpoint and the learner-facing message
+deliberately says nothing about budgets.
 
 ---
 
@@ -270,3 +296,46 @@ rate limits and malformed output.
 
 **Consequence:** No claim of infallibility. A shared failure mode between the
 generator and the verifier is possible and is stated rather than hidden.
+
+---
+
+## D-010 — The seed path refuses to persist placeholder vectors
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** Part 03 asks for the demo corpus to be loaded through the real data
+path with real embeddings. The demo corpus is reachable only in fixture mode
+today, so an ingestion operation had to exist. The risk is that it runs with the
+offline `synthetic-lexical-v1` embedder and writes lexical hashes into
+`blocks.embedding`, where they would then be indistinguishable from semantic
+vectors.
+
+**Decision:** `src/lib/ingest/seed.ts` refuses outright when the active embedder
+id begins with `synthetic`, and it records `embedding_model` and `embedding_dim`
+from the embedder that actually produced each vector. Fixture ids are hashed into
+deterministic uuids so a re-run upserts rather than duplicating the corpus.
+
+**Consequence:** `pnpm seed:demo` cannot silently populate the database with
+placeholder vectors; it stops with an operator-facing reason. It is implemented
+and unit tested against a fake gateway, but it has **never executed** against a
+live database, and nothing in this repository claims that it has.
+
+---
+
+## D-011 — Withheld material is checked by an independent test oracle
+
+**Date:** 2026-10-15
+**Status:** Accepted
+**Context:** The temporal invariant ("the future fact must not be reachable
+before its unlock time") is the submission's headline claim. Testing it by
+calling the application's own `isBlockEligible` would let a bug in that predicate
+satisfy its own test.
+
+**Decision:** `scripts/canary.ts` writes a second, explicit expression of the
+policy and uses it as an oracle: it compares the server's eligible-block count
+against its own count, and asserts that every returned citation id belongs to
+that set. It also treats an unconfigured model as `NOT RUN` rather than a failure
+or a pass.
+
+**Consequence:** The invariant is cross-checked rather than self-confirmed, and
+blocked evidence is never reported as verified.

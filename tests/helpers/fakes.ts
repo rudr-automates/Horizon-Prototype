@@ -26,6 +26,13 @@ export function makeEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
   };
 }
 
+/**
+ * A positive spend budget. Pipeline deps must state this explicitly, because
+ * `HORIZON_DAILY_TOKEN_BUDGET = 0` is a real hard stop that permits no provider
+ * call at all — tests that expect inference must opt in to a permitted budget.
+ */
+export const PERMITTED_BUDGET = 1_000_000;
+
 export interface RecordedGenerateCall {
   model: string;
   contents: string;
