@@ -12,6 +12,14 @@
  *   It makes no provider request. It does not write to any table. It does not
  *   claim a generation, a persisted turn, or migration 0003.
  *
+ * HOW IT PROVES IT SPENT NOTHING
+ *   The ledger total is compared before and after (durable, but blind to
+ *   embedding requests, which carry no tokens), the process-local embedder
+ *   counter is compared too (sees this process only), and the durable count of
+ *   embedding-request rows for the day is compared as well. A reader who saw
+ *   just the process-local counter reading 0 -> 0 could mistake it for a
+ *   statement about the day.
+ *
  * THE ONE OUT-OF-BAND READ
  *   The app's gateway deliberately does NOT select the `embedding` column, so
  *   there is no in-app way to obtain a stored vector to query with. This script
@@ -30,6 +38,7 @@ import { isBlockEligible } from "@/lib/eligibility/predicate";
 import { readServerEnv } from "@/lib/env";
 import { createServerContext } from "@/lib/server/context";
 import type { EvidenceBlock } from "@/lib/retrieval/types";
+import { utcDayKey } from "@/lib/usage/types";
 import { loadEnvFile, presentNames } from "./env-file";
 
 /** The fact that must stay hidden before its block unlocks. */
@@ -83,6 +92,33 @@ function parseEmbedding(value: unknown): number[] | null {
   return parts.every((part) => Number.isFinite(part)) ? parts : null;
 }
 
+type ServiceRoleClient = NonNullable<ReturnType<typeof createServiceRoleClient>>;
+
+/**
+ * Embedding REQUESTS recorded durably for the current UTC day, or null when that
+ * count could not be read.
+ *
+ * This mirrors the predicate the durable cap itself counts —
+ * `horizon_admit_embedding_request` tallies `day = today and kind =
+ * 'embedding_request'` across every provider — so the "nothing was spent" claim
+ * rests on the ledger rather than only on `embeddingCallCount()`, which is
+ * process-local and therefore reads 0 -> 0 even on a day the application really
+ * did consume part of the cap.
+ *
+ * Null is deliberately NOT 0: it means the durable half of that claim could not
+ * be verified.
+ */
+async function embeddingRowsToday(client: ServiceRoleClient | null): Promise<number | null> {
+  if (!client) return null;
+  const { count, error } = await client
+    .from("usage_ledger")
+    .select("id", { count: "exact", head: true })
+    .eq("day", utcDayKey())
+    .eq("kind", "embedding_request");
+  if (error) return null;
+  return count ?? 0;
+}
+
 async function probeJson(
   base: string,
   path: string,
@@ -117,6 +153,10 @@ async function main(): Promise<void> {
   const context = createServerContext();
   const store = context.storeResolution.store;
   const ledger = context.usageResolution.ledger;
+  // Created once, up front, because the "nothing was spent" proof needs a
+  // before-and-after read of the DURABLE embedding-request count. The one
+  // out-of-band read further down reuses this same client.
+  const client = isDatabaseConfigured(env) ? createServiceRoleClient(env) : null;
 
   // Read the day's spend BEFORE doing anything, so "nothing was written" is a
   // measurement rather than a promise. The embedding counter is process-local,
@@ -128,6 +168,7 @@ async function main(): Promise<void> {
   // provider. Aborting here would hide the part of the deployment that works.
   const spentBefore = await readSpendOrNull(ledger);
   const embedCallsBefore = embeddingCallCount();
+  const embedRowsBefore = await embeddingRowsToday(client);
 
   if (spentBefore === null) {
     recordPending(
@@ -276,7 +317,6 @@ async function main(): Promise<void> {
   );
 
   // ----------------------------------------------------------------- vector
-  const client = isDatabaseConfigured(env) ? createServiceRoleClient(env) : null;
   // Any eligible block will do: the gateway does not select the embedding
   // column, so the stored vector is read below instead.
   const selfBlock: EvidenceBlock | undefined = full[0];
@@ -405,13 +445,24 @@ async function main(): Promise<void> {
   // ------------------------------------------------- nothing was spent
   const spentAfter = await readSpendOrNull(ledger);
   const embedCallsAfter = embeddingCallCount();
+  const embedRowsAfter = await embeddingRowsToday(client);
+  // Two instruments, because neither is sufficient alone: the ledger total is
+  // durable but blind to embedding requests (they carry no tokens), and the
+  // embedder counter sees this process only. An unreadable durable count fails
+  // this check rather than passing it vacuously.
+  const durableCountVerified = embedRowsBefore !== null && embedRowsAfter !== null;
   record(
     "this script made no provider call and wrote nothing to the ledger",
-    spentAfter === spentBefore && embedCallsAfter === embedCallsBefore,
-    `ledger ${spentBefore} -> ${spentAfter}; embedding calls ${embedCallsBefore} -> ${embedCallsAfter}`,
+    spentAfter === spentBefore &&
+      embedCallsAfter === embedCallsBefore &&
+      durableCountVerified &&
+      embedRowsAfter === embedRowsBefore,
+    durableCountVerified
+      ? `ledger ${spentBefore} -> ${spentAfter}; embedding calls in this process ${embedCallsBefore} -> ${embedCallsAfter}; embedding requests recorded for ${utcDayKey()} ${embedRowsBefore} -> ${embedRowsAfter}`
+      : `ledger ${spentBefore} -> ${spentAfter}; embedding calls in this process ${embedCallsBefore} -> ${embedCallsAfter}; the durable embedding-request count could NOT be read, so the durable half of this claim is unverified`,
   );
 
-  finish({ spentBefore, spentAfter, embedCallsBefore, embedCallsAfter });
+  finish({ spentBefore, spentAfter, embedCallsBefore, embedCallsAfter, embedRowsBefore, embedRowsAfter });
 }
 
 /**
@@ -442,8 +493,12 @@ function finish(
   spendProof?: {
     spentBefore: number | null;
     spentAfter: number | null;
+    /** Process-local counter: proves THIS process made no embedding call. */
     embedCallsBefore: number;
     embedCallsAfter: number;
+    /** Durable embedding-request rows for the day; null means unreadable. */
+    embedRowsBefore: number | null;
+    embedRowsAfter: number | null;
   },
 ): void {
   const passed = checks.filter((check) => check.state === "pass").length;

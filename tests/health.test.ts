@@ -37,7 +37,17 @@ const state = vi.hoisted(() => ({
   ledgerMode: "supabase" as "supabase" | "memory",
   ledgerReadSucceeds: true,
   spentToday: 0,
+  /**
+   * The DURABLE embedding-request count, held separately from the process-local
+   * counter the endpoint also reports, so a case can prove which of the two is
+   * the one shown beside the cap.
+   */
+  embeddingRequestsToday: 0,
+  embeddingCountSucceeds: true,
   dailyTokenBudget: 20_000,
+  embeddingCredentialPresent: true,
+  provider: "google-genai" as string,
+  thinkingBudget: null as number | null,
 }));
 
 vi.mock("@/lib/env", () => ({
@@ -55,25 +65,33 @@ vi.mock("@/lib/db/server", () => ({
 vi.mock("@/lib/server/context", () => ({
   createServerContext: () => ({
     config: {
-      provider: "google-genai",
+      provider: state.provider,
       apiKey: "test-key-not-real",
       model: "gemini-3.6-flash",
+      // The GENERATION and EMBEDDING credentials are separate now, so both have
+      // to be present in the fixture for the endpoint to report a clean
+      // configuration; the case that omits one asserts the difference.
+      embeddingApiKey: state.embeddingCredentialPresent ? "test-embedding-key-not-real" : "",
       embeddingModel: "gemini-embedding-001",
       embeddingDimensions: 768,
       baseUrlOverride: "",
+      generationBaseUrl: "",
+      reasoningEffort: null,
       maxOutputTokens: 1024,
       dailyTokenBudget: state.dailyTokenBudget,
       maxEmbeddingCalls: 10,
-      thinkingBudget: null,
+      thinkingBudget: state.thinkingBudget,
       requestTimeoutMs: 30_000,
     },
     providers: {
       configured: true,
       generator: null,
       verifier: null,
+      embeddingConfigured: state.embeddingCredentialPresent,
       embedder: undefined,
       embeddingProviderId: "gemini-embedding-001",
       modelId: null,
+      embedderDetail: "",
     },
     storeResolution: {
       store: { mode: "supabase", demoContent: false },
@@ -85,6 +103,10 @@ vi.mock("@/lib/server/context", () => ({
         spentToday: async () => {
           if (!state.ledgerReadSucceeds) throw new Error("ledger read failed");
           return state.spentToday;
+        },
+        embeddingRequestsToday: async () => {
+          if (!state.embeddingCountSucceeds) throw new Error("embedding count read failed");
+          return state.embeddingRequestsToday;
         },
       },
       reason: "Usage is recorded in the database, so the daily total is durable and shared.",
@@ -122,7 +144,12 @@ beforeEach(() => {
   state.ledgerMode = "supabase";
   state.ledgerReadSucceeds = true;
   state.spentToday = 0;
+  state.embeddingRequestsToday = 0;
+  state.embeddingCountSucceeds = true;
   state.dailyTokenBudget = 20_000;
+  state.embeddingCredentialPresent = true;
+  state.provider = "google-genai";
+  state.thinkingBudget = null;
 });
 
 describe("database health reports what actually happened", () => {
@@ -180,6 +207,30 @@ describe("database health reports what actually happened", () => {
     expect(body.checks.database.detail).toContain("could NOT be read");
   });
 
+  it("reports the day's DURABLE embedding-request count, which is not this process's counter", async () => {
+    // The process-local counter restarts at 0 with the server, so on its own it
+    // would report "0 made" against the cap on a day that had already consumed
+    // part of it. The two figures are deliberately different here.
+    state.embeddingRequestsToday = 3;
+
+    const body = await callHealth();
+
+    expect(body.runtime.embeddingRequestsToday).toBe(3);
+    expect(body.runtime.embeddingCapMode).toBe("supabase");
+  });
+
+  it("reports an unreadable embedding count as unknown, never as zero", async () => {
+    // Zero would understate consumption and make the remaining allowance look
+    // larger than it is, which is the failure this field exists to prevent.
+    state.embeddingRequestsToday = 3;
+    state.embeddingCountSucceeds = false;
+
+    const body = await callHealth();
+
+    expect(body.runtime.embeddingRequestsToday).toBeNull();
+    expect(body.runtime.embeddingRequestsToday).not.toBe(0);
+  });
+
   it("never leaks a credential, a raw database error or a schema map", async () => {
     const secret = "service-role-key-do-not-print-1234567890";
     state.env = { SUPABASE_SERVICE_ROLE_KEY: secret };
@@ -188,9 +239,43 @@ describe("database health reports what actually happened", () => {
 
     expect(raw).not.toContain(secret);
     expect(raw).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    // The provider credentials are now two, and neither belongs in a response.
+    expect(raw).not.toContain("test-key-not-real");
+    expect(raw).not.toContain("test-embedding-key-not-real");
+    expect(raw).not.toContain("HORIZON_LLM_API_KEY");
+    expect(raw).not.toContain("HORIZON_EMBEDDING_API_KEY");
     // Counts, not a schema listing.
     expect(raw).not.toContain("usage_ledger");
     expect(raw).not.toContain("horizon_admit_generation_tokens");
+  });
+
+  it("reports the embedding credential separately from the generation one", async () => {
+    // Generation can be perfectly configured while embeddings are not. That
+    // state used to be invisible here: the runtime reported "configured" and the
+    // vector branch silently ran on the offline lexical stand-in.
+    state.embeddingCredentialPresent = false;
+
+    const body = await callHealth();
+
+    expect(body.checks.runtimeAi.configured).toBe(true);
+    expect(body.runtime.embeddingCredentialPresent).toBe(false);
+    expect(body.runtime.configurationProblems.join(" ")).toContain(
+      "HORIZON_EMBEDDING_API_KEY",
+    );
+  });
+
+  it("names a setting that the selected provider ignores instead of dropping it", async () => {
+    // A leftover Google-only setting under Groq is otherwise a silent no-op.
+    state.provider = "groq";
+    state.thinkingBudget = 5_000;
+
+    const body = await callHealth();
+
+    expect(body.runtime.provider).toBe("groq");
+    expect(body.runtime.configurationProblems.join(" ")).toContain(
+      "HORIZON_LLM_THINKING_BUDGET",
+    );
+    expect(body.checks.runtimeAi.detail).toContain("pnpm smoke");
   });
 });
 

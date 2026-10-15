@@ -6,16 +6,21 @@
  *
  * SAFEGUARDS ARE PRECONDITIONS, NOT DECORATION. This script refuses to make any
  * call unless it can verify that:
- *   1. SDK retries are disabled (attempts === 1), so one logical call cannot
- *      silently become five billable requests;
+ *   1. retries are disabled (exactly one attempt per logical call), so one call
+ *      cannot silently become several billable requests — the mechanism differs
+ *      by provider, so it is read from the adapter that will actually be used;
  *   2. the daily token budget is positive, and the cumulative accounting that
  *      enforces it is wired in;
  *   3. an explicit embedding-request cap is configured, because the token
- *      budget does not meter embeddings.
+ *      budget does not meter embeddings;
+ *   4. the EMBEDDING credential is present, so the vectors this proves are
+ *      produced are the same model the stored corpus was embedded with.
  *
  * It prints no credential values and no raw provider payloads. Live calls.
  */
 import { buildHttpOptions } from "@/lib/answer/gemini";
+import { GROQ_REQUEST_ATTEMPTS } from "@/lib/answer/groq";
+import { GROQ_PROVIDER_ID } from "@/lib/config";
 import { embeddingCallCount } from "@/lib/answer/capped-embedder";
 import { estimatePromptTokens } from "@/lib/usage/types";
 import { loadEnvFile } from "./env-file";
@@ -42,8 +47,14 @@ async function main(): Promise<void> {
   const config = readRuntimeConfig(env);
 
   // ---- Safeguard 1: retries are off ---------------------------------------
-  const attempts = buildHttpOptions(config).retryOptions.attempts;
-  console.log(`Safeguard 1 — SDK retry attempts: ${attempts}`);
+  // Read from the adapter that will actually send the request. The Google SDK
+  // would retry internally unless told not to; the Groq adapter issues a single
+  // fetch, so its guarantee is structural rather than a setting.
+  const attempts =
+    config.provider === GROQ_PROVIDER_ID
+      ? GROQ_REQUEST_ATTEMPTS
+      : buildHttpOptions(config).retryOptions.attempts;
+  console.log(`Safeguard 1 — provider request attempts per call: ${attempts}`);
 
   // ---- Configuration summary (names and numbers only) ---------------------
   console.log(`Provider      : ${config.provider}`);
@@ -55,14 +66,14 @@ async function main(): Promise<void> {
   if (!isRuntimeAiConfigured(config)) {
     refuse([
       "The runtime provider is not configured, so no live call is possible.",
-      "Set HORIZON_LLM_PROVIDER=google-genai, HORIZON_LLM_MODEL and the credential.",
+      "Set HORIZON_LLM_PROVIDER (groq or google-genai), HORIZON_LLM_MODEL and HORIZON_LLM_API_KEY.",
     ]);
   }
 
   const blockers: string[] = [];
   if (attempts !== 1) {
     blockers.push(
-      `SDK retries are not disabled (attempts=${attempts}); one call could become ${attempts}.`,
+      `Retries are not disabled (attempts=${attempts}); one call could become ${attempts}.`,
     );
   }
   if (config.dailyTokenBudget <= 0) {
@@ -81,6 +92,21 @@ async function main(): Promise<void> {
   }
 
   const providers = createRuntimeProviders(config);
+
+  // ---- Safeguard 4: the embedding credential is real ----------------------
+  // Without it the embedding call below would run on the offline lexical
+  // embedder: it would succeed and prove nothing, while reporting that "the
+  // embedding request works".
+  if (!providers.embeddingConfigured) {
+    blockers.push(
+      "No embedding credential is configured, so the embedding half of this test " +
+        "would run on the offline lexical embedder and prove nothing about the " +
+        `model that embedded the stored corpus. Set HORIZON_EMBEDDING_API_KEY. (${providers.embedderDetail})`,
+    );
+  }
+  if (blockers.length > 0) {
+    refuse([...blockers, "", "No call was sent. Fix the above and re-run."]);
+  }
 
   // ---- Safeguard 2: the cumulative ledger is wired in ---------------------
   const { resolveUsageLedger } = await import("@/lib/usage");
@@ -106,7 +132,7 @@ async function main(): Promise<void> {
   const embeddingAdmission = await usage.ledger.admitEmbedding({
     maxCalls: config.maxEmbeddingCalls,
     provider: providers.embeddingProviderId,
-    modelId: config.model,
+    modelId: config.embeddingModel,
   });
   console.log(
     `Embedding admission (${usage.ledger.mode} cap): ${embeddingAdmission.admitted ? "granted" : "refused"} — ${embeddingAdmission.detail}`,
@@ -187,6 +213,9 @@ async function main(): Promise<void> {
     const settled = await usage.ledger.settle(admission.reservation, {
       promptTokens: outcome.usage?.promptTokens ?? null,
       completionTokens: outcome.usage?.completionTokens ?? null,
+      // For Groq this is null and that is correct, not a missing figure:
+      // Chat Completions reports no separate reasoning count, so reasoning is
+      // already inside completionTokens and must not be added again.
       reasoningTokens: outcome.usage?.thoughtsTokens ?? null,
     });
     settlement = `${settled.outcome} — charged ${settled.chargedTokens}, reported ${settled.reportedTokens}`;

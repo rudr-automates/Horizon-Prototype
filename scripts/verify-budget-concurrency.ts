@@ -17,6 +17,14 @@
  *   the value from before. If cleanup fails, the command says so loudly rather
  *   than leaving phantom spend behind unmentioned.
  *
+ * IT IS CALIBRATED TO THE DAY'S REAL USAGE, NOT TO AN EMPTY LEDGER.
+ *   The embedding cap counts embedding rows for the UTC day across all providers,
+ *   so a genuine turn taken earlier today legitimately consumes part of it. Both
+ *   halves therefore derive their expectation from the current day: the token
+ *   budget from the recorded total, and the embedding cap from the remaining
+ *   allowance. A hardcoded "expect K grants" would report a FAIL exactly on the
+ *   days the application was actually used — the least useful time to be wrong.
+ *
  * It makes NO provider call and therefore cannot spend Gemini quota.
  */
 import { loadEnvFile } from "./env-file";
@@ -24,7 +32,12 @@ import { loadEnvFile } from "./env-file";
 const PROBE_PROVIDER = "concurrency-probe";
 const GENERATION_RESERVE = 1200;
 const GENERATION_ADMITS = 4;
-const EMBEDDING_CAP = 3;
+/**
+ * How many embedding requests the remaining allowance should be able to absorb.
+ * This is the number of GRANTS expected, so the cap is derived from the day's
+ * existing usage rather than being this figure directly.
+ */
+const EMBEDDING_ADMITS = 3;
 const CONCURRENCY = 12;
 
 interface ProbeTotals {
@@ -39,6 +52,7 @@ async function main(): Promise<void> {
   const { readServerEnv } = await import("@/lib/env");
   const { createServiceRoleClient, isDatabaseConfigured } = await import("@/lib/db/server");
   const { resolveUsageLedger } = await import("@/lib/usage");
+  const { utcDayKey } = await import("@/lib/usage/types");
 
   const env = readServerEnv();
   if (!isDatabaseConfigured(env) || env.supabaseServiceRoleKey.trim() === "") {
@@ -129,28 +143,67 @@ async function main(): Promise<void> {
     if (refused[0]) console.log(`  refusal example: ${refused[0].detail}`);
 
     // ---- 2. Embedding request cap under the same concurrency ----
-    console.log(`\nEmbedding: cap ${EMBEDDING_CAP} requests, firing ${CONCURRENCY} simultaneously ...`);
+    //
+    // The cap counts embedding rows for the UTC day across ALL providers, so the
+    // existing usage is read from the ledger with that same predicate. It is
+    // deliberately NOT read from `admitEmbedding`'s `usedToday`: the SQL function
+    // returns a hardcoded 0 from its `p_max_calls <= 0` early return, so the one
+    // call that writes nothing is also the one that cannot report the count.
+    // The row arithmetic below is what makes a mis-calibration loud rather than
+    // silent — if this predicate ever drifted from the function it describes,
+    // either the grant count or the rows-added count would stop adding up.
+    const embeddingRowsToday = async (): Promise<number> => {
+      const { count, error } = await client
+        .from("usage_ledger")
+        .select("id", { count: "exact", head: true })
+        .eq("day", utcDayKey())
+        .eq("kind", "embedding_request");
+      if (error) throw new Error(`embedding-request count failed: ${error.message}`);
+      return count ?? 0;
+    };
+
+    const rowsBeforeEmbedding = await embeddingRowsToday();
+    const embeddingCap = rowsBeforeEmbedding + EMBEDDING_ADMITS;
+
+    console.log(
+      `\nEmbedding: ${rowsBeforeEmbedding} request(s) already recorded today, so cap is set to ` +
+        `${embeddingCap} (existing + ${EMBEDDING_ADMITS}); firing ${CONCURRENCY} simultaneously ...`,
+    );
+
     const embeddingDecisions = await Promise.all(
       Array.from({ length: CONCURRENCY }, () =>
         ledger.admitEmbedding({
-          maxCalls: EMBEDDING_CAP,
+          maxCalls: embeddingCap,
           provider: PROBE_PROVIDER,
           modelId: null,
         }),
       ),
     );
+    const rowsAfterEmbedding = await embeddingRowsToday();
+
     const embeddingGranted = embeddingDecisions.filter((decision) => decision.admitted).length;
-    const embeddingOk = embeddingGranted === EMBEDDING_CAP;
-    console.log(`  granted ${embeddingGranted} of ${CONCURRENCY}`);
+    const embeddingRefused = embeddingDecisions.length - embeddingGranted;
+    const rowsAdded = rowsAfterEmbedding - rowsBeforeEmbedding;
+    const grantOk = embeddingGranted === EMBEDDING_ADMITS;
+    const refusalOk = embeddingRefused === CONCURRENCY - EMBEDDING_ADMITS;
+    // Every granted admission writes exactly one row and no refusal writes any:
+    // this is what makes the calibration probe's read-only-ness a checked fact.
+    const rowsOk = rowsAdded === embeddingGranted;
+    const embeddingOk = grantOk && refusalOk && rowsOk;
+
+    console.log(`  granted ${embeddingGranted}, refused ${embeddingRefused} of ${CONCURRENCY}`);
+    console.log(
+      `  embedding rows for ${utcDayKey()}: ${rowsBeforeEmbedding} -> ${rowsAfterEmbedding} (${rowsAdded} added)`,
+    );
     console.log(
       embeddingOk
-        ? `  PASS — the cap bound at exactly ${EMBEDDING_CAP} across concurrent callers`
-        : `  FAIL — expected ${EMBEDDING_CAP} grants, saw ${embeddingGranted}`,
+        ? `  PASS — the cap bound at exactly the remaining allowance of ${EMBEDDING_ADMITS} across concurrent callers, and no refused admission wrote a row`
+        : `  FAIL — expected ${EMBEDDING_ADMITS} grants, ${CONCURRENCY - EMBEDDING_ADMITS} refusals and ${EMBEDDING_ADMITS} rows added; saw ${embeddingGranted} grants, ${embeddingRefused} refusals and ${rowsAdded} rows added`,
     );
 
     const dayTotalNow = await ledger.spentToday();
     console.log(
-      `\nDay total with probe rows present: ${dayTotalNow} (expected ${before + grantedTokens} plus the reserved headroom of the ${embeddingGranted} embedding rows, which hold no tokens)`,
+      `\nDay total with probe rows present: ${dayTotalNow} (expected ${before + grantedTokens}: ${before} before + ${grantedTokens} reserved; the ${embeddingGranted} embedding rows count as requests and hold no tokens)`,
     );
 
     console.log(

@@ -18,6 +18,8 @@ export function makeEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
     llmBaseUrl: "",
     llmApiKey: "",
     llmModel: "",
+    llmReasoningEffort: "",
+    embeddingApiKey: "",
     embeddingModel: "",
     embeddingDimensions: 768,
     llmMaxOutputTokens: 1024,
@@ -123,6 +125,14 @@ export interface FakeProvidersOptions {
   generator?: ClaimGenerator | null;
   verifier?: SemanticVerifier | null;
   embedder?: Embedder;
+  /**
+   * Whether the embedder is a real model. Defaults to true, because every case
+   * here INJECTS an embedder explicitly and an injected embedder stands in for a
+   * working one. The pipeline refuses a database-backed corpus when this is
+   * false, which is a behaviour with its own dedicated cases rather than a
+   * default any other test should inherit by accident.
+   */
+  embeddingConfigured?: boolean;
 }
 
 /**
@@ -146,8 +156,10 @@ export function makeProviders(options: FakeProvidersOptions = {}): RuntimeProvid
     configured: generator !== null,
     generator,
     verifier: options.verifier ?? null,
+    embeddingConfigured: options.embeddingConfigured ?? true,
     embedder,
     embeddingProviderId: embedder.providerId,
     modelId: generator ? "fake-model" : null,
+    embedderDetail: "Injected test embedder.",
   };
 }

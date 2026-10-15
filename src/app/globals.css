@@ -1,11 +1,88 @@
 @import "tailwindcss";
 
+/*
+ * THE COLOUR CONTRACT — why this file is not cosmetic.
+ *
+ * The interface previously declared `color-scheme: light dark` and set NO
+ * background and NO text colour anywhere. Both were therefore supplied by the
+ * browser, and they came from DIFFERENT places: the base surface was the
+ * document's default white, while the text colour resolved through the UA's
+ * dark-scheme `CanvasText` — white. The result was white text on a white page.
+ * Only elements carrying their own explicit colour (the badges, the Ask button)
+ * were visible, which is exactly what "a blank window with unreadable text"
+ * describes.
+ *
+ * Three rules now prevent that class of failure:
+ *   1. `color-scheme: light` ONLY. The app ships one deliberate theme, so the UA
+ *      must not re-map its palette, form controls or scrollbars to dark.
+ *   2. The background and foreground are stated on `html` AND `body`. Neither is
+ *      left to a default, so text can never be rendered in the canvas colour.
+ *   3. Components use explicit colour utilities rather than inheriting a colour
+ *      or dimming one with `opacity-*`. An opacity multiplier on an already
+ *      wrong colour is what made the secondary text vanish first.
+ */
+
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+
+  --horizon-canvas: #f1f5f9; /* slate-100 — page background */
+  --horizon-surface: #ffffff; /* cards and panels */
+  --horizon-ink: #0f172a; /* slate-900 — primary text */
+  --horizon-muted: #475569; /* slate-600 — secondary text */
+  --horizon-line: #cbd5e1; /* slate-300 — visible borders */
+  --horizon-accent: #1d4ed8; /* blue-700 */
+}
+
+html {
+  background-color: var(--horizon-canvas);
+  color: var(--horizon-ink);
+  /* The UA defaults the base font-size to 16px; stated so rem values are not at
+     the mercy of a browser or extension override. */
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
+  background-color: var(--horizon-canvas);
+  color: var(--horizon-ink);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible, consistent keyboard focus. Removing the outline without a
+   replacement is the usual cause of "I cannot tell where I am" on a demo. */
+:focus-visible {
+  outline: 3px solid var(--horizon-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+ * DO NOT re-declare `font` or `color` for form controls here.
+ *
+ * Two reasons, and the second one cost a real regression:
+ *   1. Tailwind's preflight already sets `font: inherit` and `color: inherit`
+ *      on form elements, inside `@layer base`.
+ *   2. CSS written OUTSIDE every layer outranks ALL layered CSS. A plain
+ *      `button { font: inherit; color: inherit }` here therefore beat
+ *      `@layer utilities`, silently overriding every `text-white`, `text-xs`
+ *      and `font-semibold` on any button or textarea — the Ask button rendered
+ *      dark-on-blue at 1.24:1. Utilities must win over element defaults, which
+ *      is precisely what the layer order is for.
+ */
+
+input[type="range"] {
+  accent-color: var(--horizon-accent);
+}
+
+/* A long quotation in a citation panel should wrap, not overflow its card.
+   This is a wrapping rule only; the monospace family comes from the utility
+   class so that the layered cascade keeps deciding. */
+pre,
+code {
+  overflow-wrap: anywhere;
 }

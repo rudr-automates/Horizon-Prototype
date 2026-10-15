@@ -5,15 +5,23 @@ recorded lesson, asks a question, and receives an answer supported only by
 content that is **permitted at their current position** — with citations — or an
 honest refusal.
 
-> **Repository state:** this is the **Part 02 vertical slice**. The learner
-> interface, timestamp-scoped retrieval, claims-only generation, deterministic +
-> model-assisted verification and safe refusals are built. **Both Supabase
-> migrations are applied and a runtime AI credential is configured**, so the demo
-> corpus now lives in the database with real embeddings and the database-backed
-> retrieval path has run against it. What is still NOT true: **the answer path
-> has produced no live answer on this revision** — the provider's free-tier daily
-> generation quota refuses every call, so generation, verification and turn
-> persistence remain unexercised. See [docs/DECISIONS.md](docs/DECISIONS.md).
+> **Repository state:** this is the **Part 06 revision**. The learner workbench,
+> timestamp-scoped retrieval, claims-only generation, deterministic +
+> model-assisted verification and safe refusals are built; generation is now
+> provider-selectable and runs on **Groq**'s OpenAI-compatible API, with a separate
+> credential for Google embeddings. **All three Supabase migrations are applied and
+> a runtime AI credential is configured**, so the demo corpus lives in the database
+> with real embeddings and the database-backed retrieval path has run against it.
+>
+> What is still NOT true, and must not be read into anything below:
+> **no live Groq call has ever been made** — no Groq key is configured, so its
+> adapter is covered by mocked tests only and the account's limits are unknown —
+> and **no answer has been produced by a live model on this revision**. The Google
+> free-tier generation quota still refuses calls, so on the last live attempt the
+> generation half succeeded and the verification call was refused, which correctly
+> rendered no claims. Turn persistence is therefore still unexercised. See
+> [docs/EVALUATION.md](docs/EVALUATION.md) Part 06 and
+> [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ---
 
@@ -28,19 +36,21 @@ honest refusal.
 | Both retrieval branches filtered before ranking | ✅ unit tested (fixture + fake SQL gateway) |
 | Rank fusion (RRF) with deterministic ordering | ✅ unit tested |
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
-| Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
+| Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types; **embeddings still run on it, live** |
+| Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ⚠️ implemented and unit tested (38 cases: endpoint, bearer auth, strict JSON Schema, usage, 429 guidance, every failure path). **No live call has been made** — no key configured — so nothing here is a statement that Groq works |
+| Learner workbench (timeline presets, scope count, citations, status panel) | ✅ verified rendered at 1440px and 390px, hydrated, timeline selection confirmed live (eligible evidence 2 → 10 → 15) |
 | Supabase migrations (schema, search RPCs, atomic budget) | ✅ **all three applied and verified live** — six tables with RLS, pgvector `0.8.2`, six functions, and `0003`'s reservation columns; a re-read then confirmed 6/6 tables, 6/6 functions and a readable ledger |
 | Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
 | Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
 | Live inference (`gemini-3.6-flash`) | ⚠️ real calls were made and recorded in an earlier revision; on the current revision generation is **429-blocked by the free-tier daily quota** with a ~15 h retry delay |
 | Temporal eligibility end-to-end with a live model | ⚠️ 24 live checks pass on the current revision (eligibility, oracle cross-check, non-disclosure). The answer half is **NOT RUN** — refused by the quota, never counted as a pass |
 | Cumulative daily token accounting | ✅ enforced at admission, per call, including billable **reasoning** tokens; the persisted charge is the same figure the cap was checked against |
-| Atomic budget admission across requests AND instances | ✅ **verified live against the real database** — `pnpm verify:budget` fired 12 simultaneous reservations at `horizon_admit_generation_tokens` with a budget that only 4 could fit and got exactly **4 grants**, 12 simultaneous embedding admissions bound at exactly **3** against a cap of 3, and cleanup left 0 probe rows with the day's total back where it started |
+| Atomic budget admission across requests AND instances | ✅ **verified live against the real database** — `pnpm verify:budget` fired 12 simultaneous reservations at `horizon_admit_generation_tokens` with a budget that only 4 could fit and got exactly **4 grants**, then 12 simultaneous embedding admissions bound at exactly the remaining allowance (3, on a day that had already used 1 of the 10), and cleanup left 0 probe rows with the day's total back where it started. Both expectations are derived from the day's measured state, so the command also passes on a system that has been used |
 | A refused call releases its hold; a timeout keeps it | ✅ unit tested — a 429 is the provider refusing before processing, so it charges nothing, while an unanswered call keeps its reservation rather than erasing spend |
 | `GET /api/v1/health` separates authentication from reachability | ✅ **verified live** — `querySucceeded: true` is a real authenticated read, and it has been observed both ways: `ok: false` with `durableLedger: "unreadable"` before `0003` was applied, and `ok: true` with `schemaObjects: "verified"` / `durableLedger: "usable"` after. A database is never called healthy merely because a request answered |
-| Durable usage ledger (`public.usage_ledger`) | ✅ **verified live** — `spentToday()` reads the table and `record()` writes to it; a labelled probe row was inserted, read back (66 tokens: 11 prompt + 55 completion, reasoning folded in) and deleted, leaving the table empty again |
+| Durable usage ledger (`public.usage_ledger`) | ✅ **verified live** — `spentToday()` reads the table and `record()` writes to it; a labelled probe row was inserted, read back and deleted, leaving the table empty again. Reasoning tokens have their own column from `0003` |
 | SDK automatic retries | ✅ disabled (`attempts: 1`); they default to 5 |
-| Embedding-request cap | ✅ enforced — it bound and refused during live testing |
+| Embedding-request cap | ✅ enforced durably against the day's rows, and reported from the same store it is counted in — `runtime.embeddingRequestsToday`, with `null` meaning the count could not be read, never 0 |
 | Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
 | Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ **executed live** — 1 course / 6 resources / 18 blocks upserted on primary key, using 1 embedding request against a cap of 10 |
 | End-to-end canary harness (`pnpm canary`) | ✅ ran live; recorded in [docs/evidence](docs/evidence) |
@@ -177,7 +187,8 @@ revision with all three migrations applied:
     "demoContent": false,
     "spendGuard": "permitted", // every admission path is satisfied, so a call would be allowed
     "spentTokensToday": 0,     // a number: the day's total was actually read
-    "embeddingCalls": 0, "maxEmbeddingCalls": 10
+    "embeddingRequestsToday": 0, // durable count for the UTC day; null = unreadable
+    "embeddingCalls": 0, "maxEmbeddingCalls": 10  // embeddingCalls is THIS process only
   }
 }
 ```
@@ -257,31 +268,43 @@ Names only; see [`.env.example`](.env.example).
 | `NEXT_PUBLIC_SUPABASE_URL` | public | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | Supabase anon/publishable key |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server only** | server tasks; bypasses RLS. Required by `pnpm seed:demo` along with the two names above — all three must be set before the database path engages |
-| `HORIZON_LLM_PROVIDER` | **server only** | `google-genai` |
-| `HORIZON_LLM_BASE_URL` | **server only** | optional endpoint override; empty is normal |
-| `HORIZON_LLM_API_KEY` | **server only** | provider key (`GOOGLE_API_KEY`/`GEMINI_API_KEY` also accepted) |
-| `HORIZON_LLM_MODEL` | **server only** | frozen model id (`gemini-3.6-flash`) |
+| `HORIZON_LLM_PROVIDER` | **server only** | `groq` or `google-genai`. Anything else is reported as unrecognised, never guessed |
+| `HORIZON_LLM_BASE_URL` | **server only** | endpoint base for GENERATION. For `groq` the documented default (`https://api.groq.com/openai/v1`) is applied when empty; it is never forwarded to the Google SDK, which serves embeddings |
+| `HORIZON_LLM_API_KEY` | **server only** | **generation** credential only (Groq key, or Google key under `google-genai`) |
+| `HORIZON_LLM_MODEL` | **server only** | `openai/gpt-oss-20b` for `groq`, `gemini-3.6-flash` for `google-genai` |
+| `HORIZON_LLM_REASONING_EFFORT` | **server only** | `low` \| `medium` \| `high`. Empty sends nothing and leaves the model's own default. Lower answers faster and cheaper |
+| `HORIZON_EMBEDDING_API_KEY` | **server only** | **embedding** credential. Separate from the generation key because the two may be different vendors. `GOOGLE_API_KEY`/`GEMINI_API_KEY` are accepted as fallbacks, and `HORIZON_LLM_API_KEY` is a legacy fallback **only** under `google-genai`. Never sent to a non-Google provider |
 | `HORIZON_EMBEDDING_MODEL` | **server only** | `gemini-embedding-001` |
 | `HORIZON_EMBEDDING_DIMENSIONS` | **server only** | `768`; must match the stored vectors |
 | `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | output cap per call; must exceed the reasoning budget or JSON gets truncated (default 4096) |
-| `HORIZON_LLM_THINKING_BUDGET` | server | reasoning-token budget; unset sends nothing, `0` disables thinking |
+| `HORIZON_LLM_THINKING_BUDGET` | server | reasoning-token budget; unset sends nothing, `0` disables thinking. **`google-genai` only** — under `groq` it is ignored and reported as ignored |
 | `HORIZON_DAILY_TOKEN_BUDGET` | server | cumulative daily token ceiling; `0` permits no calls |
-| `HORIZON_MAX_EMBEDDING_CALLS` | server | ceiling on embedding REQUESTS per process; `0` = no cap |
+| `HORIZON_MAX_EMBEDDING_CALLS` | server | ceiling on embedding REQUESTS per **UTC day**. With a database it is enforced durably and shared by every instance; without one it is process-local and resets on restart. `0` = no cap |
 | `HORIZON_LLM_TIMEOUT_MS` | server | per-request provider timeout |
 
 The budget is cumulative and per-call: each entry carries prompt, completion **and
 billable reasoning** tokens, and the row persisted to `public.usage_ledger` sums to
-exactly the figure the admission check used — `prompt_tokens + completion_tokens` —
-so the durable total and the enforced cap cannot drift apart. (The table has no
-reasoning column, so the reasoning tokens are folded into `completion_tokens`
-rather than dropped.)
+exactly the figure the admission check used — `prompt_tokens + completion_tokens +
+reasoning_tokens` — so the durable total and the enforced cap cannot drift apart.
+Migration `0003` gave the table its own `reasoning_tokens` column; before it, the
+value had nowhere to go and was folded into `completion_tokens` to survive at all.
+
+**The two providers report usage differently, and both are counted once.**
+Google reports reasoning separately (`thoughtsTokenCount`), so it is added.
+Groq's Chat Completions usage object reports only `prompt_tokens` and
+`completion_tokens`, with reasoning **already inside the completion** — so it is
+recorded as unset and must not be derived a second time, which would bill every
+reasoning token twice. Each adapter is tested for its own shape.
 
 **What the budget does not cover.** Embedding requests are not metered, because
 that API reports no token usage. `HORIZON_MAX_EMBEDDING_CALLS` bounds their
 *count*, not their cost. And when no database is configured the ledger is
 in-memory, so the daily total resets on restart and is not shared between
-instances. `/api/v1/health` reports `runtime.usageMode`, `spentTokensToday` and
-`embeddingCalls` so none of this has to be guessed.
+instances. `/api/v1/health` reports `runtime.usageMode`, `spentTokensToday`,
+`embeddingRequestsToday` (the durable figure for the day, `null` when it could not
+be read) and `embeddingCalls` (that process alone) so none of this has to be
+guessed, and so the figure shown beside a durable cap is read from the store that
+cap is counted in.
 
 Never prefix a secret with `NEXT_PUBLIC_`. Never commit `.env.local`.
 
@@ -341,11 +364,25 @@ than inventing a result. To enable real inference:
 
 ```bash
 cp .env.example .env.local
-# set HORIZON_LLM_PROVIDER=google-genai, HORIZON_LLM_MODEL and HORIZON_LLM_API_KEY=…
+# generation (either provider):
+#   HORIZON_LLM_PROVIDER=groq
+#   HORIZON_LLM_BASE_URL=https://api.groq.com/openai/v1
+#   HORIZON_LLM_MODEL=openai/gpt-oss-20b
+#   HORIZON_LLM_API_KEY=<your Groq key>
+# embeddings (still Google — the stored vectors came from this model):
+#   HORIZON_EMBEDDING_API_KEY=<the Google key>
 # set HORIZON_DAILY_TOKEN_BUDGET to a positive value — see the warning below
 pnpm build && pnpm start
+pnpm smoke    # one embedding call and one generation call, then stop
 pnpm canary --base http://127.0.0.1:4321 --label configured
 ```
+
+Run `pnpm smoke` first and read its output: it refuses to make any call unless
+retries are off, the budget is positive, the embedding request cap is set **and**
+an embedding credential exists — because an embedding test that silently runs on
+the offline lexical embedder proves nothing about the model that embedded the
+corpus. `/api/v1/health` reports `runtime.configurationProblems` for the same
+reason.
 
 **A free-tier generation quota is separate from the budget and can run out.**
 `gemini-3.6-flash` has a *daily* free-tier request allowance with its own reset;

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { isRuntimeAiConfigured } from "@/lib/config";
+import {
+  describeConfigurationProblems,
+  isRuntimeAiConfigured,
+} from "@/lib/config";
 import {
   healthResponseSchema,
   type HealthResponse,
@@ -68,6 +71,17 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
     }
     const ledgerReadable = spentTokensToday !== null;
 
+    // Read for the same reason the token total is: the embedding cap is enforced
+    // durably, so the figure displayed beside it must come from the same place.
+    // Null stays "unknown" rather than becoming 0 — a process-local counter is
+    // not the day's usage, and nothing here should imply it is.
+    let embeddingRequestsToday: number | null = null;
+    try {
+      embeddingRequestsToday = await usageResolution.ledger.embeddingRequestsToday();
+    } catch {
+      embeddingRequestsToday = null;
+    }
+
     const durableLedger = !databaseConfigured
       ? ("not_configured" as const)
       : ledgerReadable
@@ -127,19 +141,27 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
 
     const spendGuardBlocked = config.dailyTokenBudget <= 0 || !durableAdmissionAvailable;
 
+    // Reported rather than inferred. A wrong provider name, a credential that
+    // belongs to the other vendor, and a setting that no longer means anything
+    // all surface as the same kind of baffling refusal, and each has a different
+    // fix. Never contains a credential value.
+    const configurationProblems = describeConfigurationProblems(config);
+
+    const runtimeAiDetail = isRuntimeAiConfigured(config)
+      ? config.dailyTokenBudget <= 0
+        ? "Names are present, but HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard permits no provider call and every turn will refuse with BUDGET_EXHAUSTED."
+        : spentTokensToday === null
+          ? "Names are present, but the usage ledger could not be read, so the daily spend is unknown and calls will be refused rather than risking unmetered spend."
+          : !reservationObjectsPresent
+            ? "Names are present, but migration 0003's reservation objects are missing, so capacity cannot be reserved atomically and every call will be refused."
+            : `Names are present for ${config.provider} / ${config.model}. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour.`
+      : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.";
+
     const runtimeAiCheck = {
       configured: isRuntimeAiConfigured(config),
       // Never claim a model is reachable without a real smoke test.
       reachable: null,
-      detail: isRuntimeAiConfigured(config)
-        ? config.dailyTokenBudget <= 0
-          ? "Names are present, but HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard permits no provider call and every turn will refuse with BUDGET_EXHAUSTED."
-          : spentTokensToday === null
-            ? "Names are present, but the usage ledger could not be read, so the daily spend is unknown and calls will be refused rather than risking unmetered spend."
-            : !reservationObjectsPresent
-              ? "Names are present, but migration 0003's reservation objects are missing, so capacity cannot be reserved atomically and every call will be refused."
-              : `Names are present. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour.`
-        : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.",
+      detail: [runtimeAiDetail, ...configurationProblems].join(" "),
     };
 
     // Healthy means the database can actually serve this app: configured, an
@@ -171,6 +193,8 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
         embeddingModel: config.embeddingModel,
         embeddingDimensions: config.embeddingDimensions,
         embeddingProvider: providers.embeddingProviderId,
+        embeddingCredentialPresent: providers.embeddingConfigured,
+        configurationProblems,
         evidenceSource: storeResolution.store.mode,
         evidenceReason: storeResolution.reason,
         demoContent: storeResolution.store.demoContent,
@@ -180,6 +204,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
         spentTokensToday,
         usageCoverage: USAGE_COVERAGE_NOTE,
         embeddingCalls: embeddingCallCount(),
+        embeddingRequestsToday,
         maxEmbeddingCalls: config.maxEmbeddingCalls,
       },
     };

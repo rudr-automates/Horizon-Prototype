@@ -78,6 +78,19 @@ export const runtimeInfoSchema = z.object({
   embeddingDimensions: z.number().int(),
   /** Which embedder is really producing vectors right now. */
   embeddingProvider: z.string(),
+  /**
+   * Whether the EMBEDDING credential is present, reported separately from the
+   * generation one because they are now different vendors' keys. A deployment
+   * can generate and still be unable to embed; that state previously had no way
+   * of being visible here, and it silently degraded vector search.
+   */
+  embeddingCredentialPresent: z.boolean(),
+  /**
+   * Configuration problems an operator must fix, in plain language. Empty when
+   * nothing is wrong. Never contains a credential value: these are the settings
+   * that are wrong or meaningless, not what they are set to.
+   */
+  configurationProblems: z.array(z.string()),
   evidenceSource: z.enum(["supabase", "fixture"]),
   evidenceReason: z.string(),
   demoContent: z.boolean(),
@@ -104,8 +117,19 @@ export const runtimeInfoSchema = z.object({
   /** Tokens recorded for the current UTC day; null when the ledger was unreadable. */
   spentTokensToday: z.number().int().nullable(),
   usageCoverage: z.string(),
-  /** Embedding requests attempted in this process (the token budget cannot meter these). */
+  /**
+   * Embedding requests attempted in THIS PROCESS (the token budget cannot meter
+   * these). It resets on every restart, so it is not the day's usage and must not
+   * be shown against a durable cap as though it were.
+   */
   embeddingCalls: z.number().int(),
+  /**
+   * Embedding requests recorded for the current UTC day in the DURABLE ledger;
+   * null when it could not be read. This is the figure to compare against the cap
+   * when `embeddingCapMode` is "supabase", because it comes from the same store
+   * the cap counts in. Null means unknown, never zero.
+   */
+  embeddingRequestsToday: z.number().int().nullable(),
   /** Configured embedding-request ceiling; 0 means none is configured. */
   maxEmbeddingCalls: z.number().int(),
 });

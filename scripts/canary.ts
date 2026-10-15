@@ -154,6 +154,7 @@ const startSecondsByFixtureId = new Map(
 function configuredSecretCandidates(): string[] {
   const names = [
     "HORIZON_LLM_API_KEY",
+    "HORIZON_EMBEDDING_API_KEY",
     "GOOGLE_API_KEY",
     "GEMINI_API_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",

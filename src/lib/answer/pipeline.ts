@@ -394,7 +394,10 @@ export async function answerQuestion(
       const decision = await usageLedger.admitEmbedding({
         maxCalls: deps.maxEmbeddingCalls,
         provider: deps.providers.embeddingProviderId,
-        modelId: deps.modelId,
+        // The EMBEDDING model, not the generation model. With the two now coming
+        // from different vendors, recording the generation model here would put
+        // the wrong provenance on an embedding charge in the audit record.
+        modelId: deps.embeddingModel,
       });
       refreshGuard(decision.detail);
       return decision.admitted;
@@ -434,6 +437,24 @@ export async function answerQuestion(
     provenance: baseProvenance,
     guard: { ...guardState },
   });
+
+  // A database-backed corpus was embedded with a REAL model, so a query vector
+  // from any other source is not comparable with it: similarity search would
+  // still return a ranked list, and the list would be noise, which is worse than
+  // an error because nothing downstream can tell. When the embedding credential
+  // is missing there is no honest way to search that corpus, so the turn is
+  // refused before anything is sent.
+  //
+  // The offline lexical embedder is still correct for the labelled sample
+  // fixture, where it embeds BOTH the documents and the question and is therefore
+  // self-consistent. That is why this guard keys on the STORE and not on the
+  // embedder alone.
+  if (deps.store.mode === "supabase" && !deps.providers.embeddingConfigured) {
+    refreshGuard(
+      "The stored corpus was embedded with a real model, but no embedding credential is configured, so the question could not be embedded in the same vector space and the turn was refused.",
+    );
+    return unavailable("EMBEDDING_UNAVAILABLE");
+  }
 
   // A zero budget permits NO provider request at all, not even the embedding
   // call, so that state has to be visible as a refusal before anything is sent.

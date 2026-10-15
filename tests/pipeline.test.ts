@@ -573,6 +573,9 @@ describe("cumulative daily usage accounting", () => {
       spentToday: async () => {
         throw new Error("usage_ledger is unreachable");
       },
+      embeddingRequestsToday: async () => {
+        throw new Error("must not be reached");
+      },
       admitGeneration: async () => {
         throw new Error("must not be reached");
       },
@@ -627,6 +630,7 @@ describe("cumulative daily usage accounting", () => {
       mode: "supabase",
       spentToday: async () => 0,
       admitEmbedding: async () => ({ admitted: true, usedToday: 1, detail: "counted" }),
+      embeddingRequestsToday: async () => 0,
       admitGeneration: async () => ({
         admitted: false,
         reservation: null,
@@ -657,6 +661,7 @@ describe("cumulative daily usage accounting", () => {
       mode: "supabase",
       spentToday: async () => 0,
       admitEmbedding: async () => ({ admitted: true, usedToday: 1, detail: "counted" }),
+      embeddingRequestsToday: async () => 0,
       admitGeneration: async () => {
         throw new Error("function horizon_admit_generation_tokens does not exist");
       },
@@ -686,6 +691,7 @@ describe("cumulative daily usage accounting", () => {
     const failingSettle: AnswerPipelineDeps["usage"] = {
       mode: "supabase",
       spentToday: () => ledger.spentToday(),
+      embeddingRequestsToday: () => ledger.embeddingRequestsToday(),
       admitGeneration: (request) => ledger.admitGeneration(request),
       admitEmbedding: (request) => ledger.admitEmbedding(request),
       settle: async () => {

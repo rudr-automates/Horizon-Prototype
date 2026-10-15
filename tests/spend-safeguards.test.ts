@@ -15,6 +15,9 @@ const config = readRuntimeConfig(
     llmProvider: "google-genai",
     llmApiKey: "placeholder",
     llmModel: "gemini-3.6-flash",
+    // Required for the REAL embedder to be built at all: the cap wraps a live
+    // embedding adapter, and without a credential there is nothing to wrap.
+    embeddingApiKey: "placeholder",
     embeddingModel: "gemini-embedding-001",
     embeddingDimensions: 768,
   }),
@@ -40,6 +43,25 @@ describe("SDK retries are disabled", () => {
     expect(
       buildHttpOptions({ ...config, baseUrlOverride: "https://example.invalid" }).baseUrl,
     ).toBe("https://example.invalid");
+  });
+
+  it("never forwards another vendor's endpoint to the Google SDK", () => {
+    // HORIZON_LLM_BASE_URL names the GENERATION endpoint. Under Groq it holds
+    // Groq's host, and this SDK is what builds the EMBEDDING client — so
+    // forwarding it would send a Google embedding request to Groq, which fails
+    // as an authentication error and reads like an outage.
+    const groqConfig = readRuntimeConfig(
+      makeEnv({
+        llmProvider: "groq",
+        llmApiKey: "placeholder",
+        embeddingApiKey: "placeholder",
+        llmBaseUrl: "https://api.groq.com/openai/v1",
+      }),
+    );
+
+    expect(buildHttpOptions(groqConfig)).not.toHaveProperty("baseUrl");
+    // The generation side still gets a concrete endpoint.
+    expect(groqConfig.generationBaseUrl).toBe("https://api.groq.com/openai/v1");
   });
 });
 

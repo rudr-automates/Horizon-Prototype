@@ -283,6 +283,20 @@ describe("embedding request cap", () => {
     });
     expect(decision.detail).toMatch(/Cost is NOT bounded/);
   });
+
+  it("reports the count of requests it actually admitted", async () => {
+    // This IS the day's figure when the cap is process-local, because there is no
+    // second store for it to disagree with. It counts GRANTS, not attempts: a
+    // refused request must not inflate the number shown against the cap.
+    const ledger = new InMemoryUsageLedger();
+    const request = { maxCalls: 1, provider: "gemini-embedding-001", modelId: null };
+
+    expect(await ledger.embeddingRequestsToday()).toBe(0);
+    await ledger.admitEmbedding(request);
+    expect(await ledger.embeddingRequestsToday()).toBe(1);
+    expect((await ledger.admitEmbedding(request)).admitted).toBe(false);
+    expect(await ledger.embeddingRequestsToday()).toBe(1);
+  });
 });
 
 describe("database-backed usage ledger", () => {
@@ -293,6 +307,7 @@ describe("database-backed usage ledger", () => {
     return {
       rows,
       dayTotals: async () => ({ settledTokens: 0, reservedTokens: 0 }),
+      embeddingRequestsForDay: async () => 0,
       admitGenerationTokens: async () => ({
         admitted: true,
         reservation_id: "11111111-1111-5111-8111-111111111111",
@@ -328,6 +343,38 @@ describe("database-backed usage ledger", () => {
     expect(await ledger.spentToday()).toBe(4500);
     expect(askedDay).toBe(utcDayKey());
     expect(askedDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("reads TODAY's embedding-request count from the durable store", async () => {
+    // Read through a dedicated method rather than from `admitEmbedding`'s
+    // `usedToday`, because the SQL function returns a hardcoded 0 from its
+    // `p_max_calls <= 0` branch — so the one admission that writes nothing is
+    // also the one that cannot report the count.
+    let askedDay = "";
+    const ledger = new SupabaseUsageLedger(
+      gateway({
+        embeddingRequestsForDay: async (day) => {
+          askedDay = day;
+          return 4;
+        },
+      }),
+    );
+
+    expect(await ledger.embeddingRequestsToday()).toBe(4);
+    expect(askedDay).toBe(utcDayKey());
+  });
+
+  it("surfaces an embedding-count failure instead of reporting zero", async () => {
+    // Reporting 0 here would say the day's cap is untouched when it is not.
+    const ledger = new SupabaseUsageLedger(
+      gateway({
+        embeddingRequestsForDay: async () => {
+          throw new UsageLedgerFailure("embedding_request_count", "the count query failed");
+        },
+      }),
+    );
+
+    await expect(ledger.embeddingRequestsToday()).rejects.toThrow(/count query failed/);
   });
 
   it("maps a granted reservation, keeping the id for settlement", async () => {

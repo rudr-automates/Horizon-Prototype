@@ -21,7 +21,20 @@ import {
   type VerificationTarget,
   type VerifierVerdict,
 } from "@/lib/answer/provider";
-import type { RuntimeConfig } from "@/lib/config";
+import {
+  formatEvidence,
+  GENERATOR_INSTRUCTION,
+  VERIFIER_INSTRUCTION,
+} from "@/lib/answer/instructions";
+import {
+  describeIssues,
+  describeJsonShape,
+  stripCodeFence,
+} from "@/lib/answer/json-envelope";
+import { GOOGLE_PROVIDER_ID, type RuntimeConfig } from "@/lib/config";
+
+/** Re-exported so an existing importer of this module keeps working. */
+export { stripCodeFence };
 
 /**
  * Google Gen AI (Gemini API) adapter.
@@ -87,19 +100,42 @@ export function buildHttpOptions(config: RuntimeConfig): {
   return {
     timeout: config.requestTimeoutMs,
     retryOptions: { attempts: 1 },
-    ...(config.baseUrlOverride ? { baseUrl: config.baseUrlOverride } : {}),
+    // The override names the GENERATION endpoint, so it is passed to this SDK
+    // only when Google IS the generation provider. Under an OpenAI-compatible
+    // provider the same variable holds that vendor's host, and forwarding it
+    // here would point the EMBEDDING client at a non-Google endpoint — which
+    // fails as an authentication error and reads like an outage.
+    ...(config.provider === GOOGLE_PROVIDER_ID && config.baseUrlOverride
+      ? { baseUrl: config.baseUrlOverride }
+      : {}),
   };
 }
 
-export function createGeminiClient(config: RuntimeConfig): GoogleGenAI {
-  if (config.apiKey.trim() === "") {
+/**
+ * Build the Google Gen AI client.
+ *
+ * `role` selects the credential, and it is required in spirit even though it has
+ * a default: generation and embedding are separate credentials now, and a client
+ * built from the wrong one fails as an authentication error at call time rather
+ * than here.
+ */
+export function createGeminiClient(
+  config: RuntimeConfig,
+  role: "generation" | "embedding" = "generation",
+): GoogleGenAI {
+  const apiKey = role === "generation" ? config.apiKey : config.embeddingApiKey;
+
+  if (apiKey.trim() === "") {
     throw new ProviderFailure(
       "not_configured",
-      "No Gemini API credential is configured. Set HORIZON_LLM_API_KEY (or GOOGLE_API_KEY / GEMINI_API_KEY) server-side.",
+      role === "generation"
+        ? "No generation credential is configured. Set HORIZON_LLM_API_KEY server-side."
+        : "No embedding credential is configured. Set HORIZON_EMBEDDING_API_KEY server-side (the Google key for the embedding model).",
     );
   }
+
   return new GoogleGenAI({
-    apiKey: config.apiKey,
+    apiKey,
     httpOptions: buildHttpOptions(config),
   });
 }
@@ -186,30 +222,6 @@ const claimResponseSchema: Schema = {
   required: ["claims", "unansweredParts"],
 };
 
-const GENERATOR_INSTRUCTION = [
-  "You answer a learner's question about a recorded lesson.",
-  "You must use ONLY the eligible evidence provided. Never use outside knowledge.",
-  "Return structured claims. Do not write a narrative answer.",
-  "Every claim must cite at least one evidence id from the provided list.",
-  "Every claim must include a short verbatim quote copied exactly from the cited evidence text.",
-  "If the provided evidence cannot support an answer, return an empty claims array and set unansweredParts to true.",
-].join(" ");
-
-/**
- * Strip a markdown code fence if the model wrapped its JSON in one.
- *
- * `responseMimeType: "application/json"` does not guarantee a bare object, so a
- * fenced payload is unwrapped before parsing. This weakens NOTHING: the parsed
- * value still has to satisfy the full Zod schema and every downstream check.
- * Without it, fencing would be reported as malformed output and a valid answer
- * would be lost.
- */
-export function stripCodeFence(text: string): string {
-  const trimmed = text.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
-  return fenced ? fenced[1].trim() : trimmed;
-}
-
 /**
  * Content-free description of what came back, so a malformed response can be
  * told apart from a truncated one without logging the model's text.
@@ -219,29 +231,10 @@ export function describeResponseShape(
   finishReason?: string,
   usage?: GeminiUsageMetadata,
 ): string {
-  const body = text.trim();
-  return [
-    `length=${text.length}`,
-    `startsBrace=${body.startsWith("{")}`,
-    `endsBrace=${body.endsWith("}")}`,
-    `fenced=${text.includes("```")}`,
-    `finishReason=${finishReason ?? "unknown"}`,
-    usage
-      ? `tokens=p${usage.promptTokenCount ?? "?"}/c${usage.candidatesTokenCount ?? "?"}/thoughts${usage.thoughtsTokenCount ?? "?"}`
-      : "tokens=unreported",
-  ].join(" ");
-}
-
-/**
- * Describe WHICH field failed validation, without echoing the model's content.
- * Field paths and issue codes only: enough to act on, nothing that could leak
- * generated text or user material into a log.
- */
-function describeIssues(error: { issues: Array<{ path: PropertyKey[]; code: string }> }): string {
-  return error.issues
-    .slice(0, 5)
-    .map((issue) => `${issue.path.join(".") || "(root)"}:${issue.code}`)
-    .join(", ");
+  const tokens = usage
+    ? `p${usage.promptTokenCount ?? "?"}/c${usage.candidatesTokenCount ?? "?"}/thoughts${usage.thoughtsTokenCount ?? "?"}`
+    : "unreported";
+  return describeJsonShape(text, finishReason, tokens);
 }
 
 /** Normalise the provider's usage report, preserving "unknown" as null. */
@@ -261,12 +254,6 @@ export function toTokenUsage(metadata: GeminiUsageMetadata | undefined): TokenUs
   return { promptTokens: prompt, completionTokens: completion, thoughtsTokens: thoughts };
 }
 
-function formatEvidence(request: ClaimGenerationRequest): string {
-  return request.evidence
-    .map((item) => `[${item.id}]\n${item.text}`)
-    .join("\n\n");
-}
-
 export class GeminiClaimGenerator implements ClaimGenerator {
   readonly providerId = "google-genai";
 
@@ -278,7 +265,7 @@ export class GeminiClaimGenerator implements ClaimGenerator {
   async generate(request: ClaimGenerationRequest): Promise<GenerationOutcome> {
     const contents = [
       `QUESTION:\n${request.question}`,
-      `ELIGIBLE EVIDENCE (cite only these ids):\n${formatEvidence(request)}`,
+      `ELIGIBLE EVIDENCE (cite only these ids):\n${formatEvidence(request.evidence)}`,
     ].join("\n\n");
 
     let text: string | undefined;
@@ -365,15 +352,6 @@ const verifierSchema: Schema = {
   },
   required: ["verdicts"],
 };
-
-const VERIFIER_INSTRUCTION = [
-  "You check whether a claim is supported by the evidence cited for it.",
-  "You see ONLY the claim and its cited evidence. You never see other lesson material.",
-  "SUPPORTED means the cited evidence entails the claim.",
-  "PARTIAL means the evidence supports only part of the claim.",
-  "NOT_SUPPORTED means the evidence does not support the claim, even if it is topically related.",
-  "Return one verdict per input index, exactly as given.",
-].join(" ");
 
 export class GeminiSemanticVerifier implements SemanticVerifier {
   readonly providerId = "google-genai";

@@ -76,6 +76,8 @@ export interface UsageRow {
 export interface UsageGateway {
   /** Settled spend and outstanding held capacity for one UTC day. */
   dayTotals(day: string): Promise<{ settledTokens: number; reservedTokens: number }>;
+  /** Embedding REQUEST rows recorded for one UTC day, across all providers. */
+  embeddingRequestsForDay(day: string): Promise<number>;
   admitGenerationTokens(input: {
     budgetTokens: number;
     reserveTokens: number;
@@ -149,6 +151,11 @@ export class SupabaseUsageLedger implements UsageLedger {
     const totals = await this.gateway.dayTotals(utcDayKey());
     // Settled spend plus capacity currently held by in-flight calls.
     return totals.settledTokens + totals.reservedTokens;
+  }
+
+  /** Read from the durable count, never from an admission decision's `usedToday`. */
+  async embeddingRequestsToday(): Promise<number> {
+    return this.gateway.embeddingRequestsForDay(utcDayKey());
   }
 
   async admitGeneration(request: GenerationAdmissionRequest): Promise<ReservationDecision> {
@@ -267,6 +274,25 @@ export function createSupabaseUsageGateway(client: SupabaseClient): UsageGateway
         else settledTokens += toCount(row.charged_tokens);
       }
       return { settledTokens, reservedTokens };
+    },
+
+    async embeddingRequestsForDay(day: string) {
+      // Counts embedding rows for the day across every provider. This is the
+      // same predicate `horizon_admit_embedding_request` counts, so the figure
+      // REPORTED and the figure ENFORCED cannot drift apart.
+      const { count, error } = await client
+        .from("usage_ledger")
+        .select("id", { count: "exact", head: true })
+        .eq("day", day)
+        .eq("kind", "embedding_request");
+
+      if (error) {
+        throw new UsageLedgerFailure(
+          "embedding_request_count",
+          `Could not read the day's embedding requests: ${error.message}. Confirm migrations 0001 and 0003 are applied.`,
+        );
+      }
+      return count ?? 0;
     },
 
     admitGenerationTokens: (input) =>

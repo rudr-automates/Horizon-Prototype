@@ -91,6 +91,17 @@ export class InMemoryUsageLedger implements UsageLedger {
     return this.totalTokens + this.reservedTokens();
   }
 
+  /**
+   * The day's counted embedding requests. This IS the figure the cap enforces
+   * here, because the cap is process-local too — there is no second store for it
+   * to disagree with, which is exactly what makes the durable ledger the one to
+   * trust once a database is configured.
+   */
+  async embeddingRequestsToday(): Promise<number> {
+    this.rollIfNeeded(new Date());
+    return this.embeddingRequests;
+  }
+
   async admitGeneration(request: GenerationAdmissionRequest): Promise<ReservationDecision> {
     this.rollIfNeeded(new Date());
 

@@ -117,6 +117,16 @@ export type ReservationDecision =
 
 export interface EmbeddingAdmissionDecision {
   admitted: boolean;
+  /**
+   * The day's counted embedding requests as this decision saw them.
+   *
+   * NOT a general-purpose count read, and not to be presented as one. With no
+   * cap configured the SQL function returns a hardcoded 0 here, while the
+   * in-memory ledger returns its running count, so a caller that displayed this
+   * would report two different numbers for the same deployed state. READ the
+   * count with `UsageLedger.embeddingRequestsToday()`. This field exists so a
+   * decision can explain itself (see `detail`), nothing more.
+   */
   usedToday: number;
   detail: string;
 }
@@ -163,6 +173,23 @@ export interface UsageLedger {
    * closed on error, so a swallowed failure would silently disable the limit.
    */
   spentToday(): Promise<number>;
+  /**
+   * Embedding REQUESTS counted for the current UTC day, read from the SAME store
+   * the cap is enforced against.
+   *
+   * WHY THIS IS A SEPARATE READ
+   *   `admitEmbedding().usedToday` cannot be used for it: the SQL function
+   *   reports a hardcoded 0 from its `p_max_calls <= 0` early return, so the one
+   *   call that writes nothing is also the one that cannot report the count. A
+   *   caller that read the figure from there would be wrong by exactly the day's
+   *   real usage.
+   *
+   * Throws rather than returning a wrong number, for the same reason
+   * `spentToday` does. A caller that must keep serving catches and reports
+   * "unknown" — which is not 0, because understating consumption would make a
+   * cap look emptier than it is.
+   */
+  embeddingRequestsToday(): Promise<number>;
   /**
    * Atomically reserve generation capacity. Implementations MUST make the
    * check-and-hold indivisible with respect to concurrent callers.

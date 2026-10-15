@@ -617,3 +617,168 @@ returns 22P02 and a real id returns no error at all.
 **Consequence:** The three course endpoints answer 404 for a malformed or unknown
 id. Tested in `tests/retrieval-eligibility.test.ts`, including the 42501 case that
 must still throw.
+
+---
+
+## D-023 — Generation runs on Groq; generation and embedding credentials are separate
+
+**Date:** 2026-10-15
+**Status:** Accepted. **No live Groq call has been made.** The adapter is covered
+by mocked tests only, and the account's limits are therefore unknown.
+
+**Context:** Generation was locked to Google, and one credential served both
+generation and embeddings. That was only ever safe because both calls happened to
+go to the same vendor. Moving generation to Groq's OpenAI-compatible API breaks
+that coincidence: a single shared name means either a Groq key sent to Google's
+embedding endpoint — a guaranteed 401 that presents as an outage — or a Google key
+sent to Groq. Meanwhile the persisted corpus was embedded with Google's model, and
+cosine comparison against vectors from a different model is meaningless, so
+embeddings could not simply move with generation.
+
+**Decision:** The provider is selectable (`groq`, `google-genai`, or reported as
+unrecognised rather than guessed). `HORIZON_LLM_API_KEY` is the **generation**
+credential and `HORIZON_EMBEDDING_API_KEY` is the **embedding** credential.
+Resolution falls back to `GOOGLE_API_KEY` / `GEMINI_API_KEY` for embeddings, and
+to `HORIZON_LLM_API_KEY` for embeddings **only when the generation provider is
+Google**, where that key is known to be a Google credential. The reverse never
+happens. Groq is called with plain `fetch` — no SDK — so one logical call is
+visibly one HTTP request, retries are structurally absent, and usage is mapped
+exactly once: Groq's Chat Completions usage reports no separate reasoning count,
+so `thoughtsTokens` stays `null` rather than being derived from
+`completion_tokens` and double-billing every reasoning token.
+
+**Consequence:** A credential in the wrong variable fails at startup diagnostics
+rather than as a confusing 401, and `GET /api/v1/health` reports
+`embeddingCredentialPresent` and a `configurationProblems` list, because
+"configured for generation" and "able to embed" are different facts. The cost is
+two settings to keep straight and one more place where a silent fallback would
+have been convenient; `tests/env-credentials.test.ts` covers both directions of
+the rule, including the legacy single-key setup that is still supported under
+`google-genai`.
+
+---
+
+## D-024 — A corpus that cannot be embedded into the same space is refused
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Context:** With the embedding credential missing, the provider bundle falls back
+to the offline lexical embedder. For the labelled sample fixture that is
+self-consistent — it embeds both the documents and the question — so it is
+correct. For the database-backed corpus it is not: those vectors came from
+Google's model, and comparing a lexical vector against them does not fail, it
+returns a ranked list that is simply noise. Nothing downstream could tell: the
+eligibility predicate still held, claims were still grounded in what was
+retrieved, quotations still matched, citations still resolved. The only thing
+wrong would have been that the evidence was never really retrieved.
+
+**Decision:** Refuse the turn (`EMBEDDING_UNAVAILABLE`) when the evidence store is
+database-backed and no real embedding credential is configured. The guard keys on
+the **store**, not on the embedder alone, and it runs before the embedding request
+is claimed and before any store read — so the refusal costs nothing.
+
+**Consequence:** A deployment cannot silently degrade its own recall while looking
+healthy. The cost is that an operator who loses the embedding key sees a refusal
+rather than a degraded-but-running app, which is the intended direction:
+`tests/embedding-credential-guard.test.ts` asserts 0 embedder calls and 0 store
+reads on refusal, and asserts that the same store proceeds normally once the
+credential exists.
+
+---
+
+## D-025 — The interface states its own colours, and the layer it depends on
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Context:** The page declared `color-scheme: light dark` and set no background
+and no text colour. Both were therefore chosen by the browser, from different
+places: the surface was the document default, while the text resolved through the
+UA's dark-palette `CanvasText` — white. The result was white text on a white page,
+with only the few elements carrying explicit colours legible. Under a dark OS it
+rendered differently again — a `#121212` canvas measuring 93.56% of the pixels —
+which is why the same file was reported differently by different people. Neither
+build nor lint nor a DOM dump can see this class of defect: the markup is
+perfectly correct and every element is present.
+
+**Decision:** The application ships **one** deliberate light theme.
+`color-scheme: light` only, with `background-color` and `color` declared on both
+`html` and `body`, so no UA default and no `prefers-color-scheme` value can invert
+the page. Components state their own colours and never dim text with `opacity-*`,
+which multiplies an already-wrong colour. Base rules stay inside the cascade layer
+system: CSS written outside every `@layer` outranks Tailwind's `@layer utilities`,
+so an unlayered `button { color: inherit }` silently beat every `text-*` utility on
+the Ask button (measured at 1.24:1, dark on blue). Tailwind's preflight already
+does that job in `@layer base`.
+
+**Consequence:** Legibility no longer depends on the host's appearance settings,
+and the defect class has a guard: the fix was verified by pixels and by contrast
+ratios measured in the live page (heading 20.49:1, label 19.3:1, Ask button
+14.45:1) at 1440px and 390px. The cost is that genuine dark-mode support is now an
+explicit future decision rather than something the browser does by accident —
+which is the point, because it was doing it wrongly.
+
+## D-026 — A figure shown beside a cap comes from the store the cap is counted in
+
+The status panel read `EMBEDDING REQUESTS 0 made · cap 10` while the database held
+one embedding request for that UTC day. The field came from a counter in the
+server process, which returns to 0 on every restart, and it sat in the same
+payload as `embeddingCapMode: "supabase"` — a cap counted in Postgres. Two
+numbers were being shown as one, and the one a reader would take as "how much of
+the cap is gone" was the one that forgets.
+
+The obvious source for the correct figure is wrong, which is worth stating: the
+admission function returns a **hardcoded** `used_today = 0` from its
+`p_max_calls <= 0` branch, so the call that writes nothing is the call that
+cannot report the count. Reading the count from an admission decision is now
+documented in `types.ts` as something not to do.
+
+**Decision:** Displayed usage is read through `UsageLedger.embeddingRequestsToday()`,
+which counts in the same store the cap enforces in, with the same predicate, so
+the figure reported and the figure enforced cannot drift. A failure to read it is
+reported as `unknown`, never as 0: zero would understate consumption and make the
+remaining allowance look larger than it is. The process-local counter is still
+reported and is still shown, but only — and explicitly — when the cap really is
+process-local.
+
+**Consequence:** The panel and the cap now agree by construction rather than by
+coincidence, and the divergence is one live turn away from being visible: after a
+further turn the durable count read 2 while the process counter read 1. Every
+other diagnostic on that panel is read the same way — `spentTokensToday` comes
+from the ledger, the guard comes from the answer path's own derivation — so this
+removes the last figure that was describing a different thing from its label.
+
+## D-027 — A verification command must be reproducible on a system that has been used
+
+`pnpm verify:budget` hardcoded `cap 3, expect 3 grants` for its embedding half.
+That is correct on an empty ledger and wrong on any day the application actually
+ran, because the cap counts the day's rows across all providers; it reported
+`FAIL — expected 3 grants, saw 2` while the cap was behaving exactly as designed.
+The token half of the same script had always derived its budget from the live day
+total, so the script disagreed with itself about how to state an expectation.
+
+Separately, `pnpm verify:data-path` proved "nothing was spent" with the ledger
+token total — durable, but blind to embedding requests, which carry no tokens —
+and a process-local counter that resets with the script. Both read `0 -> 0` on a
+day the ledger held one real request, so a correct run printed a line a reader
+could take as a claim about the day.
+
+A verification command that fails on a used system trains its reader to ignore
+it, which is worse than not having it.
+
+**Decision:** Expectations are derived from the state actually measured at run
+time, never from a constant that assumes a fresh environment. Checks assert the
+relationship they depend on — grants equal the remaining allowance, rows added
+equal grants — so a predicate that drifts from the function it mirrors fails
+loudly instead of mis-calibrating quietly. Where a claim is about durability, it
+is checked against the durable store; a process-local instrument may support such
+a claim only if it is labelled as covering that process.
+
+**Consequence:** `pnpm verify:budget` passes on a used ledger (verified twice:
+`1 -> 4 (3 added)`, cleanup complete, day total 913 before and after) and
+`pnpm verify:data-path` now prints the real figure — `embedding requests recorded
+for 2026-10-15 1 -> 1` — which is what its claim needed to say. The cost is that
+these scripts now depend on the ledger being readable to make their strongest
+statement, and an unreadable count makes the data-path check **fail** rather than
+pass vacuously.

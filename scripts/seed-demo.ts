@@ -26,10 +26,23 @@ const REQUIRED_DB_NAMES = [
 ];
 
 const EMBEDDING_NAMES = ["HORIZON_EMBEDDING_MODEL", "HORIZON_EMBEDDING_DIMENSIONS"];
-const PROVIDER_KEY_NAMES = [
-  "HORIZON_LLM_API_KEY",
+/**
+ * Names this command's early check accepts as "a credential that can embed".
+ *
+ * This command only ever embeds, so the embedding credential is the one it
+ * needs. HORIZON_LLM_API_KEY is listed because it is still a valid legacy
+ * fallback when the generation provider is Google — NOT because it is an
+ * embedding key in general, which under a non-Google provider it is not.
+ *
+ * Presence here is a pre-flight hint only. The authoritative check is
+ * `providers.embeddingConfigured` below, which applies the real resolution rule
+ * and refuses when the embedder would be the offline lexical stand-in.
+ */
+const EMBEDDING_KEY_NAMES = [
+  "HORIZON_EMBEDDING_API_KEY",
   "GOOGLE_API_KEY",
   "GEMINI_API_KEY",
+  "HORIZON_LLM_API_KEY",
 ];
 
 function fail(lines: string[]): never {
@@ -46,26 +59,26 @@ async function main(): Promise<void> {
 
   const db = presentNames(REQUIRED_DB_NAMES);
   const embedding = presentNames(EMBEDDING_NAMES);
-  const providerKey = presentNames(PROVIDER_KEY_NAMES);
-  const hasAnyProviderKey = providerKey.set.length > 0;
+  const embeddingKey = presentNames(EMBEDDING_KEY_NAMES);
+  const hasAnyEmbeddingKey = embeddingKey.set.length > 0;
 
   console.log(`Database names set: ${db.set.length}/${REQUIRED_DB_NAMES.length}`);
   console.log(
-    `Provider credential set: ${hasAnyProviderKey ? "yes" : "no"} (names checked, no value read)`,
+    `Embedding credential set: ${hasAnyEmbeddingKey ? "yes" : "no"} (names checked, no value read)`,
   );
 
   const missing: string[] = [];
   if (db.missing.length > 0) missing.push(`not set: ${db.missing.join(", ")}`);
-  if (!hasAnyProviderKey) {
+  if (!hasAnyEmbeddingKey) {
     missing.push(
-      `no runtime credential — one of ${PROVIDER_KEY_NAMES.join(" / ")} must be set, ` +
+      `no embedding credential — set HORIZON_EMBEDDING_API_KEY (one of ${EMBEDDING_KEY_NAMES.join(" / ")} is accepted), ` +
         "because the offline lexical embedder may not be persisted as a semantic embedding",
     );
   }
   if (embedding.missing.length > 0) {
     missing.push(`not set: ${embedding.missing.join(", ")} (defaults will be used)`);
   }
-  if (db.missing.length > 0 || !hasAnyProviderKey) {
+  if (db.missing.length > 0 || !hasAnyEmbeddingKey) {
     fail([
       ...missing,
       "",
@@ -81,8 +94,12 @@ async function main(): Promise<void> {
       "  2. Put NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and the",
       "     service-role key in .env.local. All three are required: the anon key is",
       "     what the app's configuration check tests for.",
-      "  3. Put the runtime provider credential in .env.local (server-side only).",
-      "  4. Put HORIZON_LLM_PROVIDER=google-genai and HORIZON_LLM_MODEL in .env.local.",
+      "  3. Put HORIZON_EMBEDDING_API_KEY in .env.local (server-side only). This is",
+      "     the Google key, and it is used ONLY for embeddings: the stored vectors",
+      "     must come from the same model as the question vectors.",
+      "  4. Optionally set the generation variables (HORIZON_LLM_PROVIDER,",
+      "     HORIZON_LLM_BASE_URL, HORIZON_LLM_MODEL, HORIZON_LLM_API_KEY). This",
+      "     command does not generate anything, so it does not need them.",
     ]);
   }
 
@@ -116,11 +133,12 @@ async function main(): Promise<void> {
     `Spend guard: budget ${config.dailyTokenBudget} tokens; embedding calls are NOT metered by it.`,
   );
 
-  if (!providers.configured) {
+  if (!providers.embeddingConfigured) {
     fail([
-      "The runtime provider is not configured, so no real embeddings can be produced.",
-      "Set HORIZON_LLM_PROVIDER=google-genai, HORIZON_LLM_MODEL and the credential,",
-      "then run this command again. The demo corpus will not be seeded with placeholder vectors.",
+      "No real embedding model is available, so this corpus cannot be seeded.",
+      providers.embedderDetail,
+      "Set HORIZON_EMBEDDING_API_KEY to the Google key used for embeddings, then run",
+      "this command again. The corpus will not be seeded with placeholder vectors.",
     ]);
   }
 
@@ -130,7 +148,7 @@ async function main(): Promise<void> {
   const embeddingAdmission = await usageResolution.ledger.admitEmbedding({
     maxCalls: config.maxEmbeddingCalls,
     provider: providers.embeddingProviderId,
-    modelId: config.model,
+    modelId: config.embeddingModel,
   });
   console.log(
     `Embedding request admission (${usageResolution.ledger.mode} cap): ${embeddingAdmission.admitted ? "granted" : "refused"} — ${embeddingAdmission.detail}`,

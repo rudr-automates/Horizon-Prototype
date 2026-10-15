@@ -29,7 +29,9 @@ Three files must be applied **in order**:
    `horizon_admit_embedding_request`, `horizon_settle_reservation`,
    `horizon_schema_status`) plus the reservation columns on `usage_ledger`.
    Read [the 0003 section](#applying-0003-required) before running it: it alters
-   an existing table and it changes how the app spends money.
+   an existing table and it changes how the app spends money. **Already applied on
+   the connected project** (see the status above); it is listed here so the order
+   is complete for a new environment.
 
 `0002` reuses the identical eligibility condition as
 `src/lib/eligibility/predicate.ts`, so both retrieval branches filter the same

@@ -45,17 +45,19 @@ explicitly public).
 | `NEXT_PUBLIC_SUPABASE_URL` | public | database path | Safe for the browser, but nothing client-side uses it yet |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | database path | RLS denies `anon` by design; see `docs/apply-migration.md` |
 | `SUPABASE_SERVICE_ROLE_KEY` | **secret** | database path | Bypasses RLS. Server-only. Never sent to the client |
-| `HORIZON_LLM_PROVIDER` | server | inference | Must be `google-genai` for any model call to be possible |
-| `HORIZON_LLM_API_KEY` | **secret** | inference | Free-tier Google Gemini key. `GOOGLE_API_KEY` / `GEMINI_API_KEY` are accepted as fallbacks |
-| `HORIZON_LLM_MODEL` | server | inference | `gemini-3.6-flash` |
+| `HORIZON_LLM_PROVIDER` | server | inference | `groq` or `google-genai`. Any other value is reported as unrecognised and no model call is possible |
+| `HORIZON_LLM_BASE_URL` | server | inference | Endpoint base for GENERATION. Empty means "use the provider's documented default", which for `groq` is `https://api.groq.com/openai/v1`. It is **not** forwarded to the Google SDK |
+| `HORIZON_LLM_API_KEY` | **secret** | inference | **Generation** credential only. Under `google-genai`, `GOOGLE_API_KEY` / `GEMINI_API_KEY` are also accepted |
+| `HORIZON_LLM_MODEL` | server | inference | `openai/gpt-oss-20b` under `groq`; `gemini-3.6-flash` under `google-genai` |
+| `HORIZON_LLM_REASONING_EFFORT` | server | inference | `low` / `medium` / `high`. Leave empty to send nothing and accept the model's default |
+| `HORIZON_EMBEDDING_API_KEY` | **secret** | retrieval | **Embedding** credential. Separate from the generation key: the two calls may go to different vendors, and one key must never stand in for the other. `GOOGLE_API_KEY` / `GEMINI_API_KEY` are accepted as fallbacks; `HORIZON_LLM_API_KEY` only as a legacy fallback under `google-genai` |
 | `HORIZON_EMBEDDING_MODEL` | server | retrieval | `gemini-embedding-001` |
 | `HORIZON_EMBEDDING_DIMENSIONS` | server | retrieval | `768`. Must match the stored vectors exactly |
 | `HORIZON_DAILY_TOKEN_BUDGET` | server | inference | **`0` permits no provider call at all.** See §5 |
 | `HORIZON_MAX_EMBEDDING_CALLS` | server | retrieval | **`0` permits no embedding request at all** under the durable cap. The token budget cannot bound embeddings, so this is the only control on their request count. It is a REQUEST cap, never a cost cap |
 | `HORIZON_LLM_TIMEOUT_MS` | server | inference | `30000` is a sane start |
 | `HORIZON_LLM_MAX_OUTPUT_TOKENS` | server | inference | `4096`. Reasoning tokens count against this, and a 1024 cap was observed live leaving only 21 visible tokens |
-| `HORIZON_LLM_THINKING_BUDGET` | server | inference | Leave **unset** to send no `thinkingConfig`; `-1` is the provider's automatic mode |
-| `HORIZON_LLM_BASE_URL` | server | — | Leave **empty**. The official SDK resolves its own endpoint |
+| `HORIZON_LLM_THINKING_BUDGET` | server | inference | `google-genai` **only**. Leave unset to send no `thinkingConfig`; `-1` is the provider's automatic mode. Under `groq` it is ignored, and `/api/v1/health` reports it as ignored rather than dropping it silently |
 
 `vercel env add <NAME> production` is the CLI equivalent; the dashboard path is
 **Project → Settings → Environment Variables**.

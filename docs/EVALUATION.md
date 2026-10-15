@@ -2,10 +2,11 @@
 
 **Read this as a log of what was actually run, not as a quality claim.**
 
-This document spans several revisions. **Part 04 (immediately below) is the
-current record**; Parts 03 and 02 are retained unchanged further down as history,
-and they describe an earlier revision whose results still stand as history for
-that revision and are not claimed for the current code.
+This document spans several revisions. **Part 06, at the END of this file, is the
+current record** — each part is appended after the one it supersedes, so the
+newest record is the last one. Parts 05 and earlier are retained unchanged as
+history: their results still stand for the revision they describe and are not
+claimed for the current code.
 
 Three kinds of evidence appear below, and they are never mixed:
 
@@ -586,3 +587,280 @@ the reference. The migration has since run: Verifications A and B from
 `0003` objects present and the ledger readable, and `pnpm verify:budget` then
 exercised the reservation functions for real. The reviewed-by-reading step is no
 longer the only evidence.
+
+---
+
+# Part 06 — Groq provider switch and the invisible interface (2026-10-15)
+
+**Label:** `groq-switch-ui-rescue` · Runtime generation credential: present but
+quota-blocked. **No Groq call has been made.**
+
+## P6-1. The reported defect was real, and it was measurable
+
+The interface was reported as "a blank white window with unreadable text". That is
+what it did, and the cause was not styling taste — it was a missing contract:
+
+| Fact | Measured value |
+|---|---|
+| Declared colour scheme | `color-scheme: light dark` on `:root`, with **no** background or text colour set anywhere |
+| Text colour resolved to | `rgb(255, 255, 255)` — the UA's `CanvasText` for the DARK palette |
+| Page surface | the embedder's own default, which was white |
+| Result | white text on a white page; secondary text additionally multiplied by `opacity-0.7` |
+| Only legible elements | those carrying their own explicit colour (badges, the Ask button) |
+
+It was reproducible two ways from the same file, which is why it looked
+different to different people: under a dark OS preference the same page painted a
+`#121212` canvas (93.56% of the pixels) with white text and invisible dark-on-dark
+panels; in the preview webview it painted white-on-white. Both are the same bug.
+
+**Fix:** `color-scheme: light` only, with `background-color` and `color` stated on
+`html` and `body`, and every component colour stated explicitly instead of
+inherited or dimmed with `opacity-*`. Measured after the fix, in the same dark
+preference: surfaces `#F1F5F9` / `#FFFFFF` / `#F8FAFC` = 92% of pixels, borders
+`#CAD5E2`, accent `#1447E6`, and real ink present. Text contrast measured in the
+live page: heading **20.49:1**, form label **19.3:1**, Ask button **14.45:1**
+(white on blue-700).
+
+A second, self-inflicted defect was caught by the same pixel-and-computed-style
+check and is worth recording because no build or lint step can see it. An
+unlayered `button, input, textarea, select { font: inherit; color: inherit }` rule
+in `globals.css` **outranks Tailwind's `@layer utilities`** — CSS outside every
+layer beats all layered CSS — so it silently overrode every `text-white`,
+`text-xs` and `font-semibold` utility on those elements. The Ask button rendered
+dark-on-blue at **1.24:1** and the type scale collapsed. Tailwind's preflight
+already does that job inside `@layer base`; the duplicate was removed.
+
+## P6-2. What the interface now is
+
+A single-page learner workspace: brand header with live status pills; a one-screen
+explainer of the three-stage pipeline; a lesson panel whose timeline has a slider,
+a large clock readout and `00:00` / `06:00` / `12:00` presets wired to `aria-pressed`;
+an **evidence-in-scope** count that refreshes as the playhead moves and is honest
+about being mid-refresh; a question box with example chips and a prominent Ask
+button; an answer card with a state pill, the claims, and citation chips that open
+the exact quoted text with its timestamp, page, slide or line numbers; and a
+status panel that reads `/api/v1/health` itself, so it cannot disagree with the
+endpoint an operator would consult. Nothing fabricates: an absent credential, an
+unavailable provider and a refusal are each rendered as what they are.
+
+## P6-3. Generation moved to Groq; the two credentials were separated
+
+Generation is now selectable (`groq` or `google-genai`) and runs against Groq's
+OpenAI-compatible Chat Completions API. The generation half is a plain `fetch` —
+no SDK — so "one call is one call" is visible in the code: `POST /chat/completions`
+with `Bearer` auth, `response_format: { type: "json_schema", json_schema: {
+name, strict, schema } }`, `max_completion_tokens` (not the deprecated
+`max_tokens`), `include_reasoning: false`, and `temperature: 0`, which Groq
+documents as being converted to `1e-8`.
+
+**Usage is mapped once, not twice.** Groq's Chat Completions usage object reports
+`prompt_tokens` and `completion_tokens` and **no separate reasoning count** —
+reasoning is part of the completion. So `thoughtsTokens` is `null` and must not be
+derived from `completion_tokens`, which would bill every reasoning token twice.
+That is the opposite of the Gemini shape, where `thoughtsTokenCount` is reported
+separately and must be added; both adapters are tested for their own shape.
+
+**Credentials are now independent.** Embeddings still use the Google model,
+because the persisted corpus was embedded with it and a vector from another model
+is not comparable with it. The resolution rule is: `HORIZON_EMBEDDING_API_KEY`,
+then `GOOGLE_API_KEY` / `GEMINI_API_KEY`, and `HORIZON_LLM_API_KEY` as a **legacy
+fallback only when the generation provider is Google** — under any other provider
+that key belongs to a different vendor, and sending it to Google would fail as an
+authentication error that reads like an outage. The reverse direction is closed
+too: `GOOGLE_API_KEY` never becomes the generation credential.
+
+Three consequences are deliberate: a provider name that is not recognised is
+reported rather than guessed; a Google-only setting left behind under Groq
+(`HORIZON_LLM_THINKING_BUDGET`) is reported as ignored rather than silently
+dropped; and `GET /api/v1/health` now reports `embeddingCredentialPresent` and a
+`configurationProblems` list, because "configured for generation" and "able to
+embed" are different facts with different fixes.
+
+## P6-4. Test outcomes — all MOCKED, and labelled as such
+
+`pnpm test` **PASS** — 246 tests in 16 files, exit 0. New in Part 06:
+
+| Suite | Cases | What it pins down |
+|---|---|---|
+| `tests/groq-adapter.test.ts` | 38 | The endpoint, model id, bearer header and strict JSON Schema body; strict-mode invariants walked structurally (`required` complete, `additionalProperties: false`); fenced JSON accepted; malformed, schema-violating, empty, refused and truncated responses each fail closed **without echoing model text**; a 429's own `retry-after` and `x-ratelimit-*` guidance is recorded and **exactly one attempt** is made; 401/403/400/422/500/502/503 → unavailable, 408/504 → timeout, network failure → unavailable, non-JSON error body survived; usage mapped once with no reasoning double-count, and usage carried out of a FAILED call |
+| `tests/env-credentials.test.ts` | 11 | Through the real environment reader: a Groq key never becomes the embedding key; `GOOGLE_API_KEY` is accepted for embeddings only; the legacy single-key setup still works **only** under `google-genai`; an unrecognised provider, a missing embedding credential, an ignored setting and a malformed base URL are each named |
+| `tests/embedding-credential-guard.test.ts` | 3 | A database-backed corpus with no embedding credential is refused **before any read or any call** (0 embedder calls, 0 store reads), the same store proceeds normally once a real embedder exists, and the labelled sample fixture is still allowed |
+| `tests/health.test.ts` | +2 | The embedding credential is reported separately from the generation one, and an ignored setting is named in `configurationProblems` while the payload still leaks neither key |
+
+**A mocked Groq response is not evidence that Groq works.** No live Groq call has
+been made on any revision; the account's limits are unknown until one is, and no
+quota figure is claimed here.
+
+## P6-5. Live observations, on the production build
+
+Unlike Parts 04 and 05, the interface itself was verified against rendered output,
+not against a DOM dump. Screenshots: [desktop](evidence/ui-desktop-final.png),
+[mobile](evidence/ui-mobile-final.png).
+
+| Observation | Result |
+|---|---|
+| Pixels, desktop 1440px | **PASS** — light surfaces 92%, borders and accent present, ink 2.41%; no blank bands |
+| Pixels, mobile 390px | **PASS** — single column, no horizontal overflow (`scrollWidth - clientWidth = 0`), no element crosses the viewport edge, all three presets reachable |
+| Timeline selection | **PASS (LIVE)** — eligible evidence **2 → 10 → 15** at `00:00` / `06:00` / `12:00`, with the clock, the `aria-pressed` preset and the policy line all following, and the "refreshing" state clearing rather than sticking |
+| An unavailable provider reads as unavailable | **PASS (LIVE)** — the turn rendered `Temporarily unavailable`, the message, and `Reason: The model provider refused the request (rate limit or quota) (PROVIDER_RATE_LIMITED)`. Nothing was invented to fill the gap |
+| The status panel matches the endpoint | **PASS (LIVE)** — `google-genai` / `gemini-3.6-flash`, `supabase` with `demoContent: no`, schema `verified`, ledger `usable`, `spendGuard: permitted`, `overall: ok` |
+| Spend accounting after a real turn | **PASS (LIVE)** — the day's tokens moved 0 → **913**, which is the successful generation of one turn; the embedding-request counter moved 0 → 1 against its durable cap of 10 |
+
+**One turn was run, and it is the most informative result in this part.** The
+server log records `provider failure at verify: rate_limited — retry after 39519s,
+quota generativelanguage.googleapis.com/generate_content_free_tier_requests`. So
+the **generation half of the live path succeeded** on the Google adapter, and the
+**verification call was refused** by the still-exhausted free tier. The turn
+therefore returned `PROVIDER_RATE_LIMITED` and rendered **no claims** — the
+fail-closed guarantee observed live rather than only mocked: a claim that could
+not be verified is not shown, even though it was generated and paid for.
+
+## P6-6. Not run, and why
+
+- **Any Groq call**, live smoke test or canary. No Groq credential is configured,
+  by instruction; the adapter is covered by mocked tests only. Its rate limits and
+  its acceptance of the request shape are therefore **unknown**, not verified.
+- **The canary** (`pnpm canary`) at `00:00` / `06:00` / `12:00`. It requires a
+  working generation path; every position would report the answer half as NOT RUN.
+- **A rendered answer with citations.** No claim has passed verification on this
+  revision, so the citation panel and the claim list have never been exercised by
+  live data — they remain covered by the mocked pipeline tests. The panel's
+  *rendering* was verified in Part 03's fixture run; its *behaviour under a verified
+  live claim* is unproven.
+- **Turn persistence to the database.** A row is written only after a successful
+  verification, which the quota prevented. Unchanged from Part 05.
+- **Embedding cost.** Still unmetered: that API reports no tokens. The cap bounds
+  requests only.
+- **A real device.** Mobile was verified by viewport width (390px) on the same
+  engine, not on a phone.
+- **Deployment.** Not attempted. No public URL exists, so nothing above has been
+  verified on a deployed origin.
+
+## P6-7. Two environment limits worth recording, because they shaped the method
+
+1. **`pnpm dev` did not hydrate inside the preview webview.** Its HMR websocket
+   failed (`net::ERR_INVALID_HTTP_RESPONSE`), so every effect stayed unrun: the
+   scope count sat at `—`, the status panel said `Loading status…`, and nothing was
+   clickable. The **production build hydrates** (`next start`, verified) and every
+   interaction below was checked there. The dev-server symptom is an environment
+   artefact, not an application defect — but it means "it looks broken under
+   `pnpm dev` in this panel" is not evidence of a defect.
+2. **Raw pointer input from the preview webview did not reach the page.** Clicks
+   reported success at the right coordinates and changed nothing; the same
+   buttons worked when their handlers were invoked through the DOM, which is how
+   the timeline and Ask checks above were driven. Keyboard/pointer fidelity is
+   therefore *not* verified by those runs, only the application's own behaviour.
+3. **The preview webview stopped compositing, so `preview_screenshot` could not
+   capture anything at all.** That is an environment failure, not a defect, and
+   the third pass below works around it: the pixels come from headless Chrome
+   driven over the DevTools protocol, which is also the only way to capture a
+   state — such as a refusal — that only exists after a click.
+
+## P6-8. The status panel contradicted the database
+
+Found while re-verifying, and it is the kind of defect that only shows up if you
+check the screen against the database rather than against itself.
+
+The rendered panel read **`EMBEDDING REQUESTS 0 made · cap 10`** while
+`usage_ledger` held **1** `embedding_request` row for the same UTC day.
+
+The cause: `GET /api/v1/health` reported `embeddingCallCount()`, a counter that
+lives in the server process and returns to 0 on every restart, and it reported it
+immediately beside a cap that is enforced durably in Postgres — in the same
+payload as `embeddingCapMode: "supabase"`. The two figures described different
+things, and the one a reader would take as "how much of the cap is gone" was the
+process-local one.
+
+| State | Process-local counter | Durable rows for the day | Panel showed |
+|---|---|---|---|
+| Before the fix, after a restart | 0 | 1 | `0 made · cap 10` — **wrong** |
+| After the fix | 0 | 1 | `1 made today · cap 10` |
+| After one further live turn | 1 | 2 | `2 made today · cap 10` |
+
+The reading is now taken from the store the cap is counted in, through a new
+`UsageLedger.embeddingRequestsToday()`, and it is `null` — rendered as
+`unknown (the ledger could not be read)` — rather than 0 when that read fails,
+because 0 would understate consumption. The process-local counter is still
+reported, and the panel formats it as `made in this process` only when the cap
+really is process-local.
+
+One trap is worth recording because it cost a wrong attempt. The count cannot be
+read from `admitEmbedding()`, which looks like the obvious source: the SQL
+function returns a **hardcoded** `used_today = 0` from its `p_max_calls <= 0`
+early return, so the one call that writes nothing is also the one that cannot
+report the count. A calibration that trusted it produced an expectation of 3
+grants where the true answer was 2, and the row arithmetic below caught it. The
+field is now documented in `types.ts` as not a count read.
+
+## P6-9. Two verification instruments were weaker than their output implied
+
+Neither of these is an application defect. Both are cases where a command's
+output read as a stronger statement than the command actually established.
+
+**`pnpm verify:budget` could only pass on an untouched day.** Its embedding half
+hardcoded `cap 3, expect 3 grants`, which is correct only while the ledger is
+empty. The cap counts embedding rows for the UTC day across every provider, so on
+a day the application had really been used the remaining allowance was 2 while
+the script still demanded 3, and it reported **FAIL — expected 3 grants, saw 2**.
+The cap was behaving correctly; the expectation was wrong. The token half had
+always derived its budget from the live day total, so the script was already
+inconsistent with itself. The cap is now derived as `existing + 3`, and the run
+also asserts that every grant wrote exactly one row and no refusal wrote any, so
+a predicate that drifted from the function it describes fails loudly instead of
+mis-calibrating quietly. Re-run twice on the used ledger: **PASS** both times,
+`1 -> 4 (3 added)`, cleanup complete, day total 913 before and after.
+
+**`pnpm verify:data-path` claimed "nothing was spent" on evidence that could not
+see embedding spend.** It compared the ledger token total, which is durable but
+structurally blind to embedding requests because those carry no tokens, and a
+process-local counter that restarts at 0 with the script. Both read `0 -> 0` on a
+day when the ledger held one real request, so the line as printed could be read
+as a statement about the day. It now reads the durable embedding-request count as
+well, and the same check prints `ledger 913 -> 913; embedding calls in this
+process 0 -> 0; embedding requests recorded for 2026-10-15 1 -> 1` — the real
+figure, unchanged, which is what the claim needed to say. **25/25 checks pass.**
+
+## P6-10. Visual verification, third pass, on pixels this time
+
+The preview webview would not composite, so the captures come from headless
+Chrome (`--screenshot`, and CDP for the state that needs a click). The analysis is
+the same programmatic one used in P6-1 — exact colour counts, the share of
+dark-ink pixels, and a luminance grid of the whole frame — not a glance at a
+file, and it is reported as such.
+
+| Capture | Size | Dark-ink pixels | Near-white | Palette |
+|---|---|---|---|---|
+| Desktop, full page | 1440x1620 | 2.33% | 94.57% | `#FFFFFF`, `#F1F5F9`, `#F8FAFC`, accent `#1447E6` |
+| Mobile, full page | 390x3560 | 3.41% | 92.79% | same, plus `#0F172B` body ink |
+| Refusal state, desktop | 1425x1708 | 1.60% | 94.21% | same |
+
+The captures are kept as artifacts: [desktop](evidence/ui-desktop-final.png),
+[mobile](evidence/ui-mobile-final.png),
+[refusal state](evidence/ui-refusal-desktop-final.png), and this pass **replaced**
+the two files Part 06 first wrote, so the images on disk are of the current build
+rather than of the one before the panel fix. The data-path artifact from the same
+run is [here](evidence/data-path-verification-2026-10-15T13-48-33-102Z.json).
+
+Ink is dark on light in every capture, the accent and border colours are present,
+and no capture contains an inverted or blank region — the failure mode P6-1 was
+about. Measured on the live page, body text is `rgb(15, 23, 42)` on `#F8FAFC`
+(**17.2:1**) and the refusal banner is `rgb(139, 8, 54)` on `rgb(255, 228, 230)`
+(**8.0:1**), both well past the 4.5:1 threshold. No horizontal overflow at 390px
+(`scrollWidth` equals the viewport).
+
+Interaction was driven on the running production build:
+
+- **Timeline.** Clicking `12:00` moved the playhead to `12:00 / 15:00` and the
+  scope indicator from **2** eligible blocks at `00:00` to **15** at `12:00`, with
+  the note (`Lesson through 12:00`), the answer boundary and the button label
+  (`Ask at 12:00`) all following. This is the check Stage 3 asks for, and the
+  count is the same one `pnpm verify:data-path` reads from the store.
+- **An unavailable provider.** Asking rendered, in full: *"Temporarily
+  unavailable … The assistant is temporarily unavailable, so no answer was
+  generated. Reason: The model provider refused the request (rate limit or quota)
+  (PROVIDER_RATE_LIMITED). Nothing was invented to fill the gap."* with
+  `asked at 00:00`, `2 eligible blocks in the payload` and a server time. Legible,
+  specific, and not an empty page.
+- **Budget integrity.** That failed turn left `spentTokensToday` at **913** — the
+  429 released its reservation instead of charging it — while the durable
+  embedding count moved 1 → 2. Both are what the design says should happen.
