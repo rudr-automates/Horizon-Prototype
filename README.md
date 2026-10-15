@@ -29,15 +29,15 @@ honest refusal.
 | Rank fusion (RRF) with deterministic ordering | ✅ unit tested |
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types |
-| Supabase migrations (schema + search RPCs) | ✅ **applied** — six tables with RLS, pgvector `0.8.2` installed |
+| Supabase migrations (schema, search RPCs, atomic budget) | ✅ **all three applied and verified live** — six tables with RLS, pgvector `0.8.2`, six functions, and `0003`'s reservation columns; a re-read then confirmed 6/6 tables, 6/6 functions and a readable ledger |
 | Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
 | Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
 | Live inference (`gemini-3.6-flash`) | ⚠️ real calls were made and recorded in an earlier revision; on the current revision generation is **429-blocked by the free-tier daily quota** with a ~15 h retry delay |
 | Temporal eligibility end-to-end with a live model | ⚠️ 24 live checks pass on the current revision (eligibility, oracle cross-check, non-disclosure). The answer half is **NOT RUN** — refused by the quota, never counted as a pass |
 | Cumulative daily token accounting | ✅ enforced at admission, per call, including billable **reasoning** tokens; the persisted charge is the same figure the cap was checked against |
-| Atomic budget admission across requests AND instances | ⚠️ implemented and unit tested (including concurrency tests), but **requires migration `0003_atomic_budget.sql`, which is AUTHORED AND NOT APPLIED** — see [apply-migration.md](docs/apply-migration.md#applying-0003-required). Until a human applies it the answer path fails closed: `BUDGET_EXHAUSTED` with `durableLedger: "unreadable"` |
+| Atomic budget admission across requests AND instances | ✅ **verified live against the real database** — `pnpm verify:budget` fired 12 simultaneous reservations at `horizon_admit_generation_tokens` with a budget that only 4 could fit and got exactly **4 grants**, 12 simultaneous embedding admissions bound at exactly **3** against a cap of 3, and cleanup left 0 probe rows with the day's total back where it started |
 | A refused call releases its hold; a timeout keeps it | ✅ unit tested — a 429 is the provider refusing before processing, so it charges nothing, while an unanswered call keeps its reservation rather than erasing spend |
-| `GET /api/v1/health` separates authentication from reachability | ✅ **verified live** — reports `querySucceeded: true` (a real authenticated read) alongside `durableLedger: "unreadable"` and `ok: false`, i.e. it refuses to call a database healthy just because a request answered |
+| `GET /api/v1/health` separates authentication from reachability | ✅ **verified live** — `querySucceeded: true` is a real authenticated read, and it has been observed both ways: `ok: false` with `durableLedger: "unreadable"` before `0003` was applied, and `ok: true` with `schemaObjects: "verified"` / `durableLedger: "usable"` after. A database is never called healthy merely because a request answered |
 | Durable usage ledger (`public.usage_ledger`) | ✅ **verified live** — `spentToday()` reads the table and `record()` writes to it; a labelled probe row was inserted, read back (66 tokens: 11 prompt + 55 completion, reasoning folded in) and deleted, leaving the table empty again |
 | SDK automatic retries | ✅ disabled (`attempts: 1`); they default to 5 |
 | Embedding-request cap | ✅ enforced — it bound and refused during live testing |
@@ -145,13 +145,13 @@ just because an env var exists. `runtimeAi.reachable` stays `null` until a real
 smoke test is run.
 
 The database check reports five separate facts, and `ok` is true only when they
-all hold. This is the real payload for the current revision, in the state it is
-actually in — migration `0003` not yet applied:
+all hold. This is the real payload, copied from the running server on the current
+revision with all three migrations applied:
 
 ```jsonc
 {
-  "ok": false,
-  "status": "degraded",
+  "ok": true,
+  "status": "ok",
   "service": "horizon",
   "version": "0.2.0",
   "requestId": "…",
@@ -164,24 +164,31 @@ actually in — migration `0003` not yet applied:
       "urlConfigured": true,
       "credentialsPresent": true,  // the key the DATA PATH authenticates with
       "querySucceeded": true,      // a real authenticated read, not a ping
-      "schemaObjects": "unknown",  // probe could not run yet
-      "durableLedger": "unreadable",// the budget table cannot be read → fail closed
-      "detail": "An authenticated read of the database succeeded; the schema probe could not run, which is expected until migration 0003 is applied; the durable budget ledger could NOT be read, so provider calls are refused."
+      "schemaObjects": "verified", // 6/6 required tables and 6/6 required functions present
+      "durableLedger": "usable",   // the budget table was read, so admission is possible
+      "detail": "An authenticated read of the database succeeded; 6/6 required tables and 6/6 required functions present; the durable budget ledger is readable."
     },
-    "runtimeAi": { "configured": true, "reachable": null, "detail": "Names are present, but the usage ledger could not be read…" }
+    "runtimeAi": { "configured": true, "reachable": null, "detail": "Names are present. 0 of 20000 daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour." }
   },
   "runtime": {
+    "provider": "google-genai", "textModel": "gemini-3.6-flash",
+    "embeddingModel": "gemini-embedding-001", "embeddingDimensions": 768,
     "evidenceSource": "supabase", "usageMode": "supabase", "embeddingCapMode": "supabase",
     "demoContent": false,
-    "spendGuard": "blocked",   // admission is impossible while the ledger is unreadable
-    "spentTokensToday": null   // null means UNKNOWN, never "nothing spent"
+    "spendGuard": "permitted", // every admission path is satisfied, so a call would be allowed
+    "spentTokensToday": 0,     // a number: the day's total was actually read
+    "embeddingCalls": 0, "maxEmbeddingCalls": 10
   }
 }
 ```
 
-Once `0003` is applied, `schemaObjects` becomes `"verified"`, `durableLedger`
-becomes `"usable"`, `spentTokensToday` becomes a number, `spendGuard` becomes
-`"permitted"`, and `ok` becomes `true`.
+The same endpoint has been observed in the other state, and both are honest.
+Before `0003` was applied it reported `ok: false`, `schemaObjects: "unknown"`,
+`durableLedger: "unreadable"`, `spendGuard: "blocked"` and
+`spentTokensToday: null`. That is still exactly what an unreadable ledger produces,
+and it is the reason the guard fails closed: `spentTokensToday` is `0` above
+because the total really was read as zero, while `null` means the total is
+**UNKNOWN** and admission is refused rather than assumed unspent.
 
 `spendGuard` answers one question: **would the next provider call be admitted?**
 It is therefore computed from every refusal path — a zero budget, an unreadable
@@ -381,9 +388,10 @@ Specific consequences of that rule:
 - Timings reported in the UI are measured for that single request. They are not
   benchmarks and no accuracy or latency claim is derived from them.
 - A migration that has been written and unit tested is still reported as
-  **not applied** until an artifact shows it applied. Both migrations cleared that
-  bar on 2026-10-15, and the seed that followed is recorded in
-  [docs/evidence](docs/evidence).
+  **not applied** until an artifact shows it applied. All three migrations cleared
+  that bar on 2026-10-15 — `0001` and `0002` by a re-read of the live schema, and
+  `0003` later that day by its own behavioural proof — and the artifacts are
+  recorded in [docs/evidence](docs/evidence).
 
 ## Verified in this revision
 
@@ -393,17 +401,25 @@ pnpm typecheck    exit 0
 pnpm test         exit 0   187 tests, 13 files   (all mocked, incl. the concurrency and health cases)
 pnpm build        exit 0
 pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
-pnpm verify:budget exit 1  refuses before writing a row: migration 0003 is not applied yet
-pnpm verify:data-path exit 0  24 passed, 0 failed, 1 pending (0003) — real rows, zero provider calls
+pnpm verify:budget exit 0  12 concurrent generation reservations -> exactly 4 granted of a 4-slot budget; 12 concurrent embedding admissions -> exactly 3 of a cap of 3; cleanup complete, 0 probe rows
+pnpm verify:data-path exit 0  25 passed, 0 failed, 0 pending — real rows, zero provider calls
 pnpm smoke        exit 1   1 live embedding call OK; generation refused by the provider (429, daily free-tier quota)
 pnpm canary       exit 1   24 passed, 1 failed, 2 not run   (live; answer half quota-blocked)
 ```
 
 The concurrency tests are unit tests over a shared ledger: they prove no two
 turns can both hold the same budget, and that a refused turn reaches the provider
-zero times. They **cannot** prove Postgres serializes admission — that is what
-`pnpm verify:budget` does against the real functions, and it is the reason the
-migration is a required human step rather than something this revision claims.
+zero times. They **cannot** prove Postgres serializes admission, so
+`pnpm verify:budget` does that against the real functions instead. With 12
+simultaneous admissions against a budget that fits 4, exactly 4 were granted and
+the granted capacity landed on the budget to the token; 12 simultaneous embedding
+admissions bound at exactly 3 against a cap of 3. Every row it writes is tagged
+`provider = 'concurrency-probe'` and deleted in a `finally` block: the run
+reported 0 probe rows remaining and the day's total back at 0, so the proof left
+the ledger as it found it. It makes no provider call and cannot spend quota. The
+observed output is recorded in
+[docs/evidence](docs/evidence/budget-concurrency-live-2026-10-15.json) — a
+verbatim transcript, because that command does not write its own artifact.
 
 Live checks against `next start` on `127.0.0.1:4321`: `evidenceSource` and
 `usageMode` are `"supabase"`; `GET /api/v1/courses`, the course detail route and
@@ -422,19 +438,23 @@ vector search both respect the boundary, that a block queried with its own store
 nor the embedding counter. Its one out-of-band read is a single stored embedding,
 because the app's own gateway deliberately does not select that column.
 
-On the current revision the question endpoint **fails closed**: it returns
-`TEMPORARILY_UNAVAILABLE` with `BUDGET_EXHAUSTED` and makes **no provider call at
-all**, because the budget ledger cannot be read until migration `0003` is applied.
-Health simultaneously reports `ok: false`, `durableLedger: "unreadable"` and
-`spendGuard: "blocked"`, and the refused turn reports `guard.spentTokensToday` as
-`null` rather than `0` — all three agreeing with what the answer path does, since
-the refusal is caused by the day's spend being unknown.
-That is the honest state of the answer path today, and it is deliberate: an
-unreadable budget must never be treated as an unspent one. The pre-fix record of
-that state is in
+On the current revision the question endpoint **clears admission**: health reports
+`ok: true`, `durableLedger: "usable"` and `spendGuard: "permitted"`, and the
+ledger was read as 0 tokens spent today. The only thing that still refuses a turn
+is the provider's own free-tier quota, which is a separate refusal:
+`TEMPORARILY_UNAVAILABLE` with `PROVIDER_RATE_LIMITED`, and a retry delay the
+provider measures in hours. The two must not be confused — `spendGuard` describes
+the spend guard's admission, never the provider's availability.
+
+The unreadable-ledger path is not merely historical: it is still enforced and
+still tested, and it refuses before any provider call while reporting
+`guard.spentTokensToday` as `null` rather than `0`, because an unreadable budget
+must never be treated as an unspent one. The record of that state is in
 [docs/evidence](docs/evidence/db-path-verification-2026-10-15T09-28-15-146Z.json),
-and the current revision's re-verification against the persisted corpus is in
-[docs/evidence](docs/evidence/data-path-verification-2026-10-15T10-18-54-216Z.json).
+and the current revision's re-verification against the persisted corpus, now with
+0 checks pending, is in
+[docs/evidence](docs/evidence/data-path-verification-2026-10-15T11-08-26-553Z.json)
+(re-run on the current build, same result).
 All model-dependent tests are **mocked**, not real inference.
 
 **No deployment has been performed and no public URL exists.** Every live check

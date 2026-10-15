@@ -1,7 +1,14 @@
 -- ============================================================================
 -- Horizon — 0002_search_functions.sql
--- Canonical-predicate retrieval functions. AUTHORED ONLY — NOT APPLIED REMOTELY.
+-- Canonical-predicate retrieval functions. APPLIED AND VERIFIED 2026-10-15.
 -- ============================================================================
+--
+-- STATUS: applied to the connected project, and verified by re-reading the live
+-- schema: `horizon_is_eligible`, `horizon_search_fts`, `horizon_search_vector`,
+-- `horizon_list_eligible` and `horizon_has_matching_ineligible` are all present,
+-- and the retrieval branches that call them were then exercised against real rows
+-- (`pnpm verify:data-path`). A FRESH project still has to run this file after
+-- 0001. See docs/apply-migration.md.
 --
 -- WHY THIS FILE EXISTS
 --   The canonical eligibility predicate must be applied identically by every

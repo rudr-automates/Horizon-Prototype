@@ -252,6 +252,9 @@ Two harness corrections were needed, and both are recorded rather than quietly m
 
 ## L5. Database status — BLOCKED, unchanged
 
+> Superseded: this section records the state at the baseline below. All three
+> migrations are now applied and verified — see Part 05.
+
 Read-only probes still report no tables in `public` and no migration history, and
 no Supabase name is configured. **`pnpm seed:demo` has still never executed**, and
 no Supabase connectivity is claimed anywhere. All retrieval above is the **labelled
@@ -280,6 +283,10 @@ fixture ranking.
 # Part 03 — real integration, evaluation and release
 
 **Date:** 2026-10-15 · **Baseline:** `e56bea7` · **Outcome: prerequisites missing, so the real integrations are BLOCKED. This section records exactly which.**
+
+> Superseded: the prerequisites below were met later the same day. Parts 04 and 05
+> record what happened once they were, including the applied migrations and the
+> live checks that followed.
 
 ## P3-1. Prerequisite verification (read-only, executed)
 
@@ -476,9 +483,13 @@ scheduling matter, not a code change.
 
 # Part 05 — atomic budget safety and release readiness (2026-10-15)
 
-**Outcome: admission is now an atomic reservation; the migration that makes it
-work is AUTHORED AND NOT APPLIED, and the answer path fails closed until a human
-applies it.**
+**Outcome: admission is now an atomic reservation, and that claim is verified
+against the real database.** Migration `0003` was applied on 2026-10-15 and a
+re-read confirmed 6/6 required tables, 6/6 required functions, the `0003` objects
+present and the ledger readable. Both live commands were then run against the
+same project: `pnpm verify:budget` **PASS** (exit 0) and `pnpm verify:data-path`
+**25/25 passed, 0 failed, 0 pending** (exit 0). No generation call was made, so
+nothing here is a statement about answer quality.
 
 ## P5-1. The defect, and what replaced it
 
@@ -507,9 +518,9 @@ to "what has been spent today".
 | P5-12 | The guard reported by health matches what the answer path does | `GET /api/v1/health` + 8 new cases in `tests/health.test.ts` | LIVE + MOCKED | **PASS** — `spendGuard: "blocked"` with the ledger unreadable, where it previously said `permitted` while every turn was refused |
 | P5-13 | A malformed course id is a client error, not a server one | `GET /api/v1/courses/not-a-course/scope` | LIVE | **PASS after fix** — was **HTTP 500**, now 404. Supersedes the earlier recorded 404, which was not reproduced |
 | P5-14 | Health leaks no credential, raw error or schema map | `tests/health.test.ts` + the live payload | MOCKED + LIVE | **PASS** — the payload carries counts and booleans only |
-| P5-15 | The persisted corpus and both retrieval branches, at zero provider cost | `pnpm verify:data-path` | LIVE (real rows) | **PASS** — 24 passed, 0 failed, 1 pending (0003); see below |
-| P5-16 | An unknown spend is reported as unknown, not as zero | the live `POST /questions` response + `tests/pipeline.test.ts` | LIVE + MOCKED | **PASS** — `guard.spentTokensToday` is `null` (was `0`) while that same response is `BUDGET_EXHAUSTED` because the total could not be read |
-| P5-10 | The concurrency claim against real PostgreSQL | `pnpm verify:budget` | — | **NOT RUN — BLOCKED.** The migration is not applied, so the command refuses before writing a row and names the missing migration. It is the check that turns P5-1..P5-3 from "the app is correct" into "the database serializes admission" |
+| P5-15 | The persisted corpus and both retrieval branches, at zero provider cost | `pnpm verify:data-path` | LIVE (real rows) | **PASS** — 25 passed, 0 failed, **0 pending**; see below |
+| P5-16 | An unknown spend is reported as unknown, not as zero | the live `POST /questions` response + `tests/pipeline.test.ts` | LIVE + MOCKED | **PASS** — `guard.spentTokensToday` is `null` (was `0`) while that same response is `BUDGET_EXHAUSTED` because the total could not be read. Recorded with the ledger unreadable, which is no longer the deployment's state; the rejection path is unchanged and still covered by the unit test |
+| P5-10 | The concurrency claim against real PostgreSQL | `pnpm verify:budget` | LIVE (real rows) | **PASS** — 12 simultaneous `admitGeneration` calls against a 4800-token budget that fits 4 x 1200: **exactly 4 granted, 8 refused**, granted capacity 4800/4800, refusal detail `"…needs about 1200 tokens but only 0 remain of the 4800-token daily budget (0 settled, 4800 reserved)"`. Then 12 simultaneous `admitEmbedding` calls against a cap of 3: **exactly 3 granted**. Cleanup: 0 probe rows remaining, day total 0 → 0. This is the check that turns P5-1..P5-3 from "the app is correct" into "the database serializes admission" |
 | P5-11 | Deployment | — | — | **NOT ATTEMPTED.** No public URL exists |
 
 ## P5-3. The persisted corpus, re-verified without spending anything
@@ -518,7 +529,11 @@ to "what has been spent today".
 Supabase corpus and records the result. It makes **no provider request**, and it
 proves that by reading the ledger total and the embedding counter before and after
 and requiring both to be unchanged. Recorded in
-[docs/evidence](evidence/data-path-verification-2026-10-15T10-18-54-216Z.json).
+[docs/evidence](evidence/data-path-verification-2026-10-15T11-08-26-553Z.json),
+where all 25 checks pass and none is pending — the ledger-readability check that
+was previously `PENDING` on the unapplied migration is now a `PASS`. The command
+was run three times on this revision, before and after the tooling change that
+removed a stale expectation string from its output, with 25/25 each time.
 
 | Check | Result |
 |---|---|
@@ -543,15 +558,31 @@ service-role key. The search itself runs through the app's store.
 - **Live generation.** The free-tier quota is still exhausted; no answer has been
   produced by a live model on this revision, so citation precision and claim
   sufficiency remain unmeasured. `pnpm smoke` and `pnpm canary` stay blocked.
-  The recorded retry-after runs to roughly 2026-10-15T24:00Z.
+  The recorded retry-after runs to roughly 2026-10-15T24:00Z. This is the one
+  remaining item on the release gate.
+- **Turn persistence to the database.** Still unexercised: a turn row is written
+  only after a successful generation, and generation is quota-blocked. Neither
+  verification command reaches it.
 - **Embedding cost.** The durable cap bounds request COUNT. That API reports no
   token usage, so no cost figure is enforced and `estimated_cost_usd` stays NULL.
-- **Everything downstream of `0003`.** Until it is applied, the durable ledger's
-  read path, the reservation functions and the concurrency proof are all
-  unexecuted against the real database. `pnpm verify:budget` refuses before
-  writing a row and names the missing migration. Do not describe them as verified.
-- **The `0003` SQL itself has never been executed anywhere.** It is reviewed, not
-  run. The ambiguity that would have failed at run time — `reserved_tokens` being
-  both an OUT parameter and a ledger column — was found by reading and removed by
-  qualifying the reference, but that reasoning is not a substitute for running it.
-  `pnpm verify:budget` is the check that settles it once the migration is applied.
+- **What the concurrency proof does not cover.** `pnpm verify:budget` proves the
+  admission function serializes correctly for one budget and one UTC day, under
+  12-way concurrency from a single client. It does not exercise multi-instance
+  deployment, rollover at a UTC day boundary, or a crash between reservation and
+  settlement; those rest on the SQL's design (one statement, one advisory-lock
+  transaction) and on settlement tests rather than on a measurement.
+
+## P5-5. `0003` has now been executed
+
+The concurrency run's own output is captured in
+[docs/evidence](evidence/budget-concurrency-live-2026-10-15.json): that command
+writes no artifact itself, so the transcript is kept deliberately, labelled as a
+transcript rather than as a file the command produced.
+
+The ambiguity that would have failed at run time — `reserved_tokens` being both an
+OUT parameter and a ledger column — was found by reading and removed by qualifying
+the reference. The migration has since run: Verifications A and B from
+[apply-migration.md](apply-migration.md) returned 6/6 tables, 6/6 functions, the
+`0003` objects present and the ledger readable, and `pnpm verify:budget` then
+exercised the reservation functions for real. The reviewed-by-reading step is no
+longer the only evidence.

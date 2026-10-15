@@ -1,11 +1,18 @@
 -- ============================================================================
 -- Horizon — 0001_init.sql
--- Reduced MVP schema (deadline scope). AUTHORED ONLY — NOT APPLIED REMOTELY.
+-- Reduced MVP schema (deadline scope). APPLIED AND VERIFIED 2026-10-15.
 -- ============================================================================
 --
--- Apply this file through the Supabase Dashboard SQL Editor. It was NOT applied
--- by the coding agent, because the connected Supabase MCP toolset exposes no
--- write/execute-SQL capability. See docs/apply-migration.md.
+-- STATUS: applied to the connected project through the Dashboard SQL Editor and
+-- then verified by re-reading the LIVE SCHEMA, not by trusting a migration
+-- history table (the editor records none): all six tables present with RLS, the
+-- vector extension at 0.8.2, and the enums, check constraints, generated fts
+-- column and foreign key matching this file.
+--
+-- The coding agent could not apply it itself: the connected Supabase MCP toolset
+-- exposes no write/execute-SQL capability, so this was a human step.
+--
+-- A FRESH project still has to run this file. See docs/apply-migration.md.
 --
 -- SCOPE (deliberately reduced for the submission deadline):
 --   courses, resources, content blocks, conversations, turns, usage_ledger.

@@ -1,5 +1,13 @@
 -- 0003_atomic_budget.sql
 --
+-- STATUS: applied to the connected project on 2026-10-15, and verified by
+--   BEHAVIOUR rather than by object existence: `pnpm verify:budget` fired 12
+--   simultaneous reservations at horizon_admit_generation_tokens against a budget
+--   that only 4 could fit and got exactly 4 grants, then bound 12 simultaneous
+--   embedding admissions at exactly the cap of 3, and removed its probe rows.
+--   A FRESH project still has to run this file after 0001 and 0002
+--   (docs/apply-migration.md).
+--
 -- WHY THIS MIGRATION EXISTS
 --   Before this file, budget admission was three separate round trips from the
 --   application: read the day's total, decide in the application, then record

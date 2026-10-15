@@ -7,9 +7,16 @@ was verified by matching each file's declared artifacts against the live schema
 rather than by reading a migration ledger. The demo corpus is seeded on top of it
 (1 course, 6 resources, 18 blocks).
 
-**Status of `0003`: AUTHORED, NOT APPLIED. The action below is required from a
-human.** Until it is applied the answer path refuses every turn by design — see
-"Consequences of NOT applying 0003" at the end of this file.
+**Status of `0003`: APPLIED AND VERIFIED (2026-10-15).** It was applied through the
+SQL Editor on the live project, and the project was then re-read: 6/6 required
+tables, 6/6 required functions, the `0003` objects present, and the durable ledger
+readable. Behaviour, not just object existence, was confirmed afterwards by
+`pnpm verify:budget` (12 concurrent reservations against a budget that fits 4 →
+exactly 4 granted; 12 concurrent embedding admissions against a cap of 3 → exactly
+3 granted; cleanup complete) and `pnpm verify:data-path` (25/25 passed, 0 pending).
+The instructions below remain the procedure for any fresh environment. The
+"Consequences of NOT applying 0003" section at the end describes what a project
+without it does — the answer path refuses every turn by design.
 
 Three files must be applied **in order**:
 

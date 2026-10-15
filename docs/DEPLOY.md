@@ -89,11 +89,13 @@ provider call at all and every turn returns `TEMPORARY_UNAVAILABLE` with reason
 `BUDGET_EXHAUSTED`. This is deliberate — it fails closed rather than promising a
 spend cap it does not enforce.
 
-**Migration `0003_atomic_budget.sql` must be applied first.** The budget is now
-enforced by reserving capacity atomically in Postgres before each call, so with a
-database configured and 0003 missing, every turn fails closed with
+**The target database must have `0003_atomic_budget.sql` applied first.** The
+budget is now enforced by reserving capacity atomically in Postgres before each
+call, so with a database configured and 0003 missing, every turn fails closed with
 `BUDGET_EXHAUSTED` and the health endpoint reports `durableLedger: "unreadable"`.
-That is the guard working, not a deployment bug.
+That is the guard working, not a deployment bug. The project this revision was
+developed against has it applied and verified; a **fresh** project starts without
+it, so apply all three migrations there before expecting a turn to be admitted.
 
 With 0003 applied, the daily ceiling is shared by every instance rather than
 per process, because admission takes an advisory lock keyed on the UTC day. Two
@@ -104,12 +106,13 @@ To allow inference, set a positive value, for example `HORIZON_DAILY_TOKEN_BUDGE
 Confirm the guard's state from the public health endpoint rather than guessing.
 `spendGuard` reports whether the **next provider call would be admitted**, so it
 is `"blocked"` until all three of a positive budget, a readable durable ledger and
-migration 0003's reservation objects are in place:
+migration 0003's reservation objects are in place. On the development project all
+three now hold, so it reads `"permitted"`:
 
 ```bash
 curl -s https://<project>.vercel.app/api/v1/health | node -e \
   "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(j.runtime.spendGuard, '| ledger:', j.checks.database.durableLedger, '| schema:', j.checks.database.schemaObjects)})"
-# expect once everything is in place: permitted | ledger: usable | schema: verified
+# observed on the development project: permitted | ledger: usable     | schema: verified
 # before 0003 is applied:            blocked   | ledger: unreadable | schema: unknown
 ```
 
@@ -149,10 +152,11 @@ pnpm canary --base https://<project>.vercel.app --label prod
 
 - **Migrations are not applied by this procedure.** `0001_init.sql`,
   `0002_search_functions.sql` **and `0003_atomic_budget.sql`** must be applied
-  separately through the Supabase SQL Editor (`docs/apply-migration.md`). Until
-  `0001`/`0002` are, the app runs in fixture mode and says so in
-  `/api/v1/health` (`evidenceSource: "fixture"`); until `0003` is, the answer path
-  refuses every turn.
+  separately through the Supabase SQL Editor (`docs/apply-migration.md`). A
+  **fresh** project has none of them: until `0001`/`0002` are applied the app runs
+  in fixture mode and says so in `/api/v1/health` (`evidenceSource: "fixture"`),
+  and until `0003` is, the answer path refuses every turn. Pointing the deployment
+  at the existing project avoids all of this — it has all three.
 - **The corpus is synthetic.** Deploying does not make the demo database-backed.
 - **No approximate vector index**, no auth, no rate limiting beyond the spend
   guard and request-size validation.
@@ -162,25 +166,34 @@ pnpm canary --base https://<project>.vercel.app --label prod
 ## 8. Release gate — do not call this a working AI product until all four hold
 
 1. Atomic budget admission is implemented **and verified against the real
-   database** (`pnpm verify:budget` → PASS, with cleanup complete).
+   database**: `pnpm verify:budget` → `RESULT: PASS`, 4 grants of 12 concurrent
+   reservations, cap bound at 3, cleanup complete. **HOLDS (2026-10-15).**
 2. `/api/v1/health` reports actual database connectivity truthfully
    (`querySucceeded`, `schemaObjects: "verified"`, `durableLedger: "usable"`).
+   **HOLDS (2026-10-15)** — all three observed on the live endpoint.
 3. A **real generation call succeeds** (`pnpm smoke` exit 0). Until the provider's
    free-tier quota resets, this is blocked and must be reported as blocked.
 4. The timestamp-aware canary demonstrates non-disclosure before the unlock time
    **and** a properly supported, cited answer once eligible evidence is available.
 
-Two commands support gate 2 without spending anything, and both are safe to run
-against production because neither writes a row:
+Two commands support gates 1 and 2, and neither makes a provider call, so neither
+can spend quota:
 
 ```bash
-pnpm verify:data-path --base https://<project>.vercel.app   # real rows, zero provider calls
-pnpm verify:budget                                          # needs 0003; writes only its own probe rows
+pnpm verify:data-path --base https://<project>.vercel.app   # read-only: real rows, zero writes
+pnpm verify:budget                                          # needs 0003; writes probe rows, deletes them in a finally block
 ```
 
-Until 3 and 4 hold, the correct description is: "the retrieval, database and
-budget paths are verified; live answer generation is not". No public URL exists,
-so nothing here is a hosting claim.
+`verify:budget` is not read-only: admission is a write, so there is no read-only
+way to test it. Every row it creates is tagged `provider = 'concurrency-probe'`
+and deleted before it exits, and it reports the day's total and probe-row count
+before and after, so a failed cleanup is loud rather than silent. Run it against a
+project whose spend you can account for.
+
+Gates 1 and 2 hold. Gates 3 and 4 do not: no generation call has succeeded on this
+revision, so the correct description is "the retrieval, database and budget paths
+are verified; live answer generation is not". No public URL exists, so nothing here
+is a hosting claim.
 
 ## 9. If access cannot be connected
 

@@ -352,9 +352,12 @@ async function main(): Promise<void> {
       body.runtime?.evidenceSource === "supabase" && body.runtime?.demoContent === false,
       `evidenceSource ${body.runtime?.evidenceSource}, demoContent ${body.runtime?.demoContent}`,
     );
+    // Reported, not asserted against a remembered state: the pair is printed
+    // exactly as the server answered it. `permitted`/`usable` and
+    // `blocked`/`unreadable` are both legitimate, and which one appears is a fact
+    // about the deployment, not something this script should presume.
     console.log(
-      `        spendGuard ${body.runtime?.spendGuard}, durableLedger ${body.checks?.database?.durableLedger} — ` +
-        "expected to be blocked/unreadable until migration 0003 is applied",
+      `        spendGuard ${body.runtime?.spendGuard}, durableLedger ${body.checks?.database?.durableLedger}`,
     );
   }
 
@@ -471,8 +474,8 @@ function finish(
         summary: { checks: checks.length, passed, failed, pending },
         checks,
         limitations: [
-          "no generation call was made and none is claimed: the provider free-tier quota is exhausted and the spend guard refuses while migration 0003 is unapplied",
-          "migration 0003 is NOT applied by this script and its objects are not claimed to exist",
+          "no generation call was made and none is claimed: the provider free-tier quota is exhausted",
+          "this script applies no migration and exercises none of 0003's reservation functions; the atomic admission claim is tested by pnpm verify:budget, not here",
           "the vector self-match read one stored embedding out of band because the app's gateway does not select that column; the search itself ran through the app's store",
           "turn persistence to the database remains unexercised: it is only reached after a successful generation",
         ],

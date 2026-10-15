@@ -73,9 +73,11 @@ async function main(): Promise<void> {
       // Phrased as a confirmation, not an instruction: this command cannot see
       // the schema from here, so asserting that the migrations are missing would
       // be a guess. It says what must be true, and how to check.
-      "  1. Confirm supabase/migrations/0001_init.sql then 0002_search_functions.sql",
-      "     are applied (verify in the Supabase Dashboard SQL Editor; see",
-      "     docs/apply-migration.md).",
+      "  1. Confirm supabase/migrations/0001_init.sql, 0002_search_functions.sql",
+      "     and 0003_atomic_budget.sql are applied (verify in the Supabase Dashboard",
+      "     SQL Editor; see docs/apply-migration.md). All three are needed here:",
+      "     this command claims the same durable embedding cap the serving path",
+      "     uses, and that cap is served by 0003.",
       "  2. Put NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and the",
       "     service-role key in .env.local. All three are required: the anon key is",
       "     what the app's configuration check tests for.",

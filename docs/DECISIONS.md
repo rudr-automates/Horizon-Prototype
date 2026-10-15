@@ -232,7 +232,7 @@ reaches the browser. Tests assert both the internal distinction and the collapse
 **Date:** 2026-10-15
 **Status:** Accepted
 **Context:** §5 requires storing minimal conversation/turn information, but the
-migration is not applied and the demo corpus is a fixture with no course row.
+migration was not applied and the demo corpus was a fixture with no course row.
 
 **Decision:** Persist turns through a `TurnRecorder`. When no database is
 configured, or when the turn came from the fixture corpus, report
@@ -499,8 +499,11 @@ per-minute limit on their own.
 ## D-019 — Admission is an atomic reservation, not a read-then-record
 
 **Date:** 2026-10-15
-**Status:** Accepted. **Requires migration `0003_atomic_budget.sql`, which is
-AUTHORED AND NOT YET APPLIED.**
+**Status:** Accepted. **Migration `0003_atomic_budget.sql` was applied on
+2026-10-15**, and the atomicity it provides is verified against the real database
+(`pnpm verify:budget`: 12 concurrent reservations against a 4-slot budget granted
+exactly 4; 12 concurrent embedding admissions bound at exactly 3; cleanup
+complete).
 
 **Context:** The daily token budget was enforced by reading the day's total,
 deciding in the application, and recording usage afterwards. Those are three

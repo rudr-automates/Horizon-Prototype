@@ -1,0 +1,65 @@
+{
+  "recordedAtWindow": "2026-10-15T11:02Z–11:03Z, bracketed by the health read at 11:03:04Z and data-path-verification-2026-10-15T11-03-19-492Z.json",
+  "label": "budget-concurrency-live",
+  "captured": "terminal stdout of the command, transcribed verbatim — the command does not write its own artifact",
+  "command": "pnpm verify:budget",
+  "exitCode": 0,
+  "database": "the connected Supabase project (.env.local); no provider call is possible from this script",
+  "providerCallsMade": 0,
+  "probeRowsRemaining": 0,
+  "prerequisite": "migration 0003_atomic_budget.sql, applied 2026-10-15; before it, this command refused before writing a row and named the missing migration",
+  "observed": {
+    "ledgerMode": "supabase",
+    "dayTotalBefore": 0,
+    "generation": {
+      "simultaneousReservations": 12,
+      "budgetTokens": 4800,
+      "reservationSizeTokens": 1200,
+      "slotsThatFit": 4,
+      "granted": 4,
+      "refused": 8,
+      "grantedCapacityTokens": 4800,
+      "elapsedMs": 561
+    },
+    "embedding": {
+      "simultaneousAdmissions": 12,
+      "cap": 3,
+      "granted": 3
+    },
+    "dayTotalAfterCleanup": 0
+  },
+  "result": "PASS — concurrent admission cannot over-reserve this budget.",
+  "stdout": [
+    "$ tsx scripts/verify-budget-concurrency.ts",
+    "Environment file .env.local: loaded",
+    "Ledger mode: supabase",
+    "",
+    "Day total before: 0 tokens",
+    "",
+    "Generation: budget 4800 tokens (current 0 + 4 x 1200), firing 12 simultaneous reservations ...",
+    "  12 concurrent admissions in 561 ms",
+    "  granted 4, refused 8",
+    "  granted capacity 4800 / budget 4800",
+    "  PASS — exactly 4 reservations granted; the budget was never over-committed",
+    "  refusal example: This call needs about 1200 tokens but only 0 remain of the 4800-token daily budget (0 settled, 4800 reserved).",
+    "",
+    "Embedding: cap 3 requests, firing 12 simultaneously ...",
+    "  granted 3 of 12",
+    "  PASS — the cap bound at exactly 3 across concurrent callers",
+    "",
+    "Day total with probe rows present: 4800 (expected 4800 plus the reserved headroom of the 3 embedding rows, which hold no tokens)",
+    "",
+    "RESULT: PASS — concurrent admission cannot over-reserve this budget.",
+    "",
+    "Probe rows remaining: 0; probe spend remaining: 0",
+    "Day total after cleanup: 0",
+    "CLEANUP: complete — the ledger is back to the state it was found in."
+  ],
+  "limitations": [
+    "This is a transcript captured from the terminal, not a file the command writes: `pnpm verify:budget` emits no artifact of its own, so this file exists to keep the PASS from living only in a terminal scrollback.",
+    "It proves the admission function serializes correctly for one budget on one UTC day, under 12-way concurrency from a single client. It does not exercise multi-instance deployment, a rollover at the UTC day boundary, or a crash between reservation and settlement.",
+    "No generation call was made and none is claimed: the provider free-tier quota is exhausted, so answer quality remains unmeasured.",
+    "It is not read-only. Admission is a write, so the run created 12 generation rows and 12 embedding rows tagged provider = 'concurrency-probe' and deleted them in a finally block; the day total and the probe-row count were re-read afterwards and reported as 0."
+  ],
+  "secretsPrinted": 0
+}
