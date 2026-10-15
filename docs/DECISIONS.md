@@ -782,3 +782,38 @@ for 2026-10-15 1 -> 1` — which is what its claim needed to say. The cost is th
 these scripts now depend on the ledger being readable to make their strongest
 statement, and an unreadable count makes the data-path check **fail** rather than
 pass vacuously.
+
+## D-028 — A harness asks the server which course it serves
+
+**Context:** The first live canary against the database-backed server reported four
+FAILs, and every request had been answered
+`NOT_FOUND — "That course was not found."` `scripts/canary.ts` addressed the
+course by `DEMO_COURSE.courseId` (`course_demo_retries`) — the id that names the
+**fixture** corpus. The seeded database serves the same lesson under the UUID the
+seed assigned it, so the harness asked a database-backed server for a course that
+exists only in the fixture, and the eligible-set checks compared `-1` against an
+oracle. Every earlier canary pass in this project ran against a **fixture-backed**
+server, which is why the assumption had never been exercised.
+
+This was worth a decision rather than a one-line edit because of how it reads. A
+harness whose own addressing is wrong reports missing pages, empty payloads and
+failed checks in exactly the shape a broken application would, so those four FAILs
+were one step from being written down as an app defect. The instrument failed, not
+the thing measured.
+
+**Decision:** A verification harness resolves identifiers from the system under
+test rather than from a constant compiled into the harness. `scripts/canary.ts`
+reads the server's own `/api/v1/courses`, prefers the fixture id when the server is
+genuinely fixture-backed (so that mode is unchanged), accepts `--course <id>` as an
+explicit override, falls back to the fixture id only when the list is unreachable,
+and prints which of the three it used. No check, threshold or oracle was weakened
+to make the run pass.
+
+**Consequence:** Against the same server that produced the FAILs, the harness now
+reports **18 passed, 0 failed, 9 not run**, with real answers and citations. The
+failed artifact is kept in `docs/evidence/` so the before and after are auditable
+rather than asserted. The 9 NOT RUNs are a real limit and stay labelled as such: a
+fixture-text oracle cannot check citations in a database corpus, so those were
+verified separately against `public.blocks` (3 of 3). The cost is one extra HTTP
+request per run, and a harness that now depends on the course list being reachable
+in order to identify its own target.

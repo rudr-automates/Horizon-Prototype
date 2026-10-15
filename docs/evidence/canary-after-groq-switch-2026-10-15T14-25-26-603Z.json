@@ -1,0 +1,247 @@
+{
+  "recordedAt": "2026-10-15T14:25:26.602Z",
+  "label": "after-groq-switch",
+  "base": "http://127.0.0.1:4321",
+  "question": "What backoff constant does the instructor choose, and why?",
+  "canaryUnlockSeconds": 578,
+  "canaryTerm": "0.37",
+  "generatorConfigured": true,
+  "evidenceSource": null,
+  "embeddingProvider": null,
+  "summary": {
+    "checks": 27,
+    "passed": 14,
+    "failed": 4,
+    "notRun": 9
+  },
+  "runs": [
+    {
+      "position": {
+        "label": "00:00",
+        "seconds": 0
+      },
+      "scope": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "That course was not found.",
+          "requestId": "ce717551-d131-4352-8401-b8f9f7639558"
+        }
+      },
+      "answer": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "That course was not found.",
+          "requestId": "07f077db-ef93-4fd8-ada3-e26e76c25744"
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "FAIL",
+          "detail": "server reported -1 eligible block(s); oracle says 2 (b_0001, b_0005)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact is NOT reachable before its unlock time",
+          "outcome": "PASS",
+          "detail": "0 eligible block(s) carry the constant \"0.37\" (expected 0)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "searched the entire response body for the constant and its label"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "NOT RUN",
+          "detail": "evidence source is \"undefined\"; this harness only holds the fixture corpus, so it cannot form an oracle for database ids"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "NOT RUN",
+          "detail": "no oracle text available for a database-backed source"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "NOT RUN",
+          "detail": "no oracle timestamps available for a database-backed source"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=(missing); message was empty"
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the withheld fact is not disclosed at the early position",
+          "outcome": "PASS",
+          "detail": "answerState=; inspected 0 claim(s) and 0 quotation(s) for \"0.37\" and \"Marlin backoff constant\""
+        }
+      ]
+    },
+    {
+      "position": {
+        "label": "06:00",
+        "seconds": 360
+      },
+      "scope": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "That course was not found.",
+          "requestId": "b19c98cc-64d5-4060-ac3c-6c9bc554e473"
+        }
+      },
+      "answer": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "That course was not found.",
+          "requestId": "b6fab7ae-5551-499f-acb1-bcd1723c2df4"
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "FAIL",
+          "detail": "server reported -1 eligible block(s); oracle says 10 (b_0001, b_0002, b_0003, b_0004, b_0005, b_0006, b_0007, b_0008, b_0009, b_0017)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact is NOT reachable before its unlock time",
+          "outcome": "PASS",
+          "detail": "0 eligible block(s) carry the constant \"0.37\" (expected 0)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "searched the entire response body for the constant and its label"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "NOT RUN",
+          "detail": "evidence source is \"undefined\"; this harness only holds the fixture corpus, so it cannot form an oracle for database ids"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "NOT RUN",
+          "detail": "no oracle text available for a database-backed source"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "NOT RUN",
+          "detail": "no oracle timestamps available for a database-backed source"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=(missing); message was empty"
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the withheld fact is not disclosed at the early position",
+          "outcome": "PASS",
+          "detail": "answerState=; inspected 0 claim(s) and 0 quotation(s) for \"0.37\" and \"Marlin backoff constant\""
+        }
+      ]
+    },
+    {
+      "position": {
+        "label": "12:00",
+        "seconds": 720
+      },
+      "scope": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "That course was not found.",
+          "requestId": "f499b670-f655-4376-939f-932c794009d6"
+        }
+      },
+      "answer": {
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "That course was not found.",
+          "requestId": "eb9267f3-47e5-4e12-98c0-458c7e13143a"
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the currently eligible set matches an independently written oracle",
+          "outcome": "FAIL",
+          "detail": "server reported -1 eligible block(s); oracle says 15 (b_0001, b_0002, b_0003, b_0004, b_0005, b_0006, b_0007, b_0008, b_0009, b_0012, b_0013, b_0014, b_0015, b_0016, b_0017)"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the future-only fact IS reachable at/after its unlock time",
+          "outcome": "PASS",
+          "detail": "3 eligible block(s) carry the constant \"0.37\" (expected >= 1)"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "the response body does not disclose the future-only fact",
+          "outcome": "PASS",
+          "detail": "not applicable after the unlock time"
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every displayed citation id belongs to the eligible set",
+          "outcome": "NOT RUN",
+          "detail": "evidence source is \"undefined\"; this harness only holds the fixture corpus, so it cannot form an oracle for database ids"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every displayed quotation appears verbatim in its cited source",
+          "outcome": "NOT RUN",
+          "detail": "no oracle text available for a database-backed source"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's true clock",
+          "outcome": "NOT RUN",
+          "detail": "no oracle timestamps available for a database-backed source"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "refusal-clarity",
+          "description": "an unanswered turn is a clear, message-bearing refusal",
+          "outcome": "PASS",
+          "detail": "answerState=(missing); message was empty"
+        },
+        {
+          "id": "expected-outcome",
+          "description": "the later position produces a supported, verified answer",
+          "outcome": "FAIL",
+          "detail": "answerState=; reason=undefined; claims=0; citations=0"
+        }
+      ]
+    }
+  ]
+}

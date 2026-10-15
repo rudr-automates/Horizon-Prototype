@@ -13,14 +13,18 @@ honest refusal.
 > a runtime AI credential is configured**, so the demo corpus lives in the database
 > with real embeddings and the database-backed retrieval path has run against it.
 >
+> **Generation now runs on Groq and the live path works.** One real smoke call and
+> all three canary positions succeeded on 2026-10-15: real cited answers at 06:00
+> and 12:00, an honest refusal at 00:00, and three turns persisted to the database.
+> The Google free-tier quota that blocked earlier attempts is an account limit on a
+> provider that no longer serves generation.
+>
 > What is still NOT true, and must not be read into anything below:
-> **no live Groq call has ever been made** — no Groq key is configured, so its
-> adapter is covered by mocked tests only and the account's limits are unknown —
-> and **no answer has been produced by a live model on this revision**. The Google
-> free-tier generation quota still refuses calls, so on the last live attempt the
-> generation half succeeded and the verification call was refused, which correctly
-> rendered no claims. Turn persistence is therefore still unexercised. See
-> [docs/EVALUATION.md](docs/EVALUATION.md) Part 06 and
+> **there is no public deployment** — no URL exists, and nothing here was verified
+> on a deployed origin — and **`HORIZON_DAILY_TOKEN_BUDGET` and
+> `HORIZON_MAX_EMBEDDING_CALLS` are absent from `.env.local`**, so a plain
+> `pnpm start` would refuse every turn for a budget reason. See
+> [docs/EVALUATION.md](docs/EVALUATION.md) Part 07 and
 > [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ---
@@ -37,13 +41,13 @@ honest refusal.
 | Rank fusion (RRF) with deterministic ordering | ✅ unit tested |
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types; **embeddings still run on it, live** |
-| Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ⚠️ implemented and unit tested (38 cases: endpoint, bearer auth, strict JSON Schema, usage, 429 guidance, every failure path). **No live call has been made** — no key configured — so nothing here is a statement that Groq works |
+| Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ✅ **live-verified on 2026-10-15** — one smoke request and three canary turns succeeded through this adapter. Endpoint, bearer auth, strict JSON Schema, usage mapping, 429 guidance and every failure path are also unit tested (38 cases, all mocked) |
 | Learner workbench (timeline presets, scope count, citations, status panel) | ✅ verified rendered at 1440px and 390px, hydrated, timeline selection confirmed live (eligible evidence 2 → 10 → 15) |
 | Supabase migrations (schema, search RPCs, atomic budget) | ✅ **all three applied and verified live** — six tables with RLS, pgvector `0.8.2`, six functions, and `0003`'s reservation columns; a re-read then confirmed 6/6 tables, 6/6 functions and a readable ledger |
 | Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
 | Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
-| Live inference (`gemini-3.6-flash`) | ⚠️ real calls were made and recorded in an earlier revision; on the current revision generation is **429-blocked by the free-tier daily quota** with a ~15 h retry delay |
-| Temporal eligibility end-to-end with a live model | ⚠️ 24 live checks pass on the current revision (eligibility, oracle cross-check, non-disclosure). The answer half is **NOT RUN** — refused by the quota, never counted as a pass |
+| Live inference (`openai/gpt-oss-20b` on Groq) | ✅ **live-verified** — `pnpm smoke` parsed a structured claim, charged 396 tokens against reported 315 + 81. Generation moved off `gemini-3.6-flash`, whose free-tier daily quota was exhausted with a ~15 h retry delay |
+| Temporal eligibility end-to-end with a live model | ✅ **18 passed, 0 failed, 9 not run** on the live path — the withheld constant `0.37` appears in no response before its 578 s unlock and does appear after it, with cited answers at 06:00 and 12:00. The 9 not-run checks need fixture text; 3 of 3 citations were verified against `public.blocks` instead |
 | Cumulative daily token accounting | ✅ enforced at admission, per call, including billable **reasoning** tokens; the persisted charge is the same figure the cap was checked against |
 | Atomic budget admission across requests AND instances | ✅ **verified live against the real database** — `pnpm verify:budget` fired 12 simultaneous reservations at `horizon_admit_generation_tokens` with a budget that only 4 could fit and got exactly **4 grants**, then 12 simultaneous embedding admissions bound at exactly the remaining allowance (3, on a day that had already used 1 of the 10), and cleanup left 0 probe rows with the day's total back where it started. Both expectations are derived from the day's measured state, so the command also passes on a system that has been used |
 | A refused call releases its hold; a timeout keeps it | ✅ unit tested — a 429 is the provider refusing before processing, so it charges nothing, while an unanswered call keeps its reservation rather than erasing spend |
@@ -54,7 +58,7 @@ honest refusal.
 | Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
 | Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ **executed live** — 1 course / 6 resources / 18 blocks upserted on primary key, using 1 embedding request against a cap of 10 |
 | End-to-end canary harness (`pnpm canary`) | ✅ ran live; recorded in [docs/evidence](docs/evidence) |
-| Turn persistence to a real database | ⚠️ implemented and now selected when Supabase is configured, but **still unexercised** — a turn is written only after a successful generation, which the quota refuses. The unconfigured path still reports `persisted: false` honestly |
+| Turn persistence to a real database | ✅ **verified live** — three canary turns were written to `public.turns` (`persistence: {"persisted":true,"mode":"supabase"}`) at boundaries 0 / 360 / 720 s, with the same answer states the responses reported. The unconfigured path still reports `persisted: false` honestly |
 | Public deployment | ❌ not attempted; staged procedure and the four-part release gate are in [DEPLOY.md](docs/DEPLOY.md). **No public URL exists** |
 | Ingestion (transcription, OCR, parsing) | ❌ deferred — the demo corpus is a fixture |
 
@@ -130,7 +134,14 @@ cp .env.example .env.local   # then fill in real values (never commit them)
 ```bash
 pnpm canary --base http://127.0.0.1:4321 --label fixture-unconfigured
 pnpm canary --base http://127.0.0.1:4321 --delay 45000   # space positions out
+pnpm canary --base http://127.0.0.1:4321 --course <courseId>   # override the target
 ```
+
+The course is read from the server's own `GET /api/v1/courses` rather than assumed
+from the fixture id, because a database-backed server serves the same lesson under
+the id its seed assigned. `--course` overrides that, and the run prints which id it
+used. A fixture-text oracle cannot check citations in a database corpus, so those
+checks report `NOT RUN` there and must be verified separately.
 
 `--delay <ms>` waits between positions. Use it on a free tier: three turns back
 to back can exhaust a per-minute request quota, and the resulting
@@ -181,7 +192,7 @@ revision with all three migrations applied:
     "runtimeAi": { "configured": true, "reachable": null, "detail": "Names are present. 0 of 20000 daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour." }
   },
   "runtime": {
-    "provider": "google-genai", "textModel": "gemini-3.6-flash",
+    "provider": "groq", "textModel": "openai/gpt-oss-20b",
     "embeddingModel": "gemini-embedding-001", "embeddingDimensions": 768,
     "evidenceSource": "supabase", "usageMode": "supabase", "embeddingCapMode": "supabase",
     "demoContent": false,
@@ -347,8 +358,10 @@ Two advisor findings, neither of which blocks the app:
 check still requires the anon key even though the server writes with the service
 role.
 
-The migrations cannot fix the *answer* path, and did not: generation is blocked
-by the provider's free-tier quota, so no live answer exists on this revision.
+The migrations could not fix the *answer* path by themselves, and the *answer*
+path's earlier failure was not a schema problem: it was one provider's free-tier
+daily quota. Moving generation to Groq removed that block, and the live canary now
+produces cited answers at 06:00 and 12:00 with an honest refusal at 00:00.
 
 One consequence worth knowing: the anon key authenticates but holds no
 table-level `SELECT` grant on the public tables, so a direct anon-key read fails
@@ -435,13 +448,13 @@ Specific consequences of that rule:
 ```
 pnpm lint         exit 0
 pnpm typecheck    exit 0
-pnpm test         exit 0   187 tests, 13 files   (all mocked, incl. the concurrency and health cases)
+pnpm test         exit 0   251 tests, 16 files   (all mocked, incl. the concurrency, health and provider cases)
 pnpm build        exit 0
 pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
 pnpm verify:budget exit 0  12 concurrent generation reservations -> exactly 4 granted of a 4-slot budget; 12 concurrent embedding admissions -> exactly 3 of a cap of 3; cleanup complete, 0 probe rows
 pnpm verify:data-path exit 0  25 passed, 0 failed, 0 pending — real rows, zero provider calls
-pnpm smoke        exit 1   1 live embedding call OK; generation refused by the provider (429, daily free-tier quota)
-pnpm canary       exit 1   24 passed, 1 failed, 2 not run   (live; answer half quota-blocked)
+pnpm smoke        exit 0   2 LIVE calls: 1 embedding (768d, all finite) + 1 generation (1 structured claim, charged 396 = 315 + 81)
+pnpm canary       exit 0   18 passed, 0 failed, 9 not run  (live, database corpus; the 9 need fixture text)
 ```
 
 The concurrency tests are unit tests over a shared ledger: they prove no two
@@ -475,13 +488,16 @@ vector search both respect the boundary, that a block queried with its own store
 nor the embedding counter. Its one out-of-band read is a single stored embedding,
 because the app's own gateway deliberately does not select that column.
 
-On the current revision the question endpoint **clears admission**: health reports
-`ok: true`, `durableLedger: "usable"` and `spendGuard: "permitted"`, and the
-ledger was read as 0 tokens spent today. The only thing that still refuses a turn
-is the provider's own free-tier quota, which is a separate refusal:
-`TEMPORARILY_UNAVAILABLE` with `PROVIDER_RATE_LIMITED`, and a retry delay the
-provider measures in hours. The two must not be confused — `spendGuard` describes
-the spend guard's admission, never the provider's availability.
+On 2026-10-15 the question endpoint **cleared admission and answered**: health
+reported `ok: true`, `durableLedger: "usable"` and `spendGuard: "permitted"`, and
+the canary's three turns returned a refusal at 00:00 and cited answers at 06:00 and
+12:00, charging 4609 tokens for the day with every ledger row settled. A provider's
+own free-tier quota is a separate refusal from the guard —
+`TEMPORARILY_UNAVAILABLE` with `PROVIDER_RATE_LIMITED` and a retry delay the
+provider measures in hours — and the two must not be confused: `spendGuard`
+describes the spend guard's admission, never the provider's availability.
+Generation now runs on Groq, whose quota is separate from the Google one that
+refused earlier attempts.
 
 The unreadable-ledger path is not merely historical: it is still enforced and
 still tested, and it refuses before any provider call while reporting

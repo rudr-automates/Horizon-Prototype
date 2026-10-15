@@ -85,6 +85,11 @@ This is an account limit, not an application defect and not a budget refusal:
 generation evidence in Part 03 (L1–L3) was obtained on the **pre-repair** revision
 and is not evidence about the accounting change.
 
+> **Superseded later the same day — see Part 07.** Generation moved to Groq, whose
+> quota is separate from the exhausted Google one. `pnpm smoke` and the 3-position
+> canary both ran live and passed. The 429 above was an account limit on one
+> provider, not a property of the application.
+
 ## Q4. Canary on the final revision — 24 PASS, 1 FAIL, 2 NOT RUN
 
 The model half could not run, so the harness produced exactly the split it was
@@ -864,3 +869,200 @@ Interaction was driven on the running production build:
 - **Budget integrity.** That failed turn left `spentTokensToday` at **913** — the
   429 released its reservation instead of charging it — while the durable
   embedding count moved 1 → 2. Both are what the design says should happen.
+
+---
+
+# Part 07 — generation moved to Groq: live smoke test and live canary
+
+**Date:** 2026-10-15 · **Baseline:** `2b710b3` · **Outcome: the live path works.**
+One real embedding request and one real generation request passed, and the
+3-position canary passed at every position with real answers and real citations.
+Two things are still wrong, both recorded below rather than smoothed over:
+`HORIZON_DAILY_TOKEN_BUDGET` and `HORIZON_MAX_EMBEDDING_CALLS` are **absent** from
+`.env.local`, and the canary harness had to be repaired before it could run at all.
+
+## P7-1. Configuration actually in effect
+
+Read from variable NAMES and non-secret values only, then confirmed against the
+running server's own `/api/v1/health` rather than inferred from the file:
+
+| Setting | Value in effect |
+|---|---|
+| `HORIZON_LLM_PROVIDER` | `groq` |
+| `HORIZON_LLM_MODEL` | `openai/gpt-oss-20b` |
+| `HORIZON_LLM_BASE_URL` | `https://api.groq.com/openai/v1` |
+| `HORIZON_LLM_REASONING_EFFORT` | `low` |
+| `HORIZON_EMBEDDING_MODEL` / `_DIMENSIONS` | `gemini-embedding-001` / `768` |
+| `HORIZON_EMBEDDING_API_KEY` | present (separate from the generation key) |
+
+**Two required names are missing from the file.** `HORIZON_DAILY_TOKEN_BUDGET`
+and `HORIZON_MAX_EMBEDDING_CALLS` are not set, and both resolve to `0` — which is
+the guard's own "permit nothing" state, not a default that permits everything. The
+restarted server said so unambiguously instead of failing obscurely:
+
+```
+spendGuard: "blocked"
+Names are present, but HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard
+permits no provider call and every turn will refuse with BUDGET_EXHAUSTED.
+```
+
+The live runs below were therefore made with the **previously configured values**
+(`20000` budget, cap `10`) supplied as process environment **for those commands
+only**. That preserves the existing budget rather than raising it, but it is not a
+configuration a deployment would have: the file on disk still lacks both names, so
+a plain `pnpm start` and any host would refuse every turn. **This must be fixed
+before the app is called demo-ready.**
+
+## P7-2. Live smoke test — PASS (1 embedding request, 1 generation request)
+
+`pnpm smoke`, retries disabled, atomic reservation in force:
+
+```
+Safeguard 1 — provider request attempts per call: 1
+Provider      : groq
+Text model    : openai/gpt-oss-20b
+Embedding     : gemini-embedding-001 (768d)
+Embedding admission (supabase cap): granted — 6 of 10 embedding requests recorded
+Embedding request 1/1: OK  768 dimensions, all finite, 952 ms
+Generation request 1/1: admission granted — reserving 4140 for this call
+  OK  parsed 1 structured claim(s), unansweredParts=false, 699 ms
+  usage: prompt 315, completion 81
+  settlement: reported — charged 396, reported 396
+```
+
+Charged `396` equals `315 + 81` exactly: the reported usage was mapped once, with
+no double count and nothing silently dropped. Groq reports no separate reasoning
+count, so reasoning is already inside `completion_tokens`; `reasoning_tokens` was
+recorded as `null` rather than invented, which is why the settlement reconciles.
+
+## P7-3. Live canary — 18 PASS, 0 FAIL, 9 NOT RUN
+
+Raw responses: [canary-after-groq-switch-live-2026-10-15T14-28-41-685Z.json](evidence/canary-after-groq-switch-live-2026-10-15T14-28-41-685Z.json).
+Positions spaced 20 s apart to stay inside a free-tier per-minute window.
+
+| Position | Eligible (oracle) | Eligible-set | Withheld fact in eligible set | Live answer |
+|---|---|---|---|---|
+| 00:00 | 2 (2) | PASS | 0 blocks | `INSUFFICIENT_EVIDENCE` / `UNSUPPORTED_BY_EVIDENCE`, with a message |
+| 06:00 | 10 (10) | PASS | 0 blocks | `ANSWERED` — 1 claim, 1 citation |
+| 12:00 | 15 (15) | PASS | 3 blocks | `ANSWERED` — 2 claims, 2 citations |
+
+The 06:00 answer is the interesting one. It answers a *different* true thing about
+the same topic — the constant is chosen later, after a simulation — and cites the
+03:30 block that says exactly that, so it does not reach forward to the 0.37 fact
+that unlocks at **578 s (09:38)**. The 12:00 answer does contain 0.37, from blocks
+unlocked at 578 s and 720 s. The withheld constant never appears before its
+unlock, which is the invariant the whole timestamp design exists for.
+
+## P7-4. The harness was broken before the app could be judged
+
+**The first canary run reported 4 FAILs, and none of them was an application
+fault.** Every request came back `NOT_FOUND — "That course was not found."`
+
+`scripts/canary.ts` addressed the course by `DEMO_COURSE.courseId`
+(`course_demo_retries`) — the id that names the **fixture** corpus. The seeded
+database serves the same lesson under the UUID the seed assigned it
+(`83eafd47-15d8-50e0-9edc-ee6fb580cb83`). The harness was asking a database-backed
+server for a course that only exists in the fixture, so the eligible-set checks
+compared `-1` against an oracle and the answer half was empty. Every earlier
+canary pass in this journal ran against a **fixture-backed** server, which is why
+the hardcoded id survived this long.
+
+The harness now reads the server's own `/api/v1/courses` list, prefers the fixture
+id when the server really is fixture-backed (so that mode is unchanged), accepts an
+explicit `--course <id>` override, and falls back to the fixture id only when the
+list is unreachable — reporting which of the three it used. No check was weakened:
+the same oracles, thresholds and outcomes are applied, and the run it produced is
+the one above. The failed run is kept as
+[canary-after-groq-switch-2026-10-15T14-25-26-603Z.json](evidence/canary-after-groq-switch-2026-10-15T14-25-26-603Z.json)
+so the before/after is auditable rather than asserted.
+
+A real limit remains, and it is why 9 checks are **NOT RUN**: the harness holds
+only the fixture text, so for a database corpus it has no oracle for citation ids,
+quotes or clocks. Those were verified independently instead of being assumed:
+
+| Citation, by position | Row exists | Quote verbatim in `text_original` | Label matches the block's true clock | Block eligible at that playhead |
+|---|---|---|---|---|
+| 06:00 `f35f5722…` | yes | yes | yes — `Transcript 03:30–04:40`, start 210 s | yes |
+| 12:00 `20fcaa3f…` | yes | yes | yes — `Transcript 09:38–10:40`, start 578 s | yes |
+| 12:00 `644ebb8f…` | yes | yes | yes — `Transcript 12:00–13:40`, start 720 s | yes |
+
+**3 of 3 citations check out** against `public.blocks` with no problems reported.
+
+## P7-5. Persistence and budget accounting after the live run
+
+`persistence` was `{"persisted":true,"mode":"supabase","detail":"Turn stored."}`
+for all three turns, and the rows agree with the responses:
+
+```
+14:27:48 · boundary 0s   · NOT_IN_MATERIALS (UNSUPPORTED_BY_EVIDENCE) · openai/gpt-oss-20b · 3063 ms
+14:28:14 · boundary 360s · ANSWERED (NONE)                          · openai/gpt-oss-20b · 4798 ms
+14:28:40 · boundary 720s · ANSWERED (NONE)                          · openai/gpt-oss-20b · 5122 ms
+```
+
+Today's `usage_ledger`, read from the rows themselves:
+
+| Operation | Rows | Charged |
+|---|---|---|
+| `generate` | 9 | 3421 |
+| `verify` | 3 | 1188 |
+| `embed` | 9 | 0 (that API reports no tokens) |
+
+All 21 rows for the day are in state `settled`; **none is left holding capacity**,
+which is the failure that would silently block later turns. The day's total reads
+`4609`, which is exactly the sum of the charged rows — the number the health
+endpoint reports and the number the rows contain agree, so the shown figure is not
+taken on trust. Three `verify` rows exist, so semantic verification really ran as a
+separate provider call rather than being claimed by a flag.
+
+One gap to record: `turns.prompt_tokens`, `turns.completion_tokens` and
+`turns.verifier_version` are still `NULL` after a live turn. Token accounting lives
+in `usage_ledger` and is correct there, so nothing is unaccounted for, but the turn
+row is not the self-describing record its columns promise.
+
+## P7-6. The interface re-checked after the switch
+
+The preview webview still refuses to composite (`preview_screenshot` returned "no
+frames"), so the pixels come from headless Chrome again, as in P6-10, and were
+analysed with the same programmatic colour count rather than by eye:
+
+| Capture | Size | Dark-ink pixels | Near-white | Accent present |
+|---|---|---|---|---|
+| [Desktop](evidence/ui-desktop-groq.png) | 1440x1620 | 2.33% | 94.58% | `#1447E6` 1.19% |
+| [Mobile](evidence/ui-mobile-groq.png) | 390x3560 | 3.38% | 92.80% | `#1447E6` 1.49% |
+
+Ink is dark on light, the layout is dense with content rather than blank, and the
+figures match the pre-switch build within a fraction of a percent — the provider
+switch changed text on the page, not its legibility. The page now reads
+`Model: groq · openai/gpt-oss-20b`, `Evidence: Supabase (live)`, `EMBEDDING
+REQUESTS 9 made today · cap 10`, `TOKENS TODAY 4609`, and `NEXT CALL would be
+permitted`, all taken from `/api/v1/health`.
+
+One honest wart is visible in that capture: the status panel says **`VERIFIED
+LIVE: not verified (a smoke test is required)`** even though a live smoke test has
+now passed. That is the health endpoint refusing to claim reachability it cannot
+observe — `runtimeAi.reachable` is always `null` — and the panel names what would
+settle it, so the text is not false. It is nonetheless misleading to a judge on
+the one screen that is supposed to answer "is this working", and surfacing a
+*recorded* smoke result would be the fix. Not changed here: it would mean the
+server reading a docs artifact, which is worse than the wart.
+
+No question was asked through the UI during this pass. Nine of the ten
+embedding requests for the day are spent, and the tenth was deliberately left
+unused so the demo keeps one.
+
+## P7-7. Still not established
+
+- **A deployment.** No public URL exists. The Vercel procedure in
+  [DEPLOY.md](DEPLOY.md) needs an account a human has to authorise, and it would
+  inherit the two missing names from P7-1 — a deploy made now would refuse every
+  turn. Nothing in this part has been checked on a deployed origin.
+- **A separately-reported reasoning count.** Groq reports none, so the mapping
+  "reasoning is inside completion" is the only live-verified case. The accounting
+  path for a provider that reports reasoning separately is covered by mocked tests
+  only.
+- **Groq's rate limits.** One smoke call and three canary calls succeeded 20 s
+  apart. That is consistent with the free tier tolerating this pace; it is not a
+  measurement of the tier's limits, and no 429 was observed to record guidance
+  from.
+- **Embedding cost**, still unmetered by design: the cap bounds request count and
+  nothing else. Nine of ten requests for the day are now used.

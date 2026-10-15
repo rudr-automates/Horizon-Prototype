@@ -4,6 +4,10 @@
  *   pnpm canary                       # against http://127.0.0.1:4321
  *   pnpm canary --base http://... --label after-seed
  *   pnpm canary --base http://... --delay 45000   # space positions out
+ *   pnpm canary --course <courseId>   # override the course the server serves
+ *
+ * The course is read from the server's own course list rather than assumed, so
+ * the same harness works against the fixture corpus and the database corpus.
  *
  * `--delay <ms>` waits between positions. Use it on a free tier: three turns
  * back to back can exceed the per-minute request quota, and the resulting
@@ -81,6 +85,10 @@ interface AnswerBody {
   };
 }
 
+interface CoursesBody {
+  courses?: Array<{ courseId?: string }>;
+}
+
 type CheckOutcome = "PASS" | "FAIL" | "NOT RUN";
 
 interface Check {
@@ -116,6 +124,45 @@ function formatClock(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.floor(totalSeconds % 60);
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * Which course to interrogate, and where that id came from.
+ *
+ * `DEMO_COURSE.courseId` names the FIXTURE corpus. A database-backed server
+ * serves the same lesson under whatever id the seed assigned it, so asking that
+ * server for the fixture id answers NOT_FOUND — a harness mistake that would be
+ * easy to misread as an app failure. The server publishes its own course list,
+ * so the harness asks it instead of guessing, and says which id it used.
+ *
+ * Order: an explicit `--course` wins; then the server's own list, preferring the
+ * fixture id when the server really is fixture-backed so that mode is unchanged;
+ * then the fixture id, so an unreachable course list still yields a run whose
+ * failure names the real cause.
+ */
+async function resolveCourse(
+  base: string,
+  override: string | null,
+): Promise<{ id: string; origin: string }> {
+  if (override !== null) return { id: override, origin: "given with --course" };
+
+  try {
+    const response = await fetch(`${base}/api/v1/courses`, { cache: "no-store" });
+    const body = (await response.json()) as CoursesBody;
+    const ids = (body.courses ?? [])
+      .map((course) => String(course?.courseId ?? ""))
+      .filter((id) => id !== "");
+
+    if (ids.includes(DEMO_COURSE.courseId)) {
+      return { id: DEMO_COURSE.courseId, origin: "server course list (fixture corpus)" };
+    }
+    if (ids.length > 0) {
+      return { id: ids[0], origin: "server course list (database corpus)" };
+    }
+    return { id: DEMO_COURSE.courseId, origin: "fixture fallback: the server listed no course" };
+  } catch {
+    return { id: DEMO_COURSE.courseId, origin: "fixture fallback: the course list was unreachable" };
+  }
 }
 
 /**
@@ -189,6 +236,9 @@ async function main(): Promise<void> {
     )} runtimeAi.configured=${String(health.checks?.runtimeAi?.configured)}\n`,
   );
 
+  const course = await resolveCourse(base, argValue("course"));
+  console.log(`Course      : ${course.id} (${course.origin})`);
+
   const generatorConfigured = Boolean(health.checks?.runtimeAi?.configured);
   if (!generatorConfigured) {
     console.log(
@@ -217,13 +267,13 @@ async function main(): Promise<void> {
     const oracleIds = expectedEligibleFixtureIds(position.seconds);
 
     const scopeResponse = await fetch(
-      `${base}/api/v1/courses/${DEMO_COURSE.courseId}/scope?playheadSeconds=${position.seconds}`,
+      `${base}/api/v1/courses/${course.id}/scope?playheadSeconds=${position.seconds}`,
       { cache: "no-store" },
     );
     const scope = (await scopeResponse.json()) as ScopeBody;
 
     const answerResponse = await fetch(
-      `${base}/api/v1/courses/${DEMO_COURSE.courseId}/questions`,
+      `${base}/api/v1/courses/${course.id}/questions`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },

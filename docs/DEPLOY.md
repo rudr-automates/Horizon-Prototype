@@ -173,10 +173,16 @@ pnpm canary --base https://<project>.vercel.app --label prod
 2. `/api/v1/health` reports actual database connectivity truthfully
    (`querySucceeded`, `schemaObjects: "verified"`, `durableLedger: "usable"`).
    **HOLDS (2026-10-15)** — all three observed on the live endpoint.
-3. A **real generation call succeeds** (`pnpm smoke` exit 0). Until the provider's
-   free-tier quota resets, this is blocked and must be reported as blocked.
+3. A **real generation call succeeds** (`pnpm smoke` exit 0). **HOLDS
+   (2026-10-15)** — on Groq / `openai/gpt-oss-20b`: one embedding request (768
+   dims, finite) and one generation request that parsed a structured claim, with
+   `charged 396` equal to `prompt 315 + completion 81`. The earlier Google
+   free-tier exhaustion was an account quota, not an application limit.
 4. The timestamp-aware canary demonstrates non-disclosure before the unlock time
    **and** a properly supported, cited answer once eligible evidence is available.
+   **HOLDS (2026-10-15)** — 18 passed, 0 failed, 9 not run (the citation oracles,
+   which need fixture text); 0.37 absent from every response before 578 s and
+   present afterwards, with all 3 citations verified against `public.blocks`.
 
 Two commands support gates 1 and 2, and neither makes a provider call, so neither
 can spend quota:
@@ -192,10 +198,17 @@ and deleted before it exits, and it reports the day's total and probe-row count
 before and after, so a failed cleanup is loud rather than silent. Run it against a
 project whose spend you can account for.
 
-Gates 1 and 2 hold. Gates 3 and 4 do not: no generation call has succeeded on this
-revision, so the correct description is "the retrieval, database and budget paths
-are verified; live answer generation is not". No public URL exists, so nothing here
-is a hosting claim.
+All four gates hold on the local production build as of 2026-10-15. See
+[EVALUATION.md](EVALUATION.md) Part 07 for the run and its artifacts, including the
+two checks that remain outside the harness's reach.
+
+That is not a hosting claim: **no public URL exists**, and nothing above was
+verified on a deployed origin. One thing must be fixed in the host before a deploy
+can behave as the local run does — `HORIZON_DAILY_TOKEN_BUDGET` and
+`HORIZON_MAX_EMBEDDING_CALLS` are absent from the local `.env.local`, so both
+resolve to `0`, which is the guard's "permit nothing" state. Set both to positive
+values in the host (§3), and confirm `spendGuard` reads `"permitted"` afterwards
+rather than assuming.
 
 ## 9. If access cannot be connected
 
