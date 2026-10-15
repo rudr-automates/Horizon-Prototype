@@ -86,7 +86,14 @@ export type PersistenceSummary = z.infer<typeof persistenceSummarySchema>;
 export const spendGuardSchema = z.object({
   mode: z.enum(["supabase", "memory"]),
   budgetTokens: z.number().int(),
-  spentTokensToday: z.number().int(),
+  /**
+   * Tokens recorded for this UTC day, or `null` when the ledger could not be
+   * read. Null means UNKNOWN and must never be rendered as "0 spent": the whole
+   * reason a turn was refused in that state is that the day's spend is unknown,
+   * so reporting zero would contradict the refusal it accompanies. This matches
+   * `runtime.spentTokensToday` on the health endpoint.
+   */
+  spentTokensToday: z.number().int().nullable(),
   coverage: z.string(),
   detail: z.string(),
 });

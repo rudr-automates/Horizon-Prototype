@@ -256,6 +256,27 @@ export class SupabaseEvidenceStore implements EvidenceStore {
   }
 }
 
+/**
+ * Does this error mean "the key cannot identify a row" rather than "something
+ * went wrong"?
+ *
+ * A `uuid` primary key rejects a value that is not a uuid with PostgreSQL's
+ * 22P02 (`invalid_text_representation`). That id cannot possibly match a row, so
+ * the honest answer is "no such record". Previously it surfaced as a StoreFailure
+ * and every route that calls `getCourse` first turned it into HTTP 500, which
+ * mislabels a client mistake as a server fault.
+ *
+ * ONLY this exact code is translated. A connection failure, a permissions error
+ * or a missing table must still surface as a failure — mapping those to "not
+ * found" would hide a broken deployment behind a 404.
+ *
+ * Verified against the live database: a malformed id returns 22P02 and a real id
+ * returns no error at all.
+ */
+function isUnmatchedKeyError(error: { code?: string } | null): boolean {
+  return error?.code === "22P02";
+}
+
 /** Build a SqlGateway from a Supabase service-role client. */
 export function createSupabaseGateway(client: SupabaseClient): SqlGateway {
   const BLOCK_COLUMNS = [
@@ -316,6 +337,11 @@ export function createSupabaseGateway(client: SupabaseClient): SqlGateway {
         .select("id, title, duration_seconds")
         .eq("id", courseId)
         .maybeSingle();
+      // An id that cannot be a uuid is a client mistake, so it is reported as
+      // "no such course" and the route answers 404. Every route checks the
+      // course BEFORE any other call, so handling it here is enough: no other
+      // query can be reached with a malformed id.
+      if (isUnmatchedKeyError(error)) return null;
       if (error) {
         throw new StoreFailure("select_course", "Could not load the course.");
       }

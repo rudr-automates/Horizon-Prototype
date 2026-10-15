@@ -1,0 +1,153 @@
+{
+  "recordedAt": "2026-10-15T10:14:44.652Z",
+  "label": "data-path-verification",
+  "command": "pnpm verify:data-path",
+  "base": "http://127.0.0.1:4321",
+  "providerCallsMade": 0,
+  "spendProof": {
+    "spentBefore": null,
+    "spentAfter": null,
+    "embedCallsBefore": 0,
+    "embedCallsAfter": 0
+  },
+  "summary": {
+    "checks": 25,
+    "passed": 23,
+    "failed": 1,
+    "pending": 1
+  },
+  "checks": [
+    {
+      "name": "the durable ledger is readable (a reservation can be granted)",
+      "state": "pending",
+      "detail": "mode supabase, and the read FAILED. Apply migration 0003 with docs/apply-migration.md; the spend guard fails closed until then, so no provider call is possible. This is an external prerequisite, not a defect in this revision."
+    },
+    {
+      "name": "the persisted, database-backed corpus is in use",
+      "state": "pass",
+      "detail": "Supabase is configured; using the database-backed evidence store."
+    },
+    {
+      "name": "listCourses returns the seeded course",
+      "state": "pass",
+      "detail": "1 course(s)"
+    },
+    {
+      "name": "getCourse returns the same course",
+      "state": "pass",
+      "detail": "900s, demoContent false"
+    },
+    {
+      "name": "eligibility grows with the boundary and never shrinks",
+      "state": "pass",
+      "detail": "0s -> 2 blocks, 900s -> 16 blocks"
+    },
+    {
+      "name": "no ineligible block is returned (predicate re-applied independently)",
+      "state": "pass",
+      "detail": "0 leaked of 16"
+    },
+    {
+      "name": "unreviewed and lint-flagged material is excluded",
+      "state": "pass",
+      "detail": "0 of 16 returned blocks are PENDING or FLAGGED"
+    },
+    {
+      "name": "most persisted blocks carry an unlock timestamp",
+      "state": "pass",
+      "detail": "15 of 16 eligible blocks have a non-null unlock_seconds"
+    },
+    {
+      "name": "the fact is NOT disclosed before it unlocks (persisted rows)",
+      "state": "pass",
+      "detail": "0 of 2 blocks eligible at 0s contain \"0.37\""
+    },
+    {
+      "name": "the fact IS available once its block unlocks",
+      "state": "pass",
+      "detail": "3 of 16 blocks eligible at 900s contain \"0.37\""
+    },
+    {
+      "name": "full-text search returns eligible hits against persisted rows",
+      "state": "pass",
+      "detail": "3 hit(s): 20fcaa3f-b549-5c15-be8e-5107c9b50dbf, 644ebb8f-8dcd-568f-bb06-fb567ea84dee, 8b7ca35c-325d-59f2-afcd-ece3a92a0ebd"
+    },
+    {
+      "name": "full-text search cannot surface the fact before it unlocks",
+      "state": "pass",
+      "detail": "0 hit(s) at 0s for \"0.37\""
+    },
+    {
+      "name": "an indexed but ineligible match is reported as a boolean only",
+      "state": "pass",
+      "detail": "hasMatchingIneligible at 0s = true (the material exists and is withheld)"
+    },
+    {
+      "name": "a query with no indexed match reports false",
+      "state": "pass",
+      "detail": "hasMatchingIneligible for a nonsense term = false"
+    },
+    {
+      "name": "the stored vector has the configured dimension",
+      "state": "pass",
+      "detail": "768 values, configured 768"
+    },
+    {
+      "name": "vector search over persisted rows finds the same block first",
+      "state": "pass",
+      "detail": "top hit 25db170f-b517-5a0f-b803-236175958456 (queried with the vector of 25db170f-b517-5a0f-b803-236175958456)"
+    },
+    {
+      "name": "querying a block with its own stored vector scores a near-exact match",
+      "state": "pass",
+      "detail": "distance 0"
+    },
+    {
+      "name": "vector search respects the boundary even for an exact match",
+      "state": "pass",
+      "detail": "2 hit(s) at 0s"
+    },
+    {
+      "name": "the running server answers the health endpoint",
+      "state": "pass",
+      "detail": "HTTP 200, ok false, status degraded"
+    },
+    {
+      "name": "health reports the database-backed store",
+      "state": "pass",
+      "detail": "evidenceSource supabase, demoContent false"
+    },
+    {
+      "name": "the course endpoint serves the persisted course over HTTP",
+      "state": "pass",
+      "detail": "HTTP 200, 1 course(s), source supabase"
+    },
+    {
+      "name": "the scope endpoint counts eligible blocks over HTTP",
+      "state": "pass",
+      "detail": "HTTP 200, eligibleBlockCount 2 at 0s (store said 2)"
+    },
+    {
+      "name": "a negative playhead is rejected rather than clamped",
+      "state": "pass",
+      "detail": "HTTP 400"
+    },
+    {
+      "name": "an unknown course is not found",
+      "state": "fail",
+      "detail": "HTTP 500"
+    },
+    {
+      "name": "this script made no provider call and wrote nothing to the ledger",
+      "state": "pass",
+      "detail": "ledger null -> null; embedding calls 0 -> 0"
+    }
+  ],
+  "limitations": [
+    "no generation call was made and none is claimed: the provider free-tier quota is exhausted and the spend guard refuses while migration 0003 is unapplied",
+    "migration 0003 is NOT applied by this script and its objects are not claimed to exist",
+    "the vector self-match read one stored embedding out of band because the app's gateway does not select that column; the search itself ran through the app's store",
+    "turn persistence to the database remains unexercised: it is only reached after a successful generation"
+  ],
+  "secretsPrinted": 0
+}

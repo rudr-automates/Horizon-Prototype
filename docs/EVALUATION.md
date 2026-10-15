@@ -504,16 +504,54 @@ to "what has been spent today".
 | P5-7 | A duplicate settle does not charge twice | settlement policy tests | MOCKED (unit) | **PASS** |
 | P5-8 | An unreadable ledger refuses instead of assuming zero spend | pipeline test + the live endpoint | LIVE | **PASS** — `TEMPORARILY_UNAVAILABLE` / `BUDGET_EXHAUSTED`, zero provider calls |
 | P5-9 | Health distinguishes authentication from reachability from schema from ledger | `GET /api/v1/health` | LIVE | **PASS** — reports `querySucceeded: true` with `durableLedger: "unreadable"` and `ok: false` |
+| P5-12 | The guard reported by health matches what the answer path does | `GET /api/v1/health` + 8 new cases in `tests/health.test.ts` | LIVE + MOCKED | **PASS** — `spendGuard: "blocked"` with the ledger unreadable, where it previously said `permitted` while every turn was refused |
+| P5-13 | A malformed course id is a client error, not a server one | `GET /api/v1/courses/not-a-course/scope` | LIVE | **PASS after fix** — was **HTTP 500**, now 404. Supersedes the earlier recorded 404, which was not reproduced |
+| P5-14 | Health leaks no credential, raw error or schema map | `tests/health.test.ts` + the live payload | MOCKED + LIVE | **PASS** — the payload carries counts and booleans only |
+| P5-15 | The persisted corpus and both retrieval branches, at zero provider cost | `pnpm verify:data-path` | LIVE (real rows) | **PASS** — 24 passed, 0 failed, 1 pending (0003); see below |
+| P5-16 | An unknown spend is reported as unknown, not as zero | the live `POST /questions` response + `tests/pipeline.test.ts` | LIVE + MOCKED | **PASS** — `guard.spentTokensToday` is `null` (was `0`) while that same response is `BUDGET_EXHAUSTED` because the total could not be read |
 | P5-10 | The concurrency claim against real PostgreSQL | `pnpm verify:budget` | — | **NOT RUN — BLOCKED.** The migration is not applied, so the command refuses before writing a row and names the missing migration. It is the check that turns P5-1..P5-3 from "the app is correct" into "the database serializes admission" |
 | P5-11 | Deployment | — | — | **NOT ATTEMPTED.** No public URL exists |
 
-## P5-3. Still not evaluated
+## P5-3. The persisted corpus, re-verified without spending anything
+
+`pnpm verify:data-path` (new) exercises the app's own store against the seeded
+Supabase corpus and records the result. It makes **no provider request**, and it
+proves that by reading the ledger total and the embedding counter before and after
+and requiring both to be unchanged. Recorded in
+[docs/evidence](evidence/data-path-verification-2026-10-15T10-18-54-216Z.json).
+
+| Check | Result |
+|---|---|
+| Store is the database-backed one | **PASS** — `evidenceSource: "supabase"`, `demoContent: false` |
+| Course and resource counts | **PASS** — 1 course, 900 s |
+| Eligibility grows with the boundary | **PASS** — 2 blocks at 0 s, 16 at 900 s |
+| The predicate is re-applied independently | **PASS** — 0 of 16 returned blocks were ineligible |
+| `PENDING` / `FLAGGED` material is withheld | **PASS** — 0 of 16 returned blocks carry either status |
+| The fact is withheld before it unlocks | **PASS** — 0 of 2 eligible blocks at 0 s contain `0.37`; 3 of 16 do at 900 s |
+| Full-text search respects the boundary | **PASS** — 3 eligible hits at 900 s, 0 for the locked fact at 0 s |
+| The withheld-match diagnostic returns a boolean | **PASS** — `true` for the locked fact at 0 s, `false` for a term that is absent |
+| Vector search over real rows | **PASS** — a stored 768-d vector returns its own block first at distance 0 |
+| HTTP surface | **PASS** — health 200, courses 200, scope count matches the store, negative playhead 400, unknown course 404 |
+| Nothing was spent | **PASS** — ledger total and embedding counter identical before and after |
+
+One read is deliberately out of band: the app's gateway does not select the
+`embedding` column, so a single stored vector is read directly with the
+service-role key. The search itself runs through the app's store.
+
+## P5-4. Still not evaluated
 
 - **Live generation.** The free-tier quota is still exhausted; no answer has been
   produced by a live model on this revision, so citation precision and claim
   sufficiency remain unmeasured. `pnpm smoke` and `pnpm canary` stay blocked.
+  The recorded retry-after runs to roughly 2026-10-15T24:00Z.
 - **Embedding cost.** The durable cap bounds request COUNT. That API reports no
   token usage, so no cost figure is enforced and `estimated_cost_usd` stays NULL.
 - **Everything downstream of `0003`.** Until it is applied, the durable ledger's
   read path, the reservation functions and the concurrency proof are all
-  unexecuted against the real database. Do not describe them as verified.
+  unexecuted against the real database. `pnpm verify:budget` refuses before
+  writing a row and names the missing migration. Do not describe them as verified.
+- **The `0003` SQL itself has never been executed anywhere.** It is reviewed, not
+  run. The ambiguity that would have failed at run time — `reserved_tokens` being
+  both an OUT parameter and a ledger column — was found by reading and removed by
+  qualifying the reference, but that reasoning is not a substitute for running it.
+  `pnpm verify:budget` is the check that settles it once the migration is applied.

@@ -611,6 +611,11 @@ describe("cumulative daily usage accounting", () => {
     // embedding request is spent either.
     expect(embedCalls).toBe(0);
     expect(calls).toHaveLength(0);
+    // And the reported total must be UNKNOWN, not zero. Zero is a measurement,
+    // and claiming it here would contradict the refusal it accompanies: the turn
+    // is refused precisely because the day's spend could not be established.
+    expect(outcome.guard.spentTokensToday).toBeNull();
+    expect(outcome.guard.spentTokensToday).not.toBe(0);
   });
 
   it("refuses when the durable ledger will not grant a reservation", async () => {

@@ -170,12 +170,25 @@ actually in — migration `0003` not yet applied:
     },
     "runtimeAi": { "configured": true, "reachable": null, "detail": "Names are present, but the usage ledger could not be read…" }
   },
-  "runtime": { "evidenceSource": "supabase", "usageMode": "supabase", "embeddingCapMode": "supabase", "demoContent": false, "spendGuard": "permitted", "spentTokensToday": null }
+  "runtime": {
+    "evidenceSource": "supabase", "usageMode": "supabase", "embeddingCapMode": "supabase",
+    "demoContent": false,
+    "spendGuard": "blocked",   // admission is impossible while the ledger is unreadable
+    "spentTokensToday": null   // null means UNKNOWN, never "nothing spent"
+  }
 }
 ```
 
 Once `0003` is applied, `schemaObjects` becomes `"verified"`, `durableLedger`
-becomes `"usable"`, `spentTokensToday` becomes a number, and `ok` becomes `true`.
+becomes `"usable"`, `spentTokensToday` becomes a number, `spendGuard` becomes
+`"permitted"`, and `ok` becomes `true`.
+
+`spendGuard` answers one question: **would the next provider call be admitted?**
+It is therefore computed from every refusal path — a zero budget, an unreadable
+ledger, or missing reservation objects — not from the budget value alone. It used
+to report `"permitted"` whenever the budget was positive, which was wrong in
+exactly the state the deployment is in below: the answer path refuses every turn
+while health claimed calls were allowed.
 
 `runtimeAi.reachable` stays `null` because this endpoint makes no provider call:
 the health response reports that names are *present*, never that the provider
@@ -333,9 +346,11 @@ when it is spent the pipeline returns `TEMPORARILY_UNAVAILABLE` with reason
 `PROVIDER_RATE_LIMITED` and the provider reports a retry delay measured in
 hours. Embeddings are a different quota and keep working, so a run can pass its
 embedding checks and fail every generation. The server log now carries the
-provider's own `retryDelay` and quota id (never content), and `/api/v1/health`
-still reports `spendGuard: permitted` — this is not the budget refusing, and the
-two must not be confused.
+provider's own `retryDelay` and quota id (never content). This is **not** the
+budget refusing: with a positive budget, a readable ledger and the reservation
+objects in place, `runtime.spendGuard` still reports `permitted` while the
+provider rejects the call, and the two must not be confused. `spendGuard`
+describes the spend guard's own admission, not the provider's availability.
 
 **`HORIZON_DAILY_TOKEN_BUDGET=0` is a real hard stop.** With the budget at zero
 the pipeline sends no provider request at all — not even the embedding call —
@@ -375,10 +390,11 @@ Specific consequences of that rule:
 ```
 pnpm lint         exit 0
 pnpm typecheck    exit 0
-pnpm test         exit 0   172 tests, 12 files   (all mocked, incl. the concurrency cases)
+pnpm test         exit 0   187 tests, 13 files   (all mocked, incl. the concurrency and health cases)
 pnpm build        exit 0
 pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
 pnpm verify:budget exit 1  refuses before writing a row: migration 0003 is not applied yet
+pnpm verify:data-path exit 0  24 passed, 0 failed, 1 pending (0003) — real rows, zero provider calls
 pnpm smoke        exit 1   1 live embedding call OK; generation refused by the provider (429, daily free-tier quota)
 pnpm canary       exit 1   24 passed, 1 failed, 2 not run   (live; answer half quota-blocked)
 ```
@@ -397,13 +413,28 @@ across playheads 0–900 s), a negative playhead returns 400 and an unknown cour
 directly, as were both halves of the durable usage ledger (a labelled probe row was
 written and then removed).
 
+`pnpm verify:data-path` re-runs those reads against the **persisted** corpus and
+records the output, without spending anything: it asserts that the locked fact is
+absent from every eligible block at 0 s and present at 900 s, that full-text and
+vector search both respect the boundary, that a block queried with its own stored
+768-dimensional vector matches itself at distance 0, and that no `PENDING` or
+`FLAGGED` block is returned — then proves the run changed neither the ledger total
+nor the embedding counter. Its one out-of-band read is a single stored embedding,
+because the app's own gateway deliberately does not select that column.
+
 On the current revision the question endpoint **fails closed**: it returns
 `TEMPORARILY_UNAVAILABLE` with `BUDGET_EXHAUSTED` and makes **no provider call at
 all**, because the budget ledger cannot be read until migration `0003` is applied.
-Health simultaneously reports `ok: false` with `durableLedger: "unreadable"`.
-That pair is the honest state of the answer path today, and it is deliberate: an
-unreadable budget must never be treated as an unspent one. The full record is in
-[docs/evidence](docs/evidence/db-path-verification-2026-10-15T09-28-15-146Z.json).
+Health simultaneously reports `ok: false`, `durableLedger: "unreadable"` and
+`spendGuard: "blocked"`, and the refused turn reports `guard.spentTokensToday` as
+`null` rather than `0` — all three agreeing with what the answer path does, since
+the refusal is caused by the day's spend being unknown.
+That is the honest state of the answer path today, and it is deliberate: an
+unreadable budget must never be treated as an unspent one. The pre-fix record of
+that state is in
+[docs/evidence](docs/evidence/db-path-verification-2026-10-15T09-28-15-146Z.json),
+and the current revision's re-verification against the persisted corpus is in
+[docs/evidence](docs/evidence/data-path-verification-2026-10-15T10-18-54-216Z.json).
 All model-dependent tests are **mocked**, not real inference.
 
 **No deployment has been performed and no public URL exists.** Every live check

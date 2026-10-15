@@ -161,17 +161,25 @@ begin
     hashtext('generation:' || v_day::text)
   );
 
-  select coalesce(sum(charged_tokens), 0) into v_spent
-    from public.usage_ledger
-   where day = v_day
-     and kind = 'generation_tokens'
-     and state = 'settled';
+  -- THE TABLE MUST BE ALIASED AND EVERY COLUMN QUALIFIED HERE.
+  -- `reserved_tokens` is both an OUT column of this function and a column of
+  -- usage_ledger, so an unqualified reference is ambiguous: PL/pgSQL's default
+  -- `variable_conflict = error` rejects it at RUN TIME. `create function` would
+  -- have accepted the body, so this would have failed on the first real call
+  -- with none of the objects appearing broken — the worst possible failure mode
+  -- for a script a human is asked to run once against a production database.
+  -- Qualifying removes the ambiguity under any setting of that pragma.
+  select coalesce(sum(l.charged_tokens), 0) into v_spent
+    from public.usage_ledger l
+   where l.day = v_day
+     and l.kind = 'generation_tokens'
+     and l.state = 'settled';
 
-  select coalesce(sum(reserved_tokens), 0) into v_reserved
-    from public.usage_ledger
-   where day = v_day
-     and kind = 'generation_tokens'
-     and state = 'reserved';
+  select coalesce(sum(l.reserved_tokens), 0) into v_reserved
+    from public.usage_ledger l
+   where l.day = v_day
+     and l.kind = 'generation_tokens'
+     and l.state = 'reserved';
 
   if v_spent + v_reserved + p_reserve_tokens > p_budget_tokens then
     return query select
@@ -238,10 +246,13 @@ begin
     hashtext('embedding:' || v_day::text)
   );
 
+  -- Aliased for the same reason as above: the function has OUT columns whose
+  -- names could collide with a ledger column, and a collision is a run-time
+  -- error rather than a creation-time one.
   select count(*)::integer into v_used
-    from public.usage_ledger
-   where day = v_day
-     and kind = 'embedding_request';
+    from public.usage_ledger l
+   where l.day = v_day
+     and l.kind = 'embedding_request';
 
   if v_used >= p_max_calls then
     return query select
@@ -308,9 +319,9 @@ declare
   v_charged    bigint;
   v_outcome    text;
 begin
-  select * into v_row
-    from public.usage_ledger
-   where id = p_reservation_id
+  select l.* into v_row
+    from public.usage_ledger l
+   where l.id = p_reservation_id
    for update;
 
   if not found then

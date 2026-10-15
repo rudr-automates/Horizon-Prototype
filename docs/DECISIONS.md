@@ -550,3 +550,67 @@ accompanies.
 **Consequence:** The settle function carries one extra boolean, and the pipeline
 must know which failures are rejections. In exchange, neither direction of error
 is silent: no timeout can under-count, and no outage can drain the budget.
+
+---
+
+## D-021 — Health reports the guard that is actually in force, not the budget value
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Context:** `runtime.spendGuard` was computed as `dailyTokenBudget <= 0`. That is
+one way to be blocked and it missed the others. A turn now reserves capacity
+atomically before it is sent, so admission is also impossible when the ledger
+cannot be read or when migration 0003's reservation objects are absent. In that
+state the endpoint reported `permitted` while the answer path refused every turn,
+and [DEPLOY.md](DEPLOY.md) tells an operator to trust exactly this field — so it
+could send someone hunting a provider fault that was really a missing migration.
+This is the same class of overclaim as the old `database.reachable` probe, which
+returned true for a 401.
+
+**Decision:** `spendGuard` answers one question: would the next provider call be
+admitted? It is derived from every refusal path — a non-positive budget, an
+unreadable ledger, or missing reservation objects — and a memory ledger (which
+needs no reservation objects because it holds capacity in the process) is blocked
+only by the budget. `runtimeAi.reachable` remains `null` regardless: guard state
+is not the same claim as provider availability, and only `pnpm smoke` establishes
+that.
+
+The same reasoning was applied to the second surface that reports spend. The turn
+response's `guard.spentTokensToday` initialised to `0` and so reported "nothing
+spent today" in exactly the state where the day's spend is unknown — the refusal
+it accompanied was `BUDGET_EXHAUSTED` *because* the total could not be read. It is
+now `null` in that case, matching `runtime.spentTokensToday` on the health
+endpoint. `null` means unknown; `0` means measured and zero.
+
+**Consequence:** On the current revision health reports `ok: false`,
+`durableLedger: "unreadable"` and `spendGuard: "blocked"` together, and a refused
+turn reports `spentTokensToday: null` — which is what the answer path actually
+does. Neither field can disagree with behaviour any more.
+
+---
+
+## D-022 — A course id that cannot be a uuid is "not found", not a server error
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Context:** `courses.id` is a uuid, so `GET /api/v1/courses/not-a-course/scope`
+made PostgreSQL reject the value with error 22P02
+(`invalid_text_representation`) before any row could be considered. The gateway
+turned that into a `StoreFailure`, and because every route checks the course
+*before* anything else, the client received **HTTP 500** — a server fault for a
+client mistake, which also tells the caller an internal failure occurred.
+`docs/evidence` previously recorded a 404 for this case, so the earlier claim was
+wrong and is superseded by the recorded 500.
+
+**Decision:** Translate 22P02 into "no such row" at the gateway, and only that
+code. A value that cannot be cast to the primary key's type cannot identify a row,
+whereas a connection failure, a permissions error (42501) or a missing table must
+still surface as a failure — mapping those to "not found" would hide a broken
+deployment behind a 404. Verified against the live database that a malformed id
+returns 22P02 and a real id returns no error at all.
+
+**Consequence:** The three course endpoints answer 404 for a malformed or unknown
+id. Tested in `tests/retrieval-eligibility.test.ts`, including the 42501 case that
+must still throw.

@@ -37,6 +37,11 @@ const SERVICE_VERSION = "0.2.0";
  *   actually succeeded", and the surrounding fields separate the remaining
  *   questions: is the URL set, is the key the data path uses set, does the
  *   required schema exist, and can the budget ledger be read.
+ *
+ *   `runtime.spendGuard` used to be `dailyTokenBudget <= 0` alone. It now reports
+ *   whether the NEXT call will actually be admitted, including the cases where
+ *   admission itself is impossible because the ledger is unreadable or the
+ *   reservation objects are missing.
  */
 export async function GET(): Promise<NextResponse<HealthResponse>> {
   const requestId = newRequestId();
@@ -99,18 +104,41 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
       detail: "Next.js route handler responded.",
     };
 
-    const spendGuardBlocked = config.dailyTokenBudget <= 0;
+    // ---------------------------------------------------------------------
+    // The spend guard: what will ACTUALLY happen to the next provider call.
+    //
+    // WHY THIS IS NOT `dailyTokenBudget <= 0` ANY MORE
+    //   That test describes one way to be blocked and missed the others. A turn
+    //   reserves capacity atomically in the database before it is sent, so when
+    //   the ledger cannot be read, or migration 0003's reservation objects are
+    //   absent, the reservation is refused and EVERY call is blocked — while
+    //   this endpoint still reported "permitted". That is the same class of
+    //   overclaim as the old database reachability probe, and it is the field
+    //   docs/DEPLOY.md tells an operator to trust, so it can send someone
+    //   hunting a provider problem that is really a missing migration.
+    //
+    // A memory ledger needs no reservation objects: it holds capacity in the
+    // process, so only a zero budget blocks it.
+    const reservationObjectsPresent = schema ? schema.atomicBudgetObjects : false;
+    const durableAdmissionAvailable =
+      usageResolution.ledger.mode !== "supabase"
+        ? true
+        : ledgerReadable && reservationObjectsPresent;
+
+    const spendGuardBlocked = config.dailyTokenBudget <= 0 || !durableAdmissionAvailable;
 
     const runtimeAiCheck = {
       configured: isRuntimeAiConfigured(config),
       // Never claim a model is reachable without a real smoke test.
       reachable: null,
       detail: isRuntimeAiConfigured(config)
-        ? spendGuardBlocked
+        ? config.dailyTokenBudget <= 0
           ? "Names are present, but HORIZON_DAILY_TOKEN_BUDGET is 0, so the spend guard permits no provider call and every turn will refuse with BUDGET_EXHAUSTED."
           : spentTokensToday === null
             ? "Names are present, but the usage ledger could not be read, so the daily spend is unknown and calls will be refused rather than risking unmetered spend."
-            : `Names are present. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour.`
+            : !reservationObjectsPresent
+              ? "Names are present, but migration 0003's reservation objects are missing, so capacity cannot be reserved atomically and every call will be refused."
+              : `Names are present. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour.`
         : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.",
     };
 

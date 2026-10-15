@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "verify:budget": "tsx scripts/verify-budget-concurrency.ts",
+    "verify:data-path": "tsx scripts/verify-data-path.ts",
     "canary": "tsx scripts/canary.ts",
     "smoke": "tsx scripts/smoke.ts"
   },

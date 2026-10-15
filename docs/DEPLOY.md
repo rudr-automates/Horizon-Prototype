@@ -101,13 +101,22 @@ concurrent requests cannot both be admitted against the same remaining budget.
 
 To allow inference, set a positive value, for example `HORIZON_DAILY_TOKEN_BUDGET=200000`.
 
-Confirm the guard's state from the public health endpoint rather than guessing:
+Confirm the guard's state from the public health endpoint rather than guessing.
+`spendGuard` reports whether the **next provider call would be admitted**, so it
+is `"blocked"` until all three of a positive budget, a readable durable ledger and
+migration 0003's reservation objects are in place:
 
 ```bash
 curl -s https://<project>.vercel.app/api/v1/health | node -e \
-  "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).runtime.spendGuard))"
-# expect: permitted
+  "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(j.runtime.spendGuard, '| ledger:', j.checks.database.durableLedger, '| schema:', j.checks.database.schemaObjects)})"
+# expect once everything is in place: permitted | ledger: usable | schema: verified
+# before 0003 is applied:            blocked   | ledger: unreadable | schema: unknown
 ```
+
+Do **not** treat `permitted` as proof the provider works. It says the spend guard
+would allow a call; the provider's own free-tier quota is a separate refusal that
+this field does not model, and `pnpm smoke` is what establishes that a call
+actually succeeds.
 
 ## 6. Verification after deploy — run all of it
 
@@ -116,9 +125,11 @@ Open the URL in a clean browser session and then:
 | Check | Expected |
 |---|---|
 | Home page | Loads; the sample lesson and the "synthetic demo" labelling are visible |
-| `GET /api/v1/health` | HTTP 200; `checks.database.configured` and `checks.runtimeAi.configured` reflect reality; `runtime.spendGuard` is reported |
+| `GET /api/v1/health` | HTTP 200; each check reflects reality and nothing is inferred from an env var being set |
 | Health must not overclaim | `runtimeAi.reachable` is `null` unless a live smoke test was actually recorded |
 | Database is genuinely usable | `checks.database.querySucceeded: true` (an authenticated read, not a reachability ping), `schemaObjects: "verified"`, `durableLedger: "usable"`, `ok: true` |
+| The guard agrees with the answer path | `runtime.spendGuard` is `"permitted"`, and a real question is not refused for a budget reason |
+| Persisted data and retrieval | `pnpm verify:data-path --base https://<project>.vercel.app` exits 0 with 0 failed and the non-disclosure checks passing |
 | Concurrency is really enforced | `pnpm verify:budget` prints `RESULT: PASS` and `CLEANUP: complete` against the deployed project's database |
 | Timestamp controls | Moving the slider or a preset changes the eligible-block count |
 | Early canary (00:00, 06:00) | Refuses. The constant `0.37` must not appear anywhere in the page or the response |
@@ -158,6 +169,14 @@ pnpm canary --base https://<project>.vercel.app --label prod
    free-tier quota resets, this is blocked and must be reported as blocked.
 4. The timestamp-aware canary demonstrates non-disclosure before the unlock time
    **and** a properly supported, cited answer once eligible evidence is available.
+
+Two commands support gate 2 without spending anything, and both are safe to run
+against production because neither writes a row:
+
+```bash
+pnpm verify:data-path --base https://<project>.vercel.app   # real rows, zero provider calls
+pnpm verify:budget                                          # needs 0003; writes only its own probe rows
+```
 
 Until 3 and 4 hold, the correct description is: "the retrieval, database and
 budget paths are verified; live answer generation is not". No public URL exists,

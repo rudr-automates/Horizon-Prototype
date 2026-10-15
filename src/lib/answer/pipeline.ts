@@ -117,7 +117,8 @@ export interface AnswerOutcome {
   guard: {
     mode: "supabase" | "memory";
     budgetTokens: number;
-    spentTokensToday: number;
+    /** `null` when the ledger could not be read, so the day's spend is UNKNOWN. */
+    spentTokensToday: number | null;
     /** What the recorded number does and does not cover. */
     coverage: string;
     detail: string;
@@ -247,13 +248,16 @@ export async function answerQuestion(
   const guardState: AnswerOutcome["guard"] = {
     mode: usageLedger.mode,
     budgetTokens: deps.dailyTokenBudget,
-    spentTokensToday: 0,
+    // NOT 0 when the read failed. Zero is a measurement; an unreadable ledger is
+    // an absence of one, and reporting 0 would contradict the refusal it
+    // accompanies — the turn is refused precisely BECAUSE the spend is unknown.
+    spentTokensToday: ledgerReadable ? 0 : null,
     coverage: USAGE_COVERAGE_NOTE,
     detail: "",
   };
 
   const refreshGuard = (detail: string): void => {
-    guardState.spentTokensToday = recordedToday + turnCharged;
+    guardState.spentTokensToday = ledgerReadable ? recordedToday + turnCharged : null;
     guardState.detail = detail;
   };
 

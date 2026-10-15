@@ -82,9 +82,12 @@ export const runtimeInfoSchema = z.object({
   evidenceReason: z.string(),
   demoContent: z.boolean(),
   /**
-   * The spend guard actually in effect. "blocked" means no provider call is
-   * permitted at all, so a configured deployment will still refuse. Reported
-   * here because a learner-facing refusal must not describe budgets.
+   * Whether the NEXT provider call would actually be admitted. "blocked" means
+   * no provider call is permitted at all, so a configured deployment will still
+   * refuse. It is computed from every refusal path — a zero budget, an
+   * unreadable ledger, or missing reservation objects — rather than from the
+   * budget value alone, so it cannot disagree with what the answer path does.
+   * Reported here because a learner-facing refusal must not describe budgets.
    */
   spendGuard: z.enum(["blocked", "permitted"]),
   /**

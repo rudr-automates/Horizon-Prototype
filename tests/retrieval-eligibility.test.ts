@@ -1,10 +1,13 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import { SyntheticLexicalEmbedder } from "@/lib/answer/synthetic-embedder";
 import { DEMO_COURSE } from "@/lib/demo/lesson";
 import { isBlockEligible } from "@/lib/eligibility/predicate";
 import { FixtureEvidenceStore } from "@/lib/retrieval/fixture-store";
 import {
+  StoreFailure,
   SupabaseEvidenceStore,
+  createSupabaseGateway,
   type BlockRow,
   type SqlGateway,
 } from "@/lib/retrieval/supabase-store";
@@ -193,5 +196,52 @@ describe("supabase store: filters ineligible rows returned by the database", () 
 
   it("reports the diagnostic from the database as-is", async () => {
     await expect(store.hasMatchingIneligible(boundary, "x")).resolves.toBe(true);
+  });
+});
+
+/**
+ * A malformed course id must read as "no such course", and a real fault must
+ * still read as a fault.
+ *
+ * `courses.id` is a uuid, so a request for `/courses/not-a-course` makes
+ * PostgreSQL reject the value with 22P02 before any row can be considered. That
+ * surfaced as a thrown StoreFailure, and every route checks the course first, so
+ * a client typing garbage into the URL got HTTP 500 — which both mislabels the
+ * mistake and tells the caller an internal failure occurred.
+ */
+describe("a course id that cannot exist is not a server error", () => {
+  function clientResponding(error: { code?: string } | null, data: unknown = null) {
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      maybeSingle: () => Promise.resolve({ data, error }),
+    };
+    return { from: () => builder } as unknown as SupabaseClient;
+  }
+
+  it("resolves to null for an unparseable uuid instead of throwing", async () => {
+    const gateway = createSupabaseGateway(clientResponding({ code: "22P02" }));
+
+    await expect(gateway.selectCourse("not-a-course")).resolves.toBeNull();
+  });
+
+  it("turns a genuine read failure into a StoreFailure, not a 404", async () => {
+    // 42501 is insufficient privilege. Treating "the key is wrong" as "the
+    // course does not exist" would hide a broken deployment behind a 404.
+    const gateway = createSupabaseGateway(clientResponding({ code: "42501" }));
+
+    await expect(gateway.selectCourse("a-real-uuid")).rejects.toBeInstanceOf(StoreFailure);
+  });
+
+  it("still returns a course that exists", async () => {
+    const gateway = createSupabaseGateway(
+      clientResponding(null, { id: "c1", title: "Lesson", duration_seconds: "900" }),
+    );
+
+    await expect(gateway.selectCourse("c1")).resolves.toEqual({
+      id: "c1",
+      title: "Lesson",
+      duration_seconds: "900",
+    });
   });
 });
