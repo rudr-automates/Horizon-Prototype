@@ -19,13 +19,23 @@ honest refusal.
 > The Google free-tier quota that blocked earlier attempts is an account limit on a
 > provider that no longer serves generation.
 >
+> **The Part 08 revision adds the real lesson video.** The selected recording
+> plays in the interface — from the operator's local copy when one is present,
+> otherwise from the original YouTube source — and the panel reports its real
+> playback clock and its real duration. **Horizon holds no evidence from that
+> video**, so video-grounded Q&A is *unavailable*, not merely unverified: there is
+> no transcript for it anywhere in the repository and the file itself carries no
+> subtitle stream. Answers still come from the **labelled synthetic fixture**, and
+> the interface now names it at every point where its numbers appear. See
+> [docs/EVALUATION.md](docs/EVALUATION.md) Part 08.
+>
 > What is still NOT true, and must not be read into anything below:
 > **there is no public deployment** — no URL exists, and nothing here was verified
-> on a deployed origin — and **`HORIZON_DAILY_TOKEN_BUDGET` and
-> `HORIZON_MAX_EMBEDDING_CALLS` are absent from `.env.local`**, so a plain
-> `pnpm start` would refuse every turn for a budget reason. See
-> [docs/EVALUATION.md](docs/EVALUATION.md) Part 07 and
-> [docs/DECISIONS.md](docs/DECISIONS.md).
+> on a deployed origin. Both budget names are now configured locally, with no
+> process override in effect (`spendGuard: "permitted"`, empty
+> `configurationProblems`), which is a change from Part 07 — but a host has its
+> own environment and must set them itself. See [docs/DEPLOY.md](docs/DEPLOY.md)
+> §3 and [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ---
 
@@ -43,6 +53,8 @@ honest refusal.
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types; **embeddings still run on it, live** |
 | Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ✅ **live-verified on 2026-10-15** — one smoke request and three canary turns succeeded through this adapter. Endpoint, bearer auth, strict JSON Schema, usage mapping, 429 guidance and every failure path are also unit tested (38 cases, all mocked) |
 | Learner workbench (timeline presets, scope count, citations, status panel) | ✅ verified rendered at 1440px and 390px, hydrated, timeline selection confirmed live (eligible evidence 2 → 10 → 15) |
+| Lesson video playback | ✅ **verified live** — the 235.0 MiB recording (56:39, 1920x1080 h264) streams from the local copy with byte-range support (`206` and a correct `Content-Range`, `416` past the end, `404` where no local copy exists), and the panel's clock is the element's own (`31:17 / 56:39` at a 1875 s seek). With the file absent the panel switches to the original YouTube embed and reads that player's own clock through the official IFrame Player API |
+| Video-grounded Q&A | ❌ **unavailable, and labelled so** — there is no transcript or caption file for the recording and its container has no subtitle stream, so nothing may cite it. The synthetic fixture stays the only evidence, under a panel that says exactly that |
 | Supabase migrations (schema, search RPCs, atomic budget) | ✅ **all three applied and verified live** — six tables with RLS, pgvector `0.8.2`, six functions, and `0003`'s reservation columns; a re-read then confirmed 6/6 tables, 6/6 functions and a readable ledger |
 | Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
 | Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
@@ -69,9 +81,12 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
 
 ## The learner flow
 
-1. Open the sample lesson (a **labelled simulation**, not a real video).
-2. Move the playback position. The scope chip reports how many evidence blocks
-   are eligible *at that position*.
+1. Watch the lesson recording, and move the sample-fixture position. The two are
+   deliberately separate clocks: the recording has no indexed text, so the
+   **labelled sample fixture** — not the video — is what the evidence numbers come
+   from, and the page states that wherever those numbers appear.
+2. Move the fixture position. The scope chip reports how many fixture evidence
+   blocks are eligible *at that position*.
 3. Ask a question. The server embeds it, runs full-text **and** vector retrieval
    — both filtered by the same canonical predicate — fuses the candidates, and
    re-asserts eligibility on the final payload.
@@ -93,6 +108,7 @@ again at 12:00 to watch the evidence scope change.
 | Route | Purpose |
 |---|---|
 | `GET /api/v1/health` | configuration vs connectivity, separately |
+| `GET /api/v1/lesson/video` | the local lesson recording, with byte-range support; `404` on a deployment that has no local copy |
 | `GET /api/v1/courses` | course list, plus which evidence store is in use |
 | `GET /api/v1/courses/:courseId` | one course |
 | `GET /api/v1/courses/:courseId/scope?playheadSeconds=` | eligible-block count at a position (never a syllabus oracle) |

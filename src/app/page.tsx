@@ -2,6 +2,7 @@ import LearnerWorkbench from "@/components/learner-workbench";
 import { DEMO_QUESTIONS } from "@/lib/demo/lesson";
 import { describeConfigurationProblems } from "@/lib/config";
 import { createServerContext } from "@/lib/server/context";
+import { resolveServerLessonVideoSource } from "@/lib/lesson/video-file";
 import type { CourseSummary } from "@/lib/contracts/question";
 
 // The page reads server configuration on every request.
@@ -27,6 +28,9 @@ export default async function HomePage() {
   return (
     <LearnerWorkbench
       course={course}
+      // Resolved from the filesystem on every request, so the panel states the
+      // source this deployment can really play rather than the one we hoped for.
+      lessonVideo={resolveServerLessonVideoSource()}
       suggestedQuestions={[DEMO_QUESTIONS.canary, DEMO_QUESTIONS.courseWideControl]}
       runtimeAiConfigured={providers.configured}
       provider={config.provider}

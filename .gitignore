@@ -22,6 +22,20 @@ dist/
 # workspace metadata (Freebuff), not project content
 .freebuff/
 
+# lesson media — never committed
+# The selected lesson recording is a 235 MiB third-party download. It is a
+# redistribution decision this repository must not make silently, and a blob
+# that size breaks a clone and every deploy artifact. It is served locally from
+# where it already sits (src/app/api/v1/lesson/video/route.ts); a host plays the
+# original embed instead. Caption/transcript files are ignored for the same
+# reason: an unvetted transcript is not evidence until it is ingested on purpose.
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.srt
+*.vtt
+
 # os / editor
 .DS_Store
 Thumbs.db

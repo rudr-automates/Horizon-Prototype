@@ -13,6 +13,12 @@ import {
   TONE_CLASSES,
   reasonLabel,
 } from "@/lib/presentation/answer-state";
+import LessonVideo from "@/components/lesson-video";
+import {
+  LESSON_VIDEO,
+  LESSON_VIDEO_EVIDENCE,
+  type LessonVideoSource,
+} from "@/lib/lesson/video";
 
 /**
  * The learner interface.
@@ -28,6 +34,12 @@ import {
  */
 export interface LearnerWorkbenchProps {
   course: CourseSummary | null;
+  /**
+   * The lesson recording and where it can be played from. Resolved on the
+   * server from what is really on disk, so the panel never claims a source this
+   * deployment cannot produce.
+   */
+  lessonVideo: LessonVideoSource;
   suggestedQuestions: string[];
   runtimeAiConfigured: boolean;
   provider: string;
@@ -82,6 +94,7 @@ function describeEmbeddingRequests(runtime: HealthResponse["runtime"]): string {
 export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
   const {
     course,
+    lessonVideo,
     suggestedQuestions,
     runtimeAiConfigured,
     provider,
@@ -260,9 +273,10 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
             Ask the lesson as far as you have watched.
           </h1>
           <p className="mt-2 max-w-3xl text-base text-slate-700">
-            Horizon answers from the lesson material only, and only up to your
-            playback position. A fact the recording has not reached yet is not
-            merely hidden from the reply — it never reaches the model.
+            Horizon answers from the lesson material it holds evidence for, and
+            only up to your playback position. A fact the material has not
+            reached yet is not merely hidden from the reply — it never reaches
+            the model.
           </p>
 
           <ol className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -293,12 +307,12 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
         )}
 
         {evidenceSource === "fixture" && (
-          <Notice tone="warn" title="Sample timeline simulation — synthetic content">
+          <Notice tone="warn" title="Sample evidence — synthetic content, not the lesson video">
             <p>
-              There is no lesson video. This view uses a labelled sample
-              transcript, PDF, slide and code fixture so the eligibility and
-              citation flow can be demonstrated. It is not real learner material
-              and not an evaluated outcome.
+              The evidence store in use is a labelled sample transcript, PDF,
+              slide and code fixture, so the eligibility and citation flow can be
+              demonstrated without a real transcript for the recording. It is not
+              the lesson video above and it is not an evaluated outcome.
             </p>
             <p className="mt-1">{evidenceReason}</p>
           </Notice>
@@ -337,13 +351,65 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
           </Notice>
         )}
 
+        {/* ---------------- The lesson recording ---------------- */}
+        <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-slate-900">Lesson video</h2>
+            <span className="rounded border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
+              Not transcribed or indexed
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-700">
+            <span className="font-medium text-slate-900">{LESSON_VIDEO.title}</span>{" "}
+            · {LESSON_VIDEO.author} ·{" "}
+            <a
+              href={LESSON_VIDEO.watchUrl}
+              className="font-medium text-blue-800 underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              original source
+            </a>
+          </p>
+
+          <LessonVideo source={lessonVideo} />
+
+          {/*
+            The one statement this revision exists to make. The player above is
+            real, and the evidence below is NOT from it, so the page says so
+            before the learner reads a single citation.
+          */}
+          <div className="mt-4 rounded-lg border border-amber-400 bg-amber-50 p-3">
+            <p className="text-sm font-semibold text-amber-900">
+              Horizon holds no evidence from this recording, so no answer can
+              cite it.
+            </p>
+            <p className="mt-1 text-sm text-amber-900">
+              No transcript or caption file for this video exists in the
+              repository, and the file itself carries no subtitle stream. The
+              evidence below therefore comes from the{" "}
+              <strong>labelled sample fixture</strong> — a synthetic
+              retry-and-backoff lesson with its own short timeline. The fixture
+              is not this video, and nothing here presents its text, its
+              timestamps or its answers as though it came from this recording.
+            </p>
+            {LESSON_VIDEO_EVIDENCE === "not_indexed" && (
+              <p className="mt-1 text-sm text-amber-900">
+                Video-grounded Q&amp;A is therefore <strong>unavailable</strong>,
+                not merely unverified: a question about what the instructor says
+                in this recording cannot be answered from it.
+              </p>
+            )}
+          </div>
+        </section>
+
         {/* ---------------- Lesson + Ask ---------------- */}
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-slate-900">Lesson</h2>
               <span className="rounded border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                No video — synthetic timeline
+                Sample fixture — synthetic, not the video above
               </span>
             </div>
             <p className="mt-1 text-sm text-slate-700">
@@ -356,7 +422,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                   htmlFor="playhead"
                   className="text-xs font-semibold uppercase tracking-wide text-slate-600"
                 >
-                  Playback position
+                  Sample-fixture position
                 </label>
                 <output
                   htmlFor="playhead"
@@ -408,8 +474,9 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
               </div>
 
               <p id="playhead-help" className="mt-2 text-xs text-slate-600">
-                Scrub the position and the eligible evidence changes: material the
-                recording has not reached is withheld.
+                Scrub the sample-fixture position and the eligible evidence
+                changes: fixture material the position has not reached is
+                withheld. This clock belongs to the fixture, not to the video.
               </p>
             </div>
 
@@ -447,7 +514,9 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
             </h2>
             <p className="mt-1 text-sm text-slate-700">
               Answers may only use material unlocked at{" "}
-              <span className="font-mono">{formatClock(playhead)}</span>.
+              <span className="font-mono">{formatClock(playhead)}</span> in the{" "}
+              <strong>labelled sample fixture</strong> — not the lesson video
+              above, which has no indexed transcript.
             </p>
 
             <label

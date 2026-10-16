@@ -22,6 +22,7 @@ calls the server. The host must run a Node server.
 | Build command | `pnpm build` |
 | Start command | `pnpm start` |
 | Server-only code | `src/lib/db/server.ts`, `src/lib/answer/gemini.ts`, `src/lib/ingest/seed.ts` |
+| Lesson recording | **Not deployed, by design.** 235.0 MiB and a third-party download, so it is neither committed nor uploaded. The app streams it only where it exists locally (`GET /api/v1/lesson/video`, which `404`s on a host) and plays the original YouTube embed otherwise. See §7 |
 
 ## 2. Before deploying anything
 
@@ -130,6 +131,7 @@ Open the URL in a clean browser session and then:
 | Check | Expected |
 |---|---|
 | Home page | Loads; the sample lesson and the "synthetic demo" labelling are visible |
+| Lesson video | The player renders and its clock advances while playing and follows a seek. On a host the source line names the original YouTube embed, because the recording was not uploaded — that is the expected state, not a defect |
 | `GET /api/v1/health` | HTTP 200; each check reflects reality and nothing is inferred from an env var being set |
 | Health must not overclaim | `runtimeAi.reachable` is `null` unless a live smoke test was actually recorded |
 | Database is genuinely usable | `checks.database.querySucceeded: true` (an authenticated read, not a reachability ping), `schemaObjects: "verified"`, `durableLedger: "usable"`, `ok: true` |
@@ -160,6 +162,14 @@ pnpm canary --base https://<project>.vercel.app --label prod
   and until `0003` is, the answer path refuses every turn. Pointing the deployment
   at the existing project avoids all of this — it has all three.
 - **The corpus is synthetic.** Deploying does not make the demo database-backed.
+- **The lesson recording is not uploaded, so a host has no byte-range endpoint to
+  serve.** `GET /api/v1/lesson/video` answers `404` there and the player falls
+  back to the original YouTube embed; both paths were verified on the local
+  production build (EVALUATION.md P8-3). Nobody should "fix" the 404 by making the
+  file part of the build: it is 235.0 MiB and a third-party download, which is why
+  `.gitignore` excludes it. Serving it from object storage instead of the embed
+  would be a deliberate change, and would need the redistribution question
+  answered first.
 - **No approximate vector index**, no auth, no rate limiting beyond the spend
   guard and request-size validation.
 - **Embedding COST is unmeasured.** The durable cap bounds how many embedding
@@ -203,12 +213,15 @@ All four gates hold on the local production build as of 2026-10-15. See
 two checks that remain outside the harness's reach.
 
 That is not a hosting claim: **no public URL exists**, and nothing above was
-verified on a deployed origin. One thing must be fixed in the host before a deploy
-can behave as the local run does — `HORIZON_DAILY_TOKEN_BUDGET` and
-`HORIZON_MAX_EMBEDDING_CALLS` are absent from the local `.env.local`, so both
-resolve to `0`, which is the guard's "permit nothing" state. Set both to positive
-values in the host (§3), and confirm `spendGuard` reads `"permitted"` afterwards
-rather than assuming.
+verified on a deployed origin. One thing must be repeated in the host before a
+deploy can behave as the local run does — `HORIZON_DAILY_TOKEN_BUDGET` and
+`HORIZON_MAX_EMBEDDING_CALLS` resolve to `0`, which is the guard's "permit
+nothing" state, unless they are set. Both **are** set in the local `.env.local` as
+of 2026-10-16 (verified: `spendGuard: "permitted"` and an empty
+`configurationProblems` from `/api/v1/health`), which corrects the observation in
+EVALUATION.md Part 07 — but a host has its own environment, so set both to
+positive values there too (§3) and confirm `spendGuard` reads `"permitted"`
+afterwards rather than assuming.
 
 ## 9. If access cannot be connected
 

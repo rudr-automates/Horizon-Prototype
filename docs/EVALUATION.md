@@ -1066,3 +1066,168 @@ unused so the demo keeps one.
   from.
 - **Embedding cost**, still unmetered by design: the cap bounds request count and
   nothing else. Nine of ten requests for the day are now used.
+
+---
+
+# Part 08 — the real lesson video (2026-10-16)
+
+## P8-1. What was in the tree, before anything was changed
+
+`git status` showed exactly one uncommitted thing: an untracked file at the
+repository root, `Don't learn AI Agents without Learning these Fundamentals
+1080P.mp4`, 246,439,107 bytes (235.0 MiB), on branch `main` at `4dabf92`.
+
+`ffprobe` on that file: container `mov,mp4,m4a,3gp,3g2,mj2`, duration
+**3399.295900 s (56:39)**, one `h264` 1920x1080 video stream and one `aac` stereo
+audio stream, 579,976 b/s. **Two streams only — there is no subtitle stream**, so
+the file itself cannot supply captions.
+
+A search for `*.vtt`, `*.srt`, `*.json`, `*.txt`, `*transcript*`, `*caption*` and
+`*subtitle*` outside `node_modules`, `.git` and `.next` found **no transcript or
+caption file of any kind**. There was nothing to index, and nothing was invented
+to stand in for it.
+
+The original source is genuinely this recording: YouTube's public oEmbed endpoint
+for `ZaPbP9DwBOE` returns title *"Don't learn AI Agents without Learning these
+Fundamentals"*, author *KodeKloud* — the same title as the downloaded file, which
+is what makes the embed fallback in P8-2 a statement about the same lesson rather
+than a plausible-looking substitute.
+
+One further fact, recorded because the report owes an answer to "were real
+timestamped captions available": the watch page's embedded player response
+contains a caption track with `vssId: "a.en"` and `kind: "asr"`, i.e. YouTube
+exposes **auto-generated English captions** for this video. **They were not
+downloaded, not stored and not used.** An unofficial caption fetch is not a
+foundation a submission should rest on, and the ingestion it would require is a
+deliberate project of its own, not a side effect of this change. It is named here
+as the one honest route to video-grounded Q&A later.
+
+The spend state was read *before* any work, from the application's own endpoint,
+because the brief called the embedding allowance nearly exhausted:
+
+| Reading | Value | Source |
+|---|---|---|
+| `runtime.spentTokensToday` | 0 | `/api/v1/health` |
+| `runtime.embeddingRequestsToday` | 0 of `maxEmbeddingCalls` 10 | same |
+| `runtime.spendGuard` | `permitted` | same |
+| `runtime.configurationProblems` | `[]` | same |
+
+**No embedding or generation call was made in this part.** Nothing in Part 08
+costs quota.
+
+> **Correction to P7-1 and P7-7.** P7-1 listed `HORIZON_DAILY_TOKEN_BUDGET` and
+> `HORIZON_MAX_EMBEDDING_CALLS` as absent from `.env.local`, and P7-7 said a deploy
+> would inherit that. Both names are now set locally, and the readings above are
+> the proof: with either still absent, `HORIZON_DAILY_TOKEN_BUDGET` would resolve
+> to `0` and `spendGuard` would read `blocked` rather than `permitted`. The two
+> observations are left in place above rather than rewritten — they were true when
+> they were taken — and the DEPLOY.md procedure still requires both to be set in
+> the host, because a host has its own environment.
+
+## P8-2. What was integrated
+
+| Piece | What it does |
+|---|---|
+| `src/lib/lesson/video.ts` | The recording's identity (source id, title, author, measured duration, file name) and the **decision** of where it plays from. No `node:fs`, so a client component can import it. |
+| `src/lib/lesson/video-file.ts` | Server-only: looks for the local file, reports its real size, or reports nothing. |
+| `src/app/api/v1/lesson/video/route.ts` | Streams the local file with byte-range support, and 404s honestly when this deployment has no copy. |
+| `src/components/lesson-video.tsx` | The player. Local `<video>` where a local copy exists; the original YouTube embed, read through the official IFrame Player API, where it does not. |
+| `learner-workbench.tsx` | A **lesson video** section above the workbench, and relabelling of the fixture panel so its numbers cannot be read as the video's. |
+
+The central decision is that **the video's clock and the fixture's clock are
+different things and the page says so**, rather than pretending to satisfy "the
+displayed position, the submitted lesson position and the citation timestamps
+agree" by wiring real playback time to synthetic evidence. That wiring would
+produce exactly the deception this part exists to prevent: at video 12:00 the
+scope chip would have read *15 eligible blocks* about a recording that has no
+indexed text at all. So:
+
+- The **video panel** shows real playback time and its real duration.
+- The **fixture panel** is labelled *Sample fixture — synthetic, not the video
+  above*, its control is the *Sample-fixture position*, and the question box
+  states that answers come from that fixture and never from the recording.
+- An amber notice under the player carries the sentence the design turns on:
+  *"Horizon holds no evidence from this recording, so no answer can cite it."*
+
+## P8-3. The clock is the player's, measured
+
+| Probe | Reported |
+|---|---|
+| `ffprobe` on the file | 3399.295900 s |
+| `HEAD /api/v1/lesson/video` | `200`, `content-length: 246439107`, `accept-ranges: bytes`, `content-type: video/mp4` |
+| `bytes=0-15` | `ftypisom` — real MP4 bytes from offset 0 |
+| `bytes=1000-1023` | `206`, 24 bytes |
+| `bytes=120000000-120000099` | `206`, `content-range: bytes 120000000-120000099/246439107` |
+| `bytes=999999999-` | `416` |
+| With the file moved away, and in the browser | `404` with `NOT_FOUND`; the page switched to the embed and said so |
+| `<video>` in the page | `duration` **3399.2959** — the file's own figure, not a constant |
+| Desktop capture, seeked to 1875 s and played | panel read **`Playing at 31:17 / 56:39`**, element `currentTime` 1877.96 |
+| Mobile capture, seeked to 600 s and played | panel read **`Playing at 10:02 / 56:39`**, element `currentTime` 602.96 |
+
+The embed fallback — which is what a host will actually serve, since no host
+receives a 235 MiB blob — was verified by moving the local file out of the way
+(with the checksum confirmed unchanged afterwards: `73515aa7…`):
+
+| Check | Observed |
+|---|---|
+| Player rendered | An iframe created by YouTube's API: `https://www.youtube.com/embed/ZaPbP9DwBOE?rel=0&playsinline=1&enablejsapi=1&origin=http%3A%2F%2Flocalhost%3A4321…` |
+| API loaded | `window.YT.Player` present |
+| Real duration read from the player | **`/ 56:40`** — YouTube's own figure, not our constant |
+| Clock after a real click on the player | **`Playing at 00:05 / 56:40`** |
+
+That last row matters: a programmatic `playVideo()` sent through the widget
+channel did **not** start playback (autoplay policy), which would have left the
+embedded clock unverified. A genuine pointer click on the player did start it, and
+the panel then reported the embedded player's own advancing time.
+
+A defect was found on the way and fixed. The first `next build` after the
+filesystem lookup warned that the dynamic access caused *"the whole project [to be]
+traced and included in the output"* — the precise mechanism by which a 235 MiB
+recording and every source file would have entered a deploy artifact. The lookup
+now carries a documented `turbopackIgnore` marker, and the warning is gone:
+`.next` contains no file over 5 MiB other than Turbopack's own build cache.
+
+## P8-4. What is still synthetic, and is labelled as such
+
+Everything the assistant can cite. The evidence store is the same labelled
+sample fixture as before — a synthetic retry-and-backoff lesson with a 15-minute
+timeline — and the video is not in it. The interface now says this in three
+places rather than leaving a reader to infer it: the notice under the player, the
+fixture panel's own badge, and the line above the question box. The older claim
+in this document that there is *"no lesson video"* was true when it was written
+and is not true now; it is superseded here rather than edited.
+
+## P8-5. Visual verification, on pixels
+
+`preview_screenshot` again returned *"no frames"* (the webview does not
+composite), so the captures come from headless Chrome driven over the DevTools
+protocol, and the PNGs were decoded and counted programmatically — exact colour
+frequencies and per-cell mean luminance, not a glance at a file.
+
+| Capture | Size | Dark ink | Near-white | Palette | Overflow |
+|---|---|---|---|---|---|
+| [Desktop](evidence/lesson-video-desktop.png) | 1440x2541 | 19.02% | 77.05% | `#F1F5F9`, `#FFFFFF`, `#F8FAFC`, `#000000` (16.16% — the letterboxed frame), `#FFFBEB` (3.39%), accent `#1447E6` | none (`scrollWidth` 1440) |
+| [Mobile](evidence/lesson-video-mobile.png) | 390x4345 | 7.08% | 85.90% | `#FFFFFF`, `#F8FAFC`, `#F1F5F9`, `#FFFBEB` (5.37%), `#000000` (3.14%), accent `#1447E6` | none (`scrollWidth` 390) |
+
+The luminance grid is light at the top and bottom and dark across the middle
+rows — the player and the dense text, in the place the layout puts them — with no
+uniform mid-luminance band anywhere, which is the blank-region failure mode P6-1
+was about. Raw observations are kept in
+[the capture JSON](evidence/lesson-video-capture.json).
+
+## P8-6. Not established
+
+- **Video-grounded Q&A.** Unavailable, not merely unverified: no transcript
+  exists for this recording. The page says exactly that, and no answer claims to
+  come from the video.
+- **The embedded clock under a policy that forbids autoplay.** It was observed
+  advancing after a real click. Nothing here was measured in a browser that
+  refuses embedded playback outright; the code reports the clock as unavailable
+  and links to the source in that case, and that branch is not exercised by a
+  real browser in this environment.
+- **A deployed origin.** Still no public URL. Nothing in Part 08 was checked on
+  one; the embed path was verified by removing the local file from a local
+  production build, which is a simulation of a host, not a host.
+- **That a host would ever stream the recording.** It would not, by design: the
+  route 404s there, `.gitignore` keeps the blob out of the repository, and the
+  app falls back to the original source.
