@@ -1206,8 +1206,8 @@ frequencies and per-cell mean luminance, not a glance at a file.
 
 | Capture | Size | Dark ink | Near-white | Palette | Overflow |
 |---|---|---|---|---|---|
-| [Desktop](evidence/lesson-video-desktop.png) | 1440x2541 | 19.02% | 77.05% | `#F1F5F9`, `#FFFFFF`, `#F8FAFC`, `#000000` (16.16% — the letterboxed frame), `#FFFBEB` (3.39%), accent `#1447E6` | none (`scrollWidth` 1440) |
-| [Mobile](evidence/lesson-video-mobile.png) | 390x4345 | 7.08% | 85.90% | `#FFFFFF`, `#F8FAFC`, `#F1F5F9`, `#FFFBEB` (5.37%), `#000000` (3.14%), accent `#1447E6` | none (`scrollWidth` 390) |
+| [Desktop](evidence/lesson-video-desktop.png) | 1440x2541 | 19.02% | 77.05% | `#F1F5F9`, `#FFFFFF`, `#F8FAFC`, `#000000` (16.16% — the player's area: 1104x621 of 3.66 M pixels is 18.7%, so the region is where the player is, and whether a decoded frame or the element's own dark background occupies it is not distinguishable from pixels alone), `#FFFBEB` (3.39%), accent `#1447E6` | none (`scrollWidth` 1440) |
+| [Mobile](evidence/lesson-video-mobile.png) | 390x4345 | 7.08% | 85.90% | `#FFFFFF`, `#F8FAFC`, `#F1F5F9`, `#FFFBEB` (5.37%), `#000000` (3.14%, again the player area — 358x201 of 1.69 M is 4.3%) | none (`scrollWidth` 390) |
 
 The luminance grid is light at the top and bottom and dark across the middle
 rows — the player and the dense text, in the place the layout puts them — with no
@@ -1228,6 +1228,13 @@ was about. Raw observations are kept in
 - **A deployed origin.** Still no public URL. Nothing in Part 08 was checked on
   one; the embed path was verified by removing the local file from a local
   production build, which is a simulation of a host, not a host.
+- **That the screenshots contain decoded video frames.** The element is proven to
+  be decoding and playing — `readyState` 4, `duration` 3399.2959, and a
+  `currentTime` that advances from a seek — and the panel's clock is read from it.
+  Whether headless Chrome composited an actual frame into the PNG is a separate
+  question this pixel count cannot answer: the dark region is the player's area
+  (the counts above match its box), and it could be a decoded frame or the
+  element's own background. Not claimed.
 - **That a host would ever stream the recording.** It would not, by design: the
   route 404s there, `.gitignore` keeps the blob out of the repository, and the
   app falls back to the original source.

@@ -81,12 +81,11 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
 
 ## The learner flow
 
-1. Watch the lesson recording, and move the sample-fixture position. The two are
-   deliberately separate clocks: the recording has no indexed text, so the
-   **labelled sample fixture** — not the video — is what the evidence numbers come
-   from, and the page states that wherever those numbers appear.
-2. Move the fixture position. The scope chip reports how many fixture evidence
-   blocks are eligible *at that position*.
+1. Watch the lesson recording. It is the real video, and its clock is its own;
+   the evidence numbers below it come from the **labelled sample fixture**, not
+   from the recording, and the page says so wherever those numbers appear.
+2. Move the sample-fixture position. The scope chip reports how many fixture
+   evidence blocks are eligible *at that position*.
 3. Ask a question. The server embeds it, runs full-text **and** vector retrieval
    — both filtered by the same canonical predicate — fuses the candidates, and
    re-asserts eligibility on the final payload.
@@ -99,7 +98,8 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
 6. If nothing survives, or nothing eligible exists, the learner sees a refusal.
 
 Ask `What backoff constant does the instructor choose, and why?` at 06:00 and
-again at 12:00 to watch the evidence scope change.
+again at 12:00 in the **sample fixture** to watch the evidence scope change; the
+recording's own clock is separate and nothing in that answer comes from it.
 
 ---
 
