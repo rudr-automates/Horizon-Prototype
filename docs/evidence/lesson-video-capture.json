@@ -4,9 +4,9 @@
     "requestedWidth": 1440,
     "file": "docs/evidence/lesson-video-desktop.png",
     "pixels": {
-      "size": "1440x2541",
-      "darkInkPct": 19.02,
-      "nearWhitePct": 77.05,
+      "size": "1440x2814",
+      "darkInkPct": 17.44,
+      "nearWhitePct": 78.74,
       "topColours": [
         {
           "hex": "#f1f5f9",
@@ -14,58 +14,58 @@
         },
         {
           "hex": "#ffffff",
-          "pct": 26.24
+          "pct": 27.2
         },
         {
           "hex": "#f8fafc",
-          "pct": 17.81
+          "pct": 21.78
         },
         {
           "hex": "#000000",
-          "pct": 16.16
-        },
-        {
-          "hex": "#fffbeb",
-          "pct": 3.39
+          "pct": 14.59
         },
         {
           "hex": "#1447e6",
-          "pct": 0.75
+          "pct": 0.77
+        },
+        {
+          "hex": "#cad5e2",
+          "pct": 0.63
         }
       ],
       "gridMeanLuminance": [
         [
-          0.95,
-          0.95,
-          0.96,
-          0.97
-        ],
-        [
-          0.57,
-          0.16,
-          0.17,
-          0.57
-        ],
-        [
-          0.7,
-          0.42,
-          0.45,
-          0.71
-        ],
-        [
           0.94,
+          0.95,
           0.96,
-          0.89,
-          0.93
+          0.97
         ],
         [
+          0.53,
+          0.05,
+          0.06,
+          0.53
+        ],
+        [
+          0.81,
+          0.66,
+          0.67,
+          0.82
+        ],
+        [
+          0.93,
           0.95,
-          0.97,
+          0.91,
+          0.94
+        ],
+        [
+          0.96,
+          0.96,
           0.97,
           0.97
         ],
         [
-          0.96,
+          0.95,
           0.96,
           0.95,
           0.96
@@ -73,7 +73,7 @@
       ]
     },
     "observations": {
-      "currentTime": 1877.963772,
+      "currentTime": 1877.969219,
       "duration": 3399.2959,
       "paused": false,
       "clockText": "Playing at 31:17 / 56:39",
@@ -82,40 +82,40 @@
       "scrollWidth": 1440,
       "clientWidth": 1440
     },
-    "bodyText": "Skip to the question box\nH\n\nHorizon\n\nTimestamp-aware, evidence-grounded learning assistant\n\nEvidence: Supabase (live)\nModel: groq · openai/gpt-oss-20b\nEmbeddings: gemini-embedding-001\nAsk the lesson as far as you have watched.\n\nHorizon answers from the lesson material it holds evidence for, and only up to your playback position. A fact the material has not reached yet is not merely hidden from the reply — it never reaches the model.\n\n1\nRetrieve\n\nBoth a keyword and a vector search run, each filtered by the same eligibility predicate.\n\n2\nGenerate claims\n\nThe model returns structured claims that must quote the evidence they cite, or nothing at all.\n\n3\nVerify support\n\nEvery citation id and quotation is checked, then each claim is re-read against its own evidence before it is shown.\n\nLesson video\nNot transcribed or indexed\n\nDon't learn AI Agents without Learning these Fundamentals · KodeKloud · original source\n\nPlaying at 31:17 / 56:39\n\n235.0 MiB · local copy\n\nStreamed from the local copy in this workspace (Don't learn AI Agents without Learning these Fundamentals 1080P.mp4). This file is not part of the repository or any deploy artifact — it is 235 MiB and a third-party recording, so a host serves the original embed instead.\n\nHorizon holds no evidence from this recording, so no answer can cite it.\n\nNo transcript or caption file for this video exists in the repository, and the file itself carries no subtitle stream. The evidence below therefore comes from the labelled sample fixture — a synthetic retry-and-backoff lesson with its own short timeline. The fixture is not this video, and nothing here presents its text, its timestamps or its answers as though it came from this recording.\n\nVideo-grounded Q&A is therefore unavailable, not merely unverified: a question about what the instructor says in this recording cannot be answered from it.\n\nLesson\nSample fixture — synthetic, not the video above\n\nSample Lesson — Retry and Backoff Strategies (synthetic demo)\n\nSAMPLE-FIXTURE POSITION\n00:00/ 15:00\nJUMP TO\n00:00Start\n06:00Mid\n12:00End\n\nScrub the sample-fixture position and the eligible evidence changes: fixture material the position has not reached is withheld. This clock belongs to the fixture, not to the video.\n\nEVIDENCE IN SCOPE\n2\n\neligible blocks at 00:00\n\nLesson through 00:00 · approved course-wide references enabled\n\nAsk about this moment\n\nAnswers may only use material unlocked at 00:00 in the labelled sample fixture — not the lesson video above, which has no indexed transcript.\n\nYOUR QUESTION\nEXAMPLES\nWhat backoff constant does the instructor choose, an…\nWhat is jitter?\nAsk at 00:00\nRuntime and data status\nNames and counts only — no secrets\n\nRead live from /api/v1/health, the same source an operator would consult.\n\nGeneration provider\nPROVIDER\ngroq\nTEXT MODEL\nopenai/gpt-oss-20b\nCONFIGURED\nyes\nVERIFIED LIVE\nnot verified (a smoke test is required)\nEmbeddings\nMODEL\ngemini-embedding-001\nIN USE\ngemini-embedding-001\nDIMENSIONS\n768\nCREDENTIAL PRESENT\nyes\nEvidence source\nSOURCE\nsupabase\nSYNTHETIC CONTENT\nno\nDETAIL\nSupabase is configured; using the database-backed evidence store.\nDatabase\nCONFIGURED\nyes\nAUTHENTICATED READ\nsucceeded\nSCHEMA OBJECTS\nverified\nBUDGET LEDGER\nusable\nDETAIL\nAn authenticated read of the database succeeded; 6/6 required tables and 6/6 required functions present; the durable budget ledger is readable.\nSpend guard\nNEXT CALL\nwould be permitted\nTOKENS TODAY\n0 of a daily ceiling\nLEDGER MODE\nsupabase\nEMBEDDING REQUESTS\n0 made today · cap 10\nService\nOVERALL\nok\nVERSION\n0.2.0\nCHECKED AT\n2026-10-16T18:10:32.722Z\nREQUEST ID\n50250124-7d81-4215-bda6-96a02c715685\n\nRetrieval, eligibility filtering, citation checking and refusal behaviour run for real. Answers require a configured model provider; no fallback fabricates them, and a provider failure is reported as unavailable rather than dressed up as an answer."
+    "bodyText": "Skip to the question box\nH\n\nHorizon\n\nTimestamp-aware, evidence-grounded learning assistant\n\nEvidence: Supabase (live)\nModel: groq · openai/gpt-oss-20b\nEmbeddings: gemini-embedding-001\nAsk the lesson as far as you have watched.\n\nHorizon answers from the recording’s own transcript and only up to your playback position. A passage the recording has not reached yet is not merely hidden from the reply — it never reaches the model.\n\n1\nRetrieve\n\nBoth a keyword and a vector search run over the transcript, each filtered by the same eligibility predicate.\n\n2\nGenerate claims\n\nThe model returns structured claims that must quote the evidence they cite, or nothing at all.\n\n3\nVerify support\n\nEvery citation id and quotation is checked, then each claim is re-read against its own evidence before it is shown.\n\nLesson recording\nTranscribed and indexed from its own captions\n\nDon't learn AI Agents without Learning these Fundamentals · KodeKloud · original source\n\nPlaying at 31:17 / 56:39\n\n235.0 MiB · local copy\n\nStreamed from the local copy in this workspace (Don't learn AI Agents without Learning these Fundamentals 1080P.mp4). This file is not part of the repository or any deploy artifact — it is 235 MiB and a third-party recording, so a host serves the original embed instead.\n\nEvidence source: YouTube auto-generated English captions (ASR)\n\nThe transcript above was downloaded from this recording’s own caption track and ingested verbatim, with the timestamps YouTube reported for each caption line. No wording was cleaned up, corrected or summarised.\n\nIt is machine transcription. Machine transcription, not a human-verified script. The wording is verbatim from the source, but the source itself mis-hears words. Where the captions mis-hear a word, that is what a quotation will show, because that is what the recording’s captions say.\n\nLesson position\nthe recording — transcript evidence\nLESSON BEING ASKED ABOUT\nLesson recording (real captions)\nSample fixture (synthetic)\n\nDon't learn AI Agents without Learning these Fundamentals — KodeKloud (lesson recording)\n\nPLAYBACK POSITION\n31:17/ 56:39\n\nSource: the player's own playback clock.\n\nJUMP TO\n00:00Start\n10:0010:00\n25:0025:00\n40:0040:00\n55:0055:00\n\nMoving this control seeks the recording, and the position reported back is the player's own clock. Answers may only use passages the recording has already reached — each block unlocks when you have watched it to its end.\n\nEVIDENCE IN SCOPE\n30\n\neligible transcript blocks at 31:17\n\nRefreshing the count…\n\nLesson through 31:16 · approved course-wide references enabled\n\nAsk about this moment\n\nAnswers may only use the recording’s transcript up to 31:17, taken from the player's own clock. Each block unlocks when the recording has reached its end.\n\nYOUR QUESTION\nEXAMPLES\nWhat topics does the instructor list at the very sta…\nWhy does traditional keyword search fail for a quest…\nWhat happens when the compliance score falls below 7…\nAsk at 31:17\nRuntime and data status\nNames and counts only — no secrets\n\nRead live from /api/v1/health, the same source an operator would consult.\n\nGeneration provider\nPROVIDER\ngroq\nTEXT MODEL\nopenai/gpt-oss-20b\nCONFIGURED\nyes\nCOMPLETED PROVIDER CALL\nyes — A completed call is recorded at 2026-10-16T19:06:58.25258+00:00 (groq / openai/gpt-oss-20b, verify), which is inside today's UTC day. Re-confirm it with pnpm smoke; this line reports a recorded call, not a live probe.\nEmbeddings\nMODEL\ngemini-embedding-001\nIN USE\ngemini-embedding-001\nDIMENSIONS\n768\nCREDENTIAL PRESENT\nyes\nEvidence source\nSOURCE\nsupabase\nSYNTHETIC CONTENT\nno\nDETAIL\nSupabase is configured; using the database-backed evidence store.\nDatabase\nCONFIGURED\nyes\nAUTHENTICATED READ\nsucceeded\nSCHEMA OBJECTS\nverified\nBUDGET LEDGER\nusable\nDETAIL\nAn authenticated read of the database succeeded; 6/6 required tables and 6/6 required functions present; the durable budget ledger is readable.\nSpend guard\nNEXT CALL\nwould be permitted\nTOKENS TODAY\n15132 of a daily ceiling\nLEDGER MODE\nsupabase\nEMBEDDING REQUESTS\n8 made today · cap 10\nService\nOVERALL\nok\nVERSION\n0.2.0\nCHECKED AT\n2026-10-16T19:12:55.612Z\nREQUEST ID\nc7dd69c0-c95d-4d54-9233-1e6bed5d1efb\n\nRetrieval, eligibility filtering, citation checking and refusal behaviour run for real. Answers require a configured model provider; no fallback fabricates them, and a provider failure is reported as unavailable rather than dressed up as an answer."
   },
   {
     "viewport": "mobile",
     "requestedWidth": 390,
     "file": "docs/evidence/lesson-video-mobile.png",
     "pixels": {
-      "size": "390x4345",
-      "darkInkPct": 7.08,
-      "nearWhitePct": 85.9,
+      "size": "390x4708",
+      "darkInkPct": 7.05,
+      "nearWhitePct": 85.8,
       "topColours": [
         {
-          "hex": "#ffffff",
-          "pct": 34.28
+          "hex": "#f8fafc",
+          "pct": 36.17
         },
         {
-          "hex": "#f8fafc",
-          "pct": 31.78
+          "hex": "#ffffff",
+          "pct": 35.4
         },
         {
           "hex": "#f1f5f9",
-          "pct": 11.91
-        },
-        {
-          "hex": "#fffbeb",
-          "pct": 5.37
+          "pct": 11.28
         },
         {
           "hex": "#000000",
-          "pct": 3.14
+          "pct": 2.9
         },
         {
           "hex": "#1447e6",
-          "pct": 1.12
+          "pct": 1.23
+        },
+        {
+          "hex": "#cad5e2",
+          "pct": 0.93
         }
       ],
       "gridMeanLuminance": [
@@ -127,38 +127,38 @@
         ],
         [
           0.79,
-          0.7,
-          0.7,
-          0.81
+          0.71,
+          0.72,
+          0.82
         ],
         [
-          0.95,
-          0.92,
-          0.95,
-          0.97
-        ],
-        [
+          0.93,
           0.91,
-          0.9,
+          0.94,
+          0.98
+        ],
+        [
+          0.92,
+          0.91,
           0.92,
           0.95
         ],
         [
           0.93,
-          0.95,
-          0.97,
-          0.98
+          0.94,
+          0.96,
+          0.97
         ],
         [
           0.93,
           0.94,
-          0.95,
-          0.96
+          0.96,
+          0.97
         ]
       ]
     },
     "observations": {
-      "currentTime": 602.962453,
+      "currentTime": 602.964743,
       "duration": 3399.2959,
       "paused": false,
       "clockText": "Playing at 10:02 / 56:39",
@@ -167,6 +167,6 @@
       "scrollWidth": 390,
       "clientWidth": 390
     },
-    "bodyText": "Skip to the question box\nH\n\nHorizon\n\nTimestamp-aware, evidence-grounded learning assistant\n\nEvidence: Supabase (live)\nModel: groq · openai/gpt-oss-20b\nEmbeddings: gemini-embedding-001\nAsk the lesson as far as you have watched.\n\nHorizon answers from the lesson material it holds evidence for, and only up to your playback position. A fact the material has not reached yet is not merely hidden from the reply — it never reaches the model.\n\n1\nRetrieve\n\nBoth a keyword and a vector search run, each filtered by the same eligibility predicate.\n\n2\nGenerate claims\n\nThe model returns structured claims that must quote the evidence they cite, or nothing at all.\n\n3\nVerify support\n\nEvery citation id and quotation is checked, then each claim is re-read against its own evidence before it is shown.\n\nLesson video\nNot transcribed or indexed\n\nDon't learn AI Agents without Learning these Fundamentals · KodeKloud · original source\n\nPlaying at 10:02 / 56:39\n\n235.0 MiB · local copy\n\nStreamed from the local copy in this workspace (Don't learn AI Agents without Learning these Fundamentals 1080P.mp4). This file is not part of the repository or any deploy artifact — it is 235 MiB and a third-party recording, so a host serves the original embed instead.\n\nHorizon holds no evidence from this recording, so no answer can cite it.\n\nNo transcript or caption file for this video exists in the repository, and the file itself carries no subtitle stream. The evidence below therefore comes from the labelled sample fixture — a synthetic retry-and-backoff lesson with its own short timeline. The fixture is not this video, and nothing here presents its text, its timestamps or its answers as though it came from this recording.\n\nVideo-grounded Q&A is therefore unavailable, not merely unverified: a question about what the instructor says in this recording cannot be answered from it.\n\nLesson\nSample fixture — synthetic, not the video above\n\nSample Lesson — Retry and Backoff Strategies (synthetic demo)\n\nSAMPLE-FIXTURE POSITION\n00:00/ 15:00\nJUMP TO\n00:00Start\n06:00Mid\n12:00End\n\nScrub the sample-fixture position and the eligible evidence changes: fixture material the position has not reached is withheld. This clock belongs to the fixture, not to the video.\n\nEVIDENCE IN SCOPE\n2\n\neligible blocks at 00:00\n\nLesson through 00:00 · approved course-wide references enabled\n\nAsk about this moment\n\nAnswers may only use material unlocked at 00:00 in the labelled sample fixture — not the lesson video above, which has no indexed transcript.\n\nYOUR QUESTION\nEXAMPLES\nWhat backoff constant does the instructor choose, an…\nWhat is jitter?\nAsk at 00:00\nRuntime and data status\nNames and counts only — no secrets\n\nRead live from /api/v1/health, the same source an operator would consult.\n\nGeneration provider\nPROVIDER\ngroq\nTEXT MODEL\nopenai/gpt-oss-20b\nCONFIGURED\nyes\nVERIFIED LIVE\nnot verified (a smoke test is required)\nEmbeddings\nMODEL\ngemini-embedding-001\nIN USE\ngemini-embedding-001\nDIMENSIONS\n768\nCREDENTIAL PRESENT\nyes\nEvidence source\nSOURCE\nsupabase\nSYNTHETIC CONTENT\nno\nDETAIL\nSupabase is configured; using the database-backed evidence store.\nDatabase\nCONFIGURED\nyes\nAUTHENTICATED READ\nsucceeded\nSCHEMA OBJECTS\nverified\nBUDGET LEDGER\nusable\nDETAIL\nAn authenticated read of the database succeeded; 6/6 required tables and 6/6 required functions present; the durable budget ledger is readable.\nSpend guard\nNEXT CALL\nwould be permitted\nTOKENS TODAY\n0 of a daily ceiling\nLEDGER MODE\nsupabase\nEMBEDDING REQUESTS\n0 made today · cap 10\nService\nOVERALL\nok\nVERSION\n0.2.0\nCHECKED AT\n2026-10-16T18:10:39.240Z\nREQUEST ID\ndd41f3a0-72f3-429c-b51e-727093a87cfb\n\nRetrieval, eligibility filtering, citation checking and refusal behaviour run for real. Answers require a configured model provider; no fallback fabricates them, and a provider failure is reported as unavailable rather than dressed up as an answer."
+    "bodyText": "Skip to the question box\nH\n\nHorizon\n\nTimestamp-aware, evidence-grounded learning assistant\n\nEvidence: Supabase (live)\nModel: groq · openai/gpt-oss-20b\nEmbeddings: gemini-embedding-001\nAsk the lesson as far as you have watched.\n\nHorizon answers from the recording’s own transcript and only up to your playback position. A passage the recording has not reached yet is not merely hidden from the reply — it never reaches the model.\n\n1\nRetrieve\n\nBoth a keyword and a vector search run over the transcript, each filtered by the same eligibility predicate.\n\n2\nGenerate claims\n\nThe model returns structured claims that must quote the evidence they cite, or nothing at all.\n\n3\nVerify support\n\nEvery citation id and quotation is checked, then each claim is re-read against its own evidence before it is shown.\n\nLesson recording\nTranscribed and indexed from its own captions\n\nDon't learn AI Agents without Learning these Fundamentals · KodeKloud · original source\n\nPlaying at 10:02 / 56:39\n\n235.0 MiB · local copy\n\nStreamed from the local copy in this workspace (Don't learn AI Agents without Learning these Fundamentals 1080P.mp4). This file is not part of the repository or any deploy artifact — it is 235 MiB and a third-party recording, so a host serves the original embed instead.\n\nEvidence source: YouTube auto-generated English captions (ASR)\n\nThe transcript above was downloaded from this recording’s own caption track and ingested verbatim, with the timestamps YouTube reported for each caption line. No wording was cleaned up, corrected or summarised.\n\nIt is machine transcription. Machine transcription, not a human-verified script. The wording is verbatim from the source, but the source itself mis-hears words. Where the captions mis-hear a word, that is what a quotation will show, because that is what the recording’s captions say.\n\nLesson position\nthe recording — transcript evidence\nLESSON BEING ASKED ABOUT\nLesson recording (real captions)\nSample fixture (synthetic)\n\nDon't learn AI Agents without Learning these Fundamentals — KodeKloud (lesson recording)\n\nPLAYBACK POSITION\n10:02/ 56:39\n\nSource: the player's own playback clock.\n\nJUMP TO\n00:00Start\n10:0010:00\n25:0025:00\n40:0040:00\n55:0055:00\n\nMoving this control seeks the recording, and the position reported back is the player's own clock. Answers may only use passages the recording has already reached — each block unlocks when you have watched it to its end.\n\nEVIDENCE IN SCOPE\n9\n\neligible transcript blocks at 10:02\n\nLesson through 10:02 · approved course-wide references enabled\n\nAsk about this moment\n\nAnswers may only use the recording’s transcript up to 10:02, taken from the player's own clock. Each block unlocks when the recording has reached its end.\n\nYOUR QUESTION\nEXAMPLES\nWhat topics does the instructor list at the very sta…\nWhy does traditional keyword search fail for a quest…\nWhat happens when the compliance score falls below 7…\nAsk at 10:02\nRuntime and data status\nNames and counts only — no secrets\n\nRead live from /api/v1/health, the same source an operator would consult.\n\nGeneration provider\nPROVIDER\ngroq\nTEXT MODEL\nopenai/gpt-oss-20b\nCONFIGURED\nyes\nCOMPLETED PROVIDER CALL\nyes — A completed call is recorded at 2026-10-16T19:06:58.25258+00:00 (groq / openai/gpt-oss-20b, verify), which is inside today's UTC day. Re-confirm it with pnpm smoke; this line reports a recorded call, not a live probe.\nEmbeddings\nMODEL\ngemini-embedding-001\nIN USE\ngemini-embedding-001\nDIMENSIONS\n768\nCREDENTIAL PRESENT\nyes\nEvidence source\nSOURCE\nsupabase\nSYNTHETIC CONTENT\nno\nDETAIL\nSupabase is configured; using the database-backed evidence store.\nDatabase\nCONFIGURED\nyes\nAUTHENTICATED READ\nsucceeded\nSCHEMA OBJECTS\nverified\nBUDGET LEDGER\nusable\nDETAIL\nAn authenticated read of the database succeeded; 6/6 required tables and 6/6 required functions present; the durable budget ledger is readable.\nSpend guard\nNEXT CALL\nwould be permitted\nTOKENS TODAY\n15132 of a daily ceiling\nLEDGER MODE\nsupabase\nEMBEDDING REQUESTS\n8 made today · cap 10\nService\nOVERALL\nok\nVERSION\n0.2.0\nCHECKED AT\n2026-10-16T19:13:02.186Z\nREQUEST ID\n66783b40-f54f-46b6-b284-b8ce22ee18eb\n\nRetrieval, eligibility filtering, citation checking and refusal behaviour run for real. Answers require a configured model provider; no fallback fabricates them, and a provider failure is reported as unavailable rather than dressed up as an answer."
   }
 ]

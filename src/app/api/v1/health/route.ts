@@ -82,6 +82,16 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
       embeddingRequestsToday = null;
     }
 
+    // ---------------------------------------------------------------------
+    // What the ledger can PROVE about the provider, rather than what the
+    // configuration implies. A configured name and a working credential look
+    // identical until a call is actually made, and the line this feeds used to
+    // say "not verified (a smoke test is required)" forever.
+    // ---------------------------------------------------------------------
+    const providerCallEvidence = await describeProviderCallEvidence(
+      usageResolution.ledger,
+    );
+
     const durableLedger = !databaseConfigured
       ? ("not_configured" as const)
       : ledgerReadable
@@ -154,7 +164,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
           ? "Names are present, but the usage ledger could not be read, so the daily spend is unknown and calls will be refused rather than risking unmetered spend."
           : !reservationObjectsPresent
             ? "Names are present, but migration 0003's reservation objects are missing, so capacity cannot be reserved atomically and every call will be refused."
-            : `Names are present for ${config.provider} / ${config.model}. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. This endpoint does not verify the provider: run pnpm smoke and pnpm canary to confirm live behaviour.`
+            : `Names are present for ${config.provider} / ${config.model}. ${spentTokensToday} of ${config.dailyTokenBudget} daily tokens are used. ${providerCallEvidence.detail} This endpoint never sends a request of its own, so that record — not this line — is what establishes live behaviour.`
       : "Runtime AI not configured; no model calls are possible and no fallback fabricates answers.";
 
     const runtimeAiCheck = {
@@ -198,6 +208,11 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
         evidenceSource: storeResolution.store.mode,
         evidenceReason: storeResolution.reason,
         demoContent: storeResolution.store.demoContent,
+        providerCallEvidence: {
+          state: providerCallEvidence.state,
+          at: providerCallEvidence.at,
+          detail: providerCallEvidence.detail,
+        },
         spendGuard: spendGuardBlocked ? "blocked" : "permitted",
         usageMode: usageResolution.ledger.mode,
         embeddingCapMode: usageResolution.ledger.mode,
@@ -216,6 +231,60 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
       "Health check failed to complete.",
       requestId,
     ) as unknown as NextResponse<HealthResponse>;
+  }
+}
+
+/**
+ * Turn a ledger's record of completed provider calls into one honest sentence.
+ *
+ * Four outcomes, deliberately distinct:
+ *   observed      — a call settled and the provider reported usage for it.
+ *   none_recorded — the durable store holds no such row.
+ *   not_durable   — the active ledger cannot carry the fact (memory mode).
+ *   unreadable    — the store could not be read, so nothing is claimed.
+ *
+ * The reading is never "the provider is reachable": a completed call is evidence
+ * of the past, and its age is stated so it cannot be read as a live check.
+ */
+async function describeProviderCallEvidence(
+  ledger: ReturnType<typeof createServerContext>["usageResolution"]["ledger"],
+): Promise<{ state: "observed" | "none_recorded" | "not_durable" | "unreadable"; at: string | null; detail: string }> {
+  try {
+    const evidence = await ledger.providerCallEvidence();
+    if (evidence.state === "observed") {
+      const model = evidence.modelId ?? "model not recorded";
+      const operation = evidence.operation ?? "operation not recorded";
+      return {
+        state: "observed",
+        at: evidence.at,
+        detail:
+          `A completed call is recorded at ${evidence.at} (${evidence.provider} / ${model}, ${operation}), ` +
+          (evidence.today
+            ? "which is inside today's UTC day. Re-confirm it with pnpm smoke; this line reports a recorded call, not a live probe."
+            : "which was recorded on an EARLIER UTC day, so it proves the credential worked then and not that it works now. Run pnpm smoke to make a fresh call."),
+      };
+    }
+    if (evidence.state === "not_durable") {
+      return {
+        state: "not_durable",
+        at: null,
+        detail:
+          "No provider call can be confirmed from this ledger: it keeps its record in memory for the life of the process, so it cannot attest to a past call. Run pnpm smoke to make a real one.",
+      };
+    }
+    return {
+      state: "none_recorded",
+      at: null,
+      detail:
+        "The durable ledger records no completed provider call with reported usage, so no call has succeeded since the ledger began. Run pnpm smoke to make one.",
+    };
+  } catch {
+    return {
+      state: "unreadable",
+      at: null,
+      detail:
+        "The usage ledger could not be read, so no completed provider call can be confirmed and none is claimed. Run pnpm smoke to make a real call.",
+    };
   }
 }
 

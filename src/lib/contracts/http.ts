@@ -95,6 +95,23 @@ export const runtimeInfoSchema = z.object({
   evidenceReason: z.string(),
   demoContent: z.boolean(),
   /**
+   * The newest completed provider call the ledger can still prove.
+   *
+   * `observed` carries the time, the provider/model and whether that record is
+   * inside the current UTC day, so "a call worked at some point" and "a call has
+   * worked today" cannot be confused. `none_recorded` means the durable store
+   * holds no such row; `not_durable` means the active ledger cannot carry that
+   * fact at all. It is never inferred from configuration and never hardcoded to
+   * success: a configured provider with a rejected credential reads
+   * `none_recorded` however healthy the names look.
+   */
+  providerCallEvidence: z.object({
+    state: z.enum(["observed", "none_recorded", "not_durable", "unreadable"]),
+    /** ISO timestamp of the newest recorded success, or null. */
+    at: z.string().nullable(),
+    detail: z.string(),
+  }),
+  /**
    * Whether the NEXT provider call would actually be admitted. "blocked" means
    * no provider call is permitted at all, so a configured deployment will still
    * refuse. It is computed from every refusal path — a zero budget, an

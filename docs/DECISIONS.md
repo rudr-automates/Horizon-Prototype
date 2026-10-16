@@ -817,3 +817,87 @@ fixture-text oracle cannot check citations in a database corpus, so those were
 verified separately against `public.blocks` (3 of 3). The cost is one extra HTTP
 request per run, and a harness that now depends on the course list being reachable
 in order to identify its own target.
+
+## D-024 — The recording's own captions are the evidence, ingested verbatim
+
+Part 08 concluded that no answer may cite the lesson recording, because no
+transcript existed for it. The recording's source publishes an automatic English
+caption track, so a transcript did exist; what did not exist was any attempt to
+fetch it. Writing one by hand was never an option: a transcript this project
+composed would be a different text from the recording, and no quotation could be
+attributed to the audio.
+
+**Decision:** The video's own captions (`json3`, with the timestamps the source
+reported) are fetched, parsed, segmented and ingested **verbatim**, in a course of
+their own, with `parser_version: youtube-json3-v1` and `extraction_coverage`
+computed from the caption track. Not one word is corrected, and the ASR's errors
+(`Chachib`, `Enthropics`) are stored as they are. Because this is machine
+transcription, `review_state: AUTO_APPROVED` — not `HUMAN_APPROVED` — and the
+interface states the provenance and the caveat beside the player and inside every
+citation panel. Coverage is reported as 99.6% rather than "complete", because 12.8 s
+of the recording has no caption text.
+
+**Consequence:** Video-grounded Q&A is now available and cited, and its honesty cost
+is visible rather than hidden. The alternative — a cleaned-up transcript — would
+have read better and been unattributable.
+
+## D-025 — A block unlocks at its END, not at its start
+
+`unlock_seconds` could plausibly be either end of a block's span. Using the start
+makes a passage eligible the instant the playhead reaches it, which hands a learner
+evidence from a part of the recording they have not watched — the leak this project
+exists to prevent. Using the end is stricter and costs a lag of at most one block
+(~60 s) in what can be cited.
+
+**Decision:** `unlock_seconds = end_seconds`. A block becomes eligible only once the
+learner has watched it to its end, and the interface says exactly that next to the
+playhead and above the question box. The ingest command asserts the equality on
+every row and reports the count of rows where it does not hold (0), and the plan
+builder refuses blocks whose spans overlap.
+
+**Consequence:** The eligible count starts at 0 and lags the playhead by up to a
+block; at 00:03 the panel honestly reads "0 eligible transcript blocks". Leakage is
+impossible by construction rather than by convention, and the canary checks the
+outcome at four positions.
+
+## D-026 — The generation envelope's bounds are memory bounds, not truth bounds
+
+A live canary turn at an early timestamp returned
+`TEMPORARILY_UNAVAILABLE / PROVIDER_MALFORMED`. The server log named the cause:
+`claims:too_big`. The envelope accepted at most 8 claims, the model returned more,
+and a question the evidence fully supported was reported to the learner as a
+provider outage. The count of claims a model returns says nothing about whether its
+answer is grounded: Tier-1 checks every quotation against the payload, Tier-2
+verifies every claim, and only supported claims render.
+
+**Decision:** Raise the claim bound to 40 and the verifier's verdict bound to 64
+(above the claim bound, so an accepted response can always be answered
+verdict-for-verdict), and raise the per-quote length bound to 1000 characters
+because this corpus's blocks run to about 950 and a 400-character ceiling could
+reject an *honest* quotation. Minimums that do encode truth are unchanged: a claim
+with no evidence id is still refused.
+
+**Consequence:** The same turn now answers with 14 verified claims, 0 of whose
+quotations or ids fail their checks. The stricter-looking numbers were the less
+honest ones: they made a working system report a false outage.
+
+## D-027 — The health line reports a recorded call, never a configured one
+
+`checks.runtimeAi.reachable` has always been `null` and should stay that way: the
+endpoint sends no request of its own, so it cannot know whether a provider is
+reachable. But the interface rendered that `null` as "not verified (a smoke test is
+required)" — a sentence that never changed, so a deployment that had been answering
+questions for hours looked identical to one nothing had ever been sent to.
+
+**Decision:** Add `runtime.providerCallEvidence`, read from the durable usage
+ledger: the newest **settled, reported** generation row (`outcome = 'reported'` is
+the load-bearing filter, so a reservation charged after a failed call cannot be
+mistaken for a success), with its timestamp and whether it falls inside the current
+UTC day. Four states stay distinct — `observed`, `none_recorded`, `not_durable`
+(the in-memory ledger keeps no durable record of past calls) and `unreadable` — and
+nothing is ever inferred from configuration. The line is rendered verbatim rather
+than as a yes/no badge, so "it worked yesterday" cannot read as "it works now".
+
+**Consequence:** The panel now reads
+`yes — A completed call is recorded at 2026-10-16T19:06:58Z (groq / openai/gpt-oss-20b, verify), which is inside today's UTC day.`
+A wrong or revoked credential reads `none_recorded` however healthy its names look.

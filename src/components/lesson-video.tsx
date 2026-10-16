@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The lesson recording, played for real.
+ * The lesson recording, played for real, with its own clock reported upward.
  *
  * TWO SOURCES, ONE CLOCK
  *   `file`  — this app streams the operator's own copy, so the clock is the
@@ -10,6 +10,14 @@
  *   `embed` — the original YouTube player, used wherever the local copy is not
  *             deployed. Its clock is read through YouTube's official IFrame
  *             Player API, so the figure shown is still real playback time.
+ *
+ * WHY IT REPORTS THE CLOCK
+ *   The value the learner reads, the value sent with a question and the boundary
+ *   the eligibility predicate uses must be the same number. This component
+ *   therefore hands its clock to the page rather than keeping it private, and
+ *   reports `null` — not zero — while it has nothing to report. Zero would be a
+ *   position no player ever reported, and it is indistinguishable from the real
+ *   start of the recording.
  *
  * WHAT THIS COMPONENT REFUSES TO DO
  *   It never estimates a position, never interpolates between polls into a
@@ -21,9 +29,16 @@
 import { useEffect, useRef, useState } from "react";
 import { formatPlaybackClock, type LessonVideoSource } from "@/lib/lesson/video";
 
+export interface LessonVideoClockReport {
+  positionSeconds: number;
+  durationSeconds: number;
+}
+
 interface YouTubePlayerLike {
   getCurrentTime: () => number;
   getDuration: () => number;
+  /** Present on a real player; guarded because a resumed player may lack it. */
+  seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
   destroy: () => void;
 }
 
@@ -92,8 +107,36 @@ function formatSize(bytes: number): string {
 
 type EmbedStatus = "loading" | "ready" | "failed";
 
-export default function LessonVideo({ source }: { source: LessonVideoSource }) {
+/** A seek the page wants performed. The nonce is what makes a repeat seek fire. */
+export interface SeekRequest {
+  seconds: number;
+  nonce: number;
+}
+
+export default function LessonVideo({
+  source,
+  onClock,
+  seekRequest = null,
+}: {
+  source: LessonVideoSource;
+  onClock?: (clock: LessonVideoClockReport | null) => void;
+  seekRequest?: SeekRequest | null;
+}) {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerRef = useRef<YouTubePlayerLike | null>(null);
+  /**
+   * The callback in a ref, so the player effect depends on the source alone. An
+   * effect that listed `onClock` would restart the player on every parent render.
+   * The ref is refreshed after each render rather than during one: assigning to
+   * `.current` while rendering is what the react-hooks rules reject, and the
+   * player only ever reads it from a DOM callback, which runs after that.
+   */
+  const onClockRef = useRef(onClock);
+  useEffect(() => {
+    onClockRef.current = onClock;
+  }, [onClock]);
+
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [embedStatus, setEmbedStatus] = useState<EmbedStatus>(
@@ -124,12 +167,18 @@ export default function LessonVideo({ source }: { source: LessonVideoSource }) {
             onReady: (event) => {
               if (cancelled) return;
               setEmbedStatus("ready");
+              playerRef.current = event.target;
               setDuration(event.target.getDuration());
               poll = window.setInterval(() => {
                 if (cancelled || !player) return;
-                setPosition(player.getCurrentTime());
+                const current = player.getCurrentTime();
                 const playbackDuration = player.getDuration();
+                setPosition(current);
                 if (playbackDuration > 0) setDuration(playbackDuration);
+                onClockRef.current?.({
+                  positionSeconds: current,
+                  durationSeconds: playbackDuration,
+                });
               }, CLOCK_POLL_MS);
             },
           },
@@ -139,38 +188,79 @@ export default function LessonVideo({ source }: { source: LessonVideoSource }) {
         if (cancelled) return;
         setEmbedStatus("failed");
         setEmbedError(error instanceof Error ? error.message : "The player could not start.");
+        // Nothing is reported rather than a stand-in: see the note at the top.
+        onClockRef.current?.(null);
       });
 
     return () => {
       cancelled = true;
       if (poll !== undefined) window.clearInterval(poll);
+      playerRef.current = null;
       player?.destroy();
       player = null;
     };
   }, [youtubeId]);
 
-  // A file-backed player always has a real clock. An embedded one has one only
-  // once the API reports itself ready, so before that the panel says so instead
-  // of printing 00:00, which would be a position no player ever reported.
-  const clockLabel =
-    source.kind === "file" || embedStatus === "ready"
-      ? formatPlaybackClock(position)
-      : null;
+  // A file-backed player has a real clock. An embedded one has one only once its
+  // API reports itself ready, so before that the panel says so instead of
+  // printing 00:00, which would be a position no player ever reported.
+  const clockAvailable = source.kind === "file" || embedStatus === "ready";
+  const clockLabel = clockAvailable ? formatPlaybackClock(position) : null;
+
+  // Seek when the page asks for it. Both branches are guarded: a player that is
+  // not ready cannot be seeked, and saying nothing would look like a dead button.
+  useEffect(() => {
+    if (seekRequest === null) return;
+    const target = seekRequest.seconds;
+    if (source.kind === "file") {
+      const element = videoRef.current;
+      if (!element) return;
+      element.currentTime = target;
+      setPosition(target);
+      onClockRef.current?.({ positionSeconds: target, durationSeconds: element.duration });
+      return;
+    }
+    const player = playerRef.current;
+    if (!player?.seekTo) return;
+    player.seekTo(target, true);
+    setPosition(target);
+  }, [seekRequest, source.kind]);
 
   return (
     <div className="mt-3">
       {source.kind === "file" ? (
         <video
+          ref={videoRef}
           src={source.url}
           controls
           playsInline
           preload="metadata"
           aria-label="Lesson recording"
           className="aspect-video w-full rounded-lg border border-slate-300 bg-slate-900"
-          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+          onLoadedMetadata={(event) => {
+            setDuration(event.currentTarget.duration);
+            onClockRef.current?.({
+              positionSeconds: event.currentTarget.currentTime,
+              durationSeconds: event.currentTarget.duration,
+            });
+          }}
           onDurationChange={(event) => setDuration(event.currentTarget.duration)}
-          onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
-          onSeeked={(event) => setPosition(event.currentTarget.currentTime)}
+          onTimeUpdate={(event) => {
+            const current = event.currentTarget.currentTime;
+            setPosition(current);
+            onClockRef.current?.({
+              positionSeconds: current,
+              durationSeconds: event.currentTarget.duration,
+            });
+          }}
+          onSeeked={(event) => {
+            const current = event.currentTarget.currentTime;
+            setPosition(current);
+            onClockRef.current?.({
+              positionSeconds: current,
+              durationSeconds: event.currentTarget.duration,
+            });
+          }}
         />
       ) : (
         // The IFrame Player API replaces this element with its own iframe. It is
@@ -208,9 +298,9 @@ export default function LessonVideo({ source }: { source: LessonVideoSource }) {
         {source.kind === "file" ? (
           <>
             Streamed from the local copy in this workspace (
-            <span className="font-mono">{source.fileName}</span>). This file is
-            not part of the repository or any deploy artifact — it is 235 MiB and
-            a third-party recording, so a host serves the original embed instead.
+            <span className="font-mono">{source.fileName}</span>). This file is not
+            part of the repository or any deploy artifact — it is 235 MiB and a
+            third-party recording, so a host serves the original embed instead.
           </>
         ) : (
           <>
@@ -235,7 +325,8 @@ export default function LessonVideo({ source }: { source: LessonVideoSource }) {
           role="status"
         >
           The YouTube player could not start here, so no playback clock is being
-          reported. {embedError} The recording itself is unaffected —{" "}
+          reported, and the position you ask from has to be set by hand. {embedError}{" "}
+          The recording itself is unaffected —{" "}
           <a
             href={source.watchUrl}
             className="underline"

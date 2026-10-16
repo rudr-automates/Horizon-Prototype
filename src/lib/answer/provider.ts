@@ -12,12 +12,31 @@ import { count } from "@/lib/usage/types";
 export const generatedClaimSchema = z.object({
   text: z.string().min(1).max(600),
   evidenceIds: z.array(z.string().min(1)).min(1).max(8),
-  quote: z.string().min(1).max(400),
+  /**
+   * Length bound only. A quotation has to come from a stored block to survive
+   * Tier-1, and this corpus's blocks run to about 950 characters, so a 400
+   * character ceiling could reject an honest quotation from the evidence. The
+   * truth requirement is the match, not the length.
+   */
+  quote: z.string().min(1).max(1000),
 });
 export type GeneratedClaim = z.infer<typeof generatedClaimSchema>;
 
 export const claimGenerationResultSchema = z.object({
-  claims: z.array(generatedClaimSchema).max(8),
+  /**
+   * A MEMORY bound, not a truth bound.
+   *
+   * It was 8, and a live turn at an early timestamp failed with
+   * `claims:too_big` — the model answered with more claims than the envelope
+   * took, the response was rejected as malformed, and a supported question came
+   * back as "temporarily unavailable". That is a false provider outage produced
+   * by this number. How many claims a model returns is not a property of whether
+   * the answer is grounded: Tier-1 checks every quotation against the payload and
+   * Tier-2 verifies each claim, and only supported ones are rendered. The real
+   * content limit is the output-token budget, which bounds the array long before
+   * this does.
+   */
+  claims: z.array(generatedClaimSchema).max(40),
   unansweredParts: z.boolean(),
 });
 export type ClaimGenerationResult = z.infer<typeof claimGenerationResultSchema>;
@@ -92,7 +111,12 @@ export const verifierVerdictSchema = z.object({
 export type VerifierVerdict = z.infer<typeof verifierVerdictSchema>;
 
 export const verifierResultSchema = z.object({
-  verdicts: z.array(verifierVerdictSchema).max(16),
+  /**
+   * Kept above the claim bound above, so a response this project accepts can
+   * always be answered verdict-for-verdict. A lower cap would turn a long answer
+   * into `PROVIDER_MALFORMED` for the same non-reason the claim cap used to.
+   */
+  verdicts: z.array(verifierVerdictSchema).max(64),
 });
 export type VerifierResult = z.infer<typeof verifierResultSchema>;
 

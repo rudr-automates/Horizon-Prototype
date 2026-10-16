@@ -1238,3 +1238,165 @@ was about. Raw observations are kept in
 - **That a host would ever stream the recording.** It would not, by design: the
   route 404s there, `.gitignore` keeps the blob out of the repository, and the
   app falls back to the original source.
+
+# Part 09 — the recording's own captions, ingested and interrogated (2026-10-16)
+
+Part 08 ended with video-grounded Q&A **unavailable**: there was no transcript for
+the recording and its container carries no subtitle stream. This part removes that
+blocker with the recording's **own** captions, and then tries to break the result.
+
+## P9-1. What was fetched, and from where
+
+| Fact | Value |
+|---|---|
+| Source | `https://youtu.be/ZaPbP9DwBOE` — KodeKloud, *Don't learn AI Agents without Learning these Fundamentals* |
+| Caption track | YouTube **automatic** English captions (`en`), present in the track list yt-dlp reports |
+| Fetch command | `yt-dlp --skip-download --write-auto-subs --sub-langs en --sub-format json3` |
+| Format | `json3`: one event per caption line, each with the source's own `tStartMs`, plus word-level `tOffsetMs` |
+| File | 1 038 867 bytes, sha256 prefix `d7c6e21c20d70d64…`, gitignored (third-party artefact; the ingest command takes a path) |
+| Parsed | **1505 caption lines**, 1505 display-only newline events skipped |
+| Timestamp coverage | **0.1 s → 3386.5 s** of the recording's ffprobe-measured **3399.2959 s** = **99.6%** |
+| Segmentation | **56 blocks**, mean 60.5 s, max 62.4 s, contiguous (each block's end is the next block's start) |
+
+**Nothing was written by hand and nothing was corrected.** Every word is what the
+ASR emitted, including its errors (`Chachib`, `Enthropics`, `langraph`), because an
+edited transcript would be a different text from the recording and no quotation
+could be attributed to it. The ASR caveat is rendered app-side next to the player.
+
+## P9-2. What was written, and what it cost
+
+| Fact | Value |
+|---|---|
+| Course | one course, id derived from the video id (`083d7195-9371-5202-93dc-a724ad7982cc`), 3399.2959 s |
+| Resource | one `transcript` resource, `parser_version: youtube-json3-v1`, `extraction_coverage: 0.996` |
+| Blocks | **56** rows, `block_type: transcript`, `policy: TIMELINE_BOUND`, `review_state: AUTO_APPROVED`, `ingest_status: INDEXED` |
+| Vectors | 56/56 at **768** dimensions from `gemini-embedding-001`; 0 rows with a null embedding |
+| Unlock rule | `unlock_seconds = end_seconds` for all 56 rows — a block becomes eligible only once it has been **watched to its end** |
+| Synthetic-fixture contamination | **0 rows** contain the fixture's invented text; the sample lesson is a separate course |
+| Embedding requests | **3** (0 → 3 of a daily cap of 10), one admission per batch of 25 blocks |
+| Generation tokens | **0** — this command makes no model call |
+
+`pnpm ingest:lesson --dry-run` first, which parses, segments and prints coverage
+having written nothing and sent nothing.
+
+## P9-3. The canary: 31 passed, 0 failed, 1 not run
+
+`pnpm canary:lesson --positions 300,1200,3000` against the production build on
+`127.0.0.1:4321`, four live turns. The harness reads the stored transcript itself
+and builds its **own** expected-eligible set, so the citations below are checked
+against the actual evidence a turn used.
+
+| Turn | Position | Question | Result |
+|---|---|---|---|
+| 1 | 05:00 | *What topics does the instructor list at the very start of this lesson?* | `TEMPORARILY_UNAVAILABLE / PROVIDER_MALFORMED` → **NOT RUN** (see P9-4) |
+| 2 | 20:00 | *What happens when the compliance score falls below 75%?* | `INSUFFICIENT_EVIDENCE / UNSUPPORTED_BY_EVIDENCE`, 0 claims — the fact unlocks at **44:52** |
+| 3 | 50:00 | the same question | `ANSWERED`, 1 claim, 1 citation to `Transcript 44:52–45:53` |
+| 4 | 50:00 | *How do I configure a Kubernetes ingress controller to serve gRPC over HTTP/2?* | `INSUFFICIENT_EVIDENCE`, 0 claims (no marker phrase exists anywhere in the corpus) |
+
+Checks that ran for every turn and passed: the app's eligible count matched the
+independent oracle (4 / 19 / 49 / 49); the late fact was absent from the eligible
+set **and from the entire response body** before its unlock and present after it;
+every citation id was inside the eligible set; every quotation appeared verbatim in
+its cited stored block; every citation label carried that block's real clock; no
+collapsed internal state token appeared.
+
+The citation from turn 3, verbatim from the artifact:
+
+```
+text      If the compliance score is below 75%, the workflow routes back to node
+          one to gather additional documents.
+cite      c4e269b3-ac4d-5c01-872d-4b4863a7c004 · Transcript 44:52–45:53 · 2692.8–2753.119 s
+quote     If node 3 determines compliance score is below 75% the conditional edge
+          routes back to node one to gather additional documents.
+```
+
+Raw artifact: [docs/evidence](evidence/canary-lesson-lesson-2026-10-16T19-02-50-181Z.json).
+
+## P9-4. The canary found a real defect, and the re-run cleared it
+
+Turn 1's failure was not a provider outage. The server log named it:
+
+```
+[horizon] provider failure at generate: malformed_response — The model response did not match the claim schema (claims:too_big).
+```
+
+The generation envelope accepted at most **8** claims; the model returned more, so
+a perfectly answerable question was rejected and reported to the learner as
+"temporarily unavailable". The count is not a truth property — Tier-1 checks every
+quotation against the payload and Tier-2 verifies every claim, rendering only the
+supported ones — so the bound was raised to 40, and the verifier's verdict bound
+raised above it so an accepted response can always be answered verdict-for-verdict.
+
+Re-run at the same early position:
+
+| Check | Result |
+|---|---|
+| `expected-outcome` | **PASS** — `ANSWERED`, 14 claims, 14 citations |
+| `citations-eligible` | **PASS** — 0 of 14 outside the 4-block eligible set |
+| `quotes-verbatim` | **PASS** — 0 of 14 failed to match the stored text |
+| `citation-clock` | **PASS** — 0 of 14 disagreed with the stored start time |
+| `no-fact-in-response` | **PASS** — the late fact is still absent at 05:00 |
+| Summary | **8 passed, 0 failed, 0 not run** |
+
+Raw artifact: [docs/evidence](evidence/canary-lesson-early-after-envelope-fix-2026-10-16T19-07-00-150Z.json).
+
+## P9-5. Playback position → eligibility, in a real browser
+
+Measured on the running production build at `127.0.0.1:4321` (Chromium via CDP),
+not inferred from code:
+
+| Observation | Value |
+|---|---|
+| Player | `<video src="/api/v1/lesson/video">`, `readyState` 4, `duration` **3399.2959** (the file's own) |
+| Play | `currentTime` advanced 0 → **3.417 s** in 3.5 s with no error |
+| Seek | the "10:00" preset put the element at **600.0 s**; the panel then read `10:00 / 56:39` |
+| Position source | `Source: the player's own playback clock.` |
+| Evidence in scope | **0** blocks at 00:03 → **9** at 10:00 → (canary) **19** at 20:00, **49** at 50:00 |
+| Desktop 1440×1000 | `scrollWidth` 1440 = `clientWidth` 1440, no horizontal overflow; PNG 1440×2814, dark ink 17.44%, near-white 78.74%, accent `#1447E6` |
+| Mobile 390×844 | no element wider than the viewport, `scrollWidth` 390; PNG 390×4708, dark ink 7.05%, near-white 85.80% |
+| Captured page text at both widths | contains the indexed badge, the ASR provenance paragraph, `the player's own playback clock`, `eligible transcript block`, the lesson switcher and `Playing at` |
+
+Artifacts: [lesson-video-capture.json](evidence/lesson-video-capture.json),
+[desktop PNG](evidence/lesson-video-desktop.png),
+[mobile PNG](evidence/lesson-video-mobile.png).
+
+## P9-6. The status line that never changed
+
+`checks.runtimeAi.reachable` is still `null` — this endpoint sends no request of
+its own, so it must not claim a provider is live. What replaced the permanent
+`not verified (a smoke test is required)` is `runtime.providerCallEvidence`, read
+from the durable ledger: the newest **settled, reported** generation row, with its
+timestamp and whether it falls inside the current UTC day. Four states are kept
+distinct — `observed`, `none_recorded`, `not_durable`, `unreadable` — and the
+memory ledger reports `not_durable` rather than implying that no call ever
+succeeded. Observed live on this build:
+
+```
+observed · 2026-10-16T19:06:58Z · groq / openai/gpt-oss-20b · inside today's UTC day
+```
+
+## P9-7. Budget, before and after
+
+| Meter | Before this part | After the ingest | After the canaries and the browser work |
+|---|---|---|---|
+| Embedding requests (cap 10/day) | 0 | 3 | **8** |
+| Generation tokens (ceiling 20 000/day) | 0 | 0 | **15 132** |
+
+The two canary runs and the browser checks cost 8 embedding requests and 15 132
+generation tokens in total; the ingest itself cost 3 requests and no tokens.
+Counters were never reset or raised, and no cap was bypassed. The remaining 4 868
+tokens of the day were deliberately **not** spent on further turns.
+
+## P9-8. Not established here
+
+- **Whether the ASR text is faithful to the audio.** It is faithful to the
+  *captions*; whether YouTube's recognition is correct is not something this
+  project can measure, and it is why every screen says "machine transcription".
+- **The whole recording.** Coverage is 99.6%, not 100%: 12.8 s of the recording has
+  no caption text, so a question about that span has no evidence regardless of the
+  playhead.
+- **Any deployed origin.** Still no public URL (see [DEPLOY.md](DEPLOY.md)). Every
+  check in this part was against loopback, and the deployed path — the YouTube
+  embed instead of the local file — has not been exercised on a host.
+- **A second provider or model.** One live provider (Groq) and one embedding model
+  were exercised. No claim is made about others.

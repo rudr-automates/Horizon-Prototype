@@ -4,6 +4,13 @@
 part of this work, so nothing here has been executed. This document is the
 prepared procedure, not a report of a deployment.
 
+The evidence a deployed instance would serve is already in the database this
+procedure points at, so a host needs no extra data step: the recording's 56
+transcript blocks live in Supabase (see EVALUATION.md Part 09). What a host does
+NOT have is the 235 MiB recording itself, so it plays the original YouTube embed —
+and that is the one path this procedure still cannot claim, because it has never
+run on a host.
+
 Read the last section before believing a deploy "worked".
 
 ---
@@ -130,8 +137,12 @@ Open the URL in a clean browser session and then:
 
 | Check | Expected |
 |---|---|
-| Home page | Loads; the sample lesson and the "synthetic demo" labelling are visible |
+| Home page | Loads; **Lesson recording (real captions)** is the selected lesson and "Transcribed and indexed from its own captions" is visible |
 | Lesson video | The player renders and its clock advances while playing and follows a seek. On a host the source line names the original YouTube embed, because the recording was not uploaded — that is the expected state, not a defect |
+| Position provenance | The panel reads `Source: the player's own playback clock.` once the player has started. If a host's browser refuses the embed, it must instead read `Source: set by hand, because no player has reported a clock in this session` — never a number presented as playback |
+| Evidence scope moves with the clock | `pnpm canary:lesson --base https://<project>.vercel.app --positions 300,1200,3000` exits 0: 4 / 19 / 49 eligible blocks, each matching the harness's own oracle |
+| The late fact is unreachable early | In the same run, the 20:00 turn about the `75%` threshold is a refusal whose response body contains neither `compliance score` nor `75%`, while the 50:00 turn is answered and cites `Transcript 44:52–45:53` |
+| An uncovered question refuses | The Kubernetes/gRPC question returns `INSUFFICIENT_EVIDENCE` with 0 claims |
 | `GET /api/v1/health` | HTTP 200; each check reflects reality and nothing is inferred from an env var being set |
 | Health must not overclaim | `runtimeAi.reachable` is `null` unless a live smoke test was actually recorded |
 | Database is genuinely usable | `checks.database.querySucceeded: true` (an authenticated read, not a reachability ping), `schemaObjects: "verified"`, `durableLedger: "usable"`, `ok: true` |
@@ -149,8 +160,14 @@ Run the recorded canary against the deployed host so the evidence is
 reproducible rather than described:
 
 ```bash
-pnpm canary --base https://<project>.vercel.app --label prod
+pnpm canary --base https://<project>.vercel.app --label prod          # the fixture corpus
+pnpm canary:lesson --base https://<project>.vercel.app --label prod  # the recording's transcript
 ```
+
+`pnpm canary:lesson` needs the database credentials, because it reads the stored
+transcript to build its own oracle. It spends: one embedding request and two
+generation calls per turn. `--max-turns 2` halves that if the day's budget is
+already partly used.
 
 ## 7. Things that are still missing after a successful deploy
 
@@ -161,7 +178,16 @@ pnpm canary --base https://<project>.vercel.app --label prod
   in fixture mode and says so in `/api/v1/health` (`evidenceSource: "fixture"`),
   and until `0003` is, the answer path refuses every turn. Pointing the deployment
   at the existing project avoids all of this — it has all three.
-- **The corpus is synthetic.** Deploying does not make the demo database-backed.
+- **The sample lesson is still synthetic, and it ships alongside the real one.**
+  Both courses are listed; the interface makes the recording the default and
+  labels the sample as synthetic everywhere it appears. A deployment that wants
+  only the recording should delete the sample course deliberately, not by
+  accident.
+- **A fresh project needs the transcript ingested.** The recording's evidence is
+  not in a migration: point a brand-new Supabase project at this app and the
+  video course will be absent until `pnpm ingest:lesson` is run against it with
+  the same caption file. That costs 3 embedding requests and no model tokens, and
+the page states the absence plainly instead of failing obscurely.
 - **The lesson recording is not uploaded, so a host has no byte-range endpoint to
   serve.** `GET /api/v1/lesson/video` answers `404` there and the player falls
   back to the original YouTube embed; both paths were verified on the local

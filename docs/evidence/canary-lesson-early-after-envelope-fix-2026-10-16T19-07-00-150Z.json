@@ -1,0 +1,579 @@
+{
+  "recordedAt": "2026-10-16T19:07:00.150Z",
+  "label": "early-after-envelope-fix",
+  "base": "http://127.0.0.1:4321",
+  "courseId": "083d7195-9371-5202-93dc-a724ad7982cc",
+  "courseServedByApp": true,
+  "recording": {
+    "title": "Don't learn AI Agents without Learning these Fundamentals",
+    "youtubeId": "ZaPbP9DwBOE",
+    "durationSeconds": 3399.2959
+  },
+  "canary": {
+    "label": "the compliance-score threshold stated late in the lesson",
+    "terms": [
+      "compliance score",
+      "75%"
+    ],
+    "storedBlocksContainingIt": 2,
+    "earliestUnlockSeconds": 2692.8,
+    "earliestUnlockClock": "44:52"
+  },
+  "unsupportedQuestion": {
+    "question": "How do I configure a Kubernetes ingress controller to serve gRPC over HTTP/2?",
+    "markerPhrasePresentInCorpus": false
+  },
+  "storedBlockCount": 56,
+  "budget": {
+    "utcDay": "2026-10-16",
+    "generationTokensBefore": 8146,
+    "generationTokensAfter": 15132,
+    "embeddingRequestsBefore": 7,
+    "embeddingRequestsAfter": 8
+  },
+  "summary": {
+    "turns": 1,
+    "checks": 8,
+    "passed": 8,
+    "failed": 0,
+    "notRun": 0
+  },
+  "turns": [
+    {
+      "position": {
+        "seconds": 300,
+        "label": "05:00"
+      },
+      "question": "What topics does the instructor list at the very start of this lesson?",
+      "intent": "supported-early",
+      "answer": {
+        "requestId": "d3222c89-9b0f-48d5-b999-5feafe264ea6",
+        "answerState": "ANSWERED",
+        "reason": "NONE",
+        "message": "",
+        "latencyMs": 5843,
+        "persistence": {
+          "persisted": true,
+          "mode": "supabase",
+          "detail": "Turn stored."
+        },
+        "claims": [
+          {
+            "text": "Prompt engineering",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Context",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Windows",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Tokens",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Embeddings",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "RAG",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Vector DB",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "MCPS",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Agents",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Lang chain",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Langraph",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Claude",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "Gemini",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+              }
+            ]
+          },
+          {
+            "text": "AI fundamentals",
+            "citations": [
+              {
+                "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+                "sourceLabel": "Transcript 00:00–01:00",
+                "blockType": "transcript",
+                "startSeconds": 0.08,
+                "endSeconds": 60.96,
+                "pageNumber": null,
+                "slideNumber": null,
+                "lineStart": 0,
+                "lineEnd": 28,
+                "policy": "TIMELINE_BOUND",
+                "quote": "We'll start with AI fundamentals, then move on to rag, vector DB, lang chain, langraph, MCP, prompt engineering"
+              }
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "Prompt engineering, context, windows, tokens, embeddings, rag, vector DB, MCPS, agents, lang chain, langraph, claude, Gemini, and more."
+          },
+          {
+            "evidenceId": "095bf361-8130-56e7-8bd9-14a56888e6f5",
+            "sourceLabel": "Transcript 00:00–01:00",
+            "blockType": "transcript",
+            "startSeconds": 0.08,
+            "endSeconds": 60.96,
+            "pageNumber": null,
+            "slideNumber": null,
+            "lineStart": 0,
+            "lineEnd": 28,
+            "policy": "TIMELINE_BOUND",
+            "quote": "We'll start with AI fundamentals, then move on to rag, vector DB, lang chain, langraph, MCP, prompt engineering"
+          }
+        ],
+        "scope": {
+          "boundarySeconds": 300,
+          "scopeMode": "POSITION",
+          "eligibleBlockCount": 4,
+          "policySummary": "Lesson through 05:00 · approved course-wide references enabled"
+        },
+        "evidence": {
+          "source": "supabase",
+          "retrievedCount": 4,
+          "payloadCount": 4,
+          "embeddingProvider": "gemini-embedding-001",
+          "generator": "groq",
+          "verifier": "groq"
+        },
+        "provenance": {
+          "modelId": "openai/gpt-oss-20b",
+          "embeddingModel": "gemini-embedding-001",
+          "embeddingDimensions": 768,
+          "verification": "model_assisted",
+          "demoContent": false
+        },
+        "guard": {
+          "mode": "supabase",
+          "budgetTokens": 20000,
+          "spentTokensToday": 15132,
+          "coverage": "Counts text-generation and verification tokens reported by the provider, including billable reasoning tokens. Capacity is reserved atomically in the database before each call and reconciled afterwards, and a call that reports nothing is charged its reservation rather than erased. Embedding requests are counted against a durable cap, but their cost is not metered because that API reports no token usage.",
+          "detail": "6986 token(s) charged for this turn; 15132 of 20000 used today."
+        }
+      },
+      "checks": [
+        {
+          "id": "eligible-set",
+          "description": "the app's eligible count matches an independently written oracle",
+          "outcome": "PASS",
+          "detail": "app reported 4; oracle computed 4 from 56 stored blocks"
+        },
+        {
+          "id": "future-fact-availability",
+          "description": "the late fact is NOT available before the recording reaches it",
+          "outcome": "PASS",
+          "detail": "the fact's earliest unlock is 44:52; 0 of 4 eligible blocks contain it"
+        },
+        {
+          "id": "no-fact-in-response",
+          "description": "nothing in the response discloses the late fact",
+          "outcome": "PASS",
+          "detail": "searched the whole response body for \"compliance score\" and \"75%\""
+        },
+        {
+          "id": "citations-eligible",
+          "description": "every citation id names a block that was eligible at this position",
+          "outcome": "PASS",
+          "detail": "14 citation(s); 0 outside the 4-block eligible set"
+        },
+        {
+          "id": "quotes-verbatim",
+          "description": "every quotation appears verbatim in its cited stored block",
+          "outcome": "PASS",
+          "detail": "14 quotation(s); 0 did not match the stored text"
+        },
+        {
+          "id": "citation-clock",
+          "description": "every citation label carries its source block's real clock",
+          "outcome": "PASS",
+          "detail": "14 label(s); 0 disagreed with the stored start time"
+        },
+        {
+          "id": "no-internal-leak",
+          "description": "the response exposes no collapsed internal state",
+          "outcome": "PASS",
+          "detail": "none of the internal tokens appeared"
+        },
+        {
+          "id": "expected-outcome",
+          "description": "an early question about material the recording has reached is answered from it",
+          "outcome": "PASS",
+          "detail": "answerState=ANSWERED; 14 claim(s); 14 citation(s)"
+        }
+      ]
+    }
+  ]
+}

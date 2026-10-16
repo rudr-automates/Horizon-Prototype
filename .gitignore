@@ -36,6 +36,9 @@ dist/
 *.srt
 *.vtt
 
+# local server logs and pid files (evidence, not project content)
+.logs/
+
 # os / editor
 .DS_Store
 Thumbs.db

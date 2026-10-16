@@ -3,7 +3,18 @@ import typescriptConfig from "eslint-config-next/typescript";
 
 const eslintConfig = [
   {
-    ignores: [".next/**", "node_modules/**", "coverage/**", "next-env.d.ts"],
+    // `.freebuff/**` is workspace metadata (evidence scripts, downloaded caption
+    // files, and the local yt-dlp install) and is gitignored. Linting it reported
+    // warnings from third-party vendored JavaScript, which says nothing about
+    // this repository's code.
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "coverage/**",
+      "next-env.d.ts",
+      ".freebuff/**",
+      ".logs/**",
+    ],
   },
   ...coreWebVitals,
   ...typescriptConfig,

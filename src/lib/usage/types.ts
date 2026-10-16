@@ -165,6 +165,41 @@ export interface SettlementResult {
 export const SETTLEMENT_POLICY_NOTE =
   "A granted reservation is reconciled against what the provider reported. When nothing is reported, the reservation itself stands as the charge: a failed or timed-out call may still have been billed, so spend is never erased.";
 
+/**
+ * Evidence that a provider call actually completed, read from the ledger.
+ *
+ * WHY THIS REPLACES "not verified (a smoke test is required)"
+ *   That sentence was true about the endpoint and useless to a reader: it did not
+ *   change when a smoke test was run, so a deployment that had been answering
+ *   questions for hours looked exactly like one nothing had ever been sent to.
+ *   A settled, reported provider call is a DURABLE fact about the past, and it is
+ *   the only kind of fact this project will put on that line — it is never
+ *   inferred from configuration, and it is never hardcoded to success.
+ *
+ *   `today` is reported separately from the timestamp because both matter:
+ *   a record from an earlier UTC day proves the credential worked, not that it
+ *   works now.
+ */
+export type ProviderCallEvidence =
+  | {
+      state: "observed";
+      /** When the call settled (ISO). */
+      at: string;
+      provider: string;
+      modelId: string | null;
+      operation: string | null;
+      /** Whether that record falls inside the current UTC day. */
+      today: boolean;
+    }
+  | { state: "none_recorded" }
+  | {
+      /**
+       * The ledger in use keeps no durable record of past calls, so nothing can
+       * be said about them. Not the same as "no call was made".
+       */
+      state: "not_durable";
+    };
+
 export interface UsageLedger {
   readonly mode: "supabase" | "memory";
   /**
@@ -213,6 +248,14 @@ export interface UsageLedger {
   ): Promise<SettlementResult>;
   /** Append a settled record for a call that never held a reservation. */
   record(entry: UsageEntry): Promise<void>;
+  /**
+   * The newest completed provider call this store can still prove.
+   *
+   * Must return `not_durable` rather than an empty answer when the store cannot
+   * carry that fact, so "this mode keeps no record" is never rendered as "no call
+   * has ever succeeded".
+   */
+  providerCallEvidence(): Promise<ProviderCallEvidence>;
 }
 
 /** Stable, readable statement of what the recorded number covers. */

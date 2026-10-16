@@ -54,7 +54,9 @@ honest refusal.
 | Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ✅ **live-verified on 2026-10-15** — one smoke request and three canary turns succeeded through this adapter. Endpoint, bearer auth, strict JSON Schema, usage mapping, 429 guidance and every failure path are also unit tested (38 cases, all mocked) |
 | Learner workbench (timeline presets, scope count, citations, status panel) | ✅ verified rendered at 1440px and 390px, hydrated, timeline selection confirmed live (eligible evidence 2 → 10 → 15) |
 | Lesson video playback | ✅ **verified live** — the 235.0 MiB recording (56:39, 1920x1080 h264) streams from the local copy with byte-range support (`206` and a correct `Content-Range`, `416` past the end, `404` where no local copy exists), and the panel's clock is the element's own (`31:17 / 56:39` at a 1875 s seek). With the file absent the panel switches to the original YouTube embed and reads that player's own clock through the official IFrame Player API |
-| Video-grounded Q&A | ❌ **unavailable, and labelled so** — there is no transcript or caption file for the recording and its container has no subtitle stream, so nothing may cite it. The synthetic fixture stays the only evidence, under a panel that says exactly that |
+| Video-grounded Q&A from the recording | ✅ **live-verified** — the recording's own automatic English captions (1505 lines, 0.1 s–3386.5 s of the recording's 3399.3 s, so 99.6% coverage) are parsed into **56 timestamped blocks** in a course of their own and are cited. A fact stated only late in the lesson (`compliance score` … `below 75%`, unlocking at 44:52) is absent from the eligible set and from the entire response body at 05:00 and at 20:00 — including when the learner asks about it directly — and is answered from a verbatim-cited block at 50:00. It is **machine transcription**, and every screen that shows it says so |
+| The transcript ingest itself (`pnpm ingest:lesson`) | ✅ **executed live** — captions parsed and segmented (56 blocks, mean 60.5 s), embedded in 3 batched requests against a cap of 10, every row 768-dimensional, every row `TIMELINE_BOUND/AUTO_APPROVED/INDEXED`, and **0 rows** carry synthetic-fixture text. OCR and PDF/slide parsing remain ❌ deferred |
+| Playback clock → evidence scope | ✅ **verified live** — the position a question is asked at is the player's own clock (`Source: the player's own playback clock.`), and the eligible count moves with it: 0 blocks at 00:03, 9 at 10:00, 19 at 20:00, 49 at 50:00, each matching an independently written oracle. With no player clock the control falls back to a manual position that is labelled as manual |
 | Supabase migrations (schema, search RPCs, atomic budget) | ✅ **all three applied and verified live** — six tables with RLS, pgvector `0.8.2`, six functions, and `0003`'s reservation columns; a re-read then confirmed 6/6 tables, 6/6 functions and a readable ledger |
 | Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
 | Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
@@ -70,9 +72,11 @@ honest refusal.
 | Spend guard (`HORIZON_DAILY_TOKEN_BUDGET`) enforced before any provider call | ✅ unit tested |
 | Seed/ingestion path for the demo corpus (`pnpm seed:demo`) | ✅ **executed live** — 1 course / 6 resources / 18 blocks upserted on primary key, using 1 embedding request against a cap of 10 |
 | End-to-end canary harness (`pnpm canary`) | ✅ ran live; recorded in [docs/evidence](docs/evidence) |
+| Lesson canary with a database-derived oracle (`pnpm canary:lesson`) | ✅ **ran live: 31 passed, 0 failed, 1 not run**, then 8 passed / 0 failed / 0 not run for the early turn it exposed. It reads the stored transcript and builds its own expected-eligible set, so citation ids, quotations and clocks are checked against the real evidence rather than a fixture |
+| `runtime.providerCallEvidence` on `/api/v1/health` | ✅ **verified live** — replaces a line that read "not verified (a smoke test is required)" forever with what the ledger can prove: the newest settled, reported provider call, its time, and whether it is inside the current UTC day (`observed` at 2026-10-16T19:06:58Z, groq / `openai/gpt-oss-20b`). Modes `none_recorded`, `not_durable` and `unreadable` are kept distinct, and nothing is inferred from configuration |
 | Turn persistence to a real database | ✅ **verified live** — three canary turns were written to `public.turns` (`persistence: {"persisted":true,"mode":"supabase"}`) at boundaries 0 / 360 / 720 s, with the same answer states the responses reported. The unconfigured path still reports `persisted: false` honestly |
 | Public deployment | ❌ not attempted; staged procedure and the four-part release gate are in [DEPLOY.md](docs/DEPLOY.md). **No public URL exists** |
-| Ingestion (transcription, OCR, parsing) | ❌ deferred — the demo corpus is a fixture |
+| Ingestion of PDFs, slides and code, and OCR | ❌ deferred — only the recording's caption track is ingested (above) |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
 evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALUATION.md).
@@ -81,11 +85,16 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
 
 ## The learner flow
 
-1. Watch the lesson recording. It is the real video, and its clock is its own;
-   the evidence numbers below it come from the **labelled sample fixture**, not
-   from the recording, and the page says so wherever those numbers appear.
-2. Move the sample-fixture position. The scope chip reports how many fixture
-   evidence blocks are eligible *at that position*.
+1. Watch the lesson recording. It is the real video, its clock is its own, and
+   the **evidence is the recording's own transcript** — YouTube's automatic
+   English captions, ingested verbatim with the timestamps the source reported.
+   The page states where they came from and that they are machine transcription,
+   so a mis-heard word in a quotation is visible as the source's, not ours.
+2. Seek (the slider or a preset seeks the real player). The position shown is the
+   player's clock, and the scope chip reports how many transcript blocks are
+   eligible *at that position*. A block unlocks when it has been watched to its
+   end, so the count starts at 0 and only ever describes material already
+   finished.
 3. Ask a question. The server embeds it, runs full-text **and** vector retrieval
    — both filtered by the same canonical predicate — fuses the candidates, and
    re-asserts eligibility on the final payload.
@@ -97,9 +106,14 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
    support. Only surviving claims are rendered, with server-resolved citations.
 6. If nothing survives, or nothing eligible exists, the learner sees a refusal.
 
-Ask `What backoff constant does the instructor choose, and why?` at 06:00 and
-again at 12:00 in the **sample fixture** to watch the evidence scope change; the
-recording's own clock is separate and nothing in that answer comes from it.
+Ask `What happens when the compliance score falls below 75%?` at 10:00 and again
+at 50:00. At 10:00 nothing in the recording has reached that passage, so the turn
+refuses and the response contains neither the question's own subject matter nor
+any hint of it; at 50:00 the same question is answered from a cited transcript
+block. Switching to **Sample fixture (synthetic)** moves to the labelled synthetic
+retry-and-backoff lesson with its own short timeline, so the two can be compared
+without ever being confused: the selector, the scope chip and the citation labels
+all say which lesson is in play.
 
 ---
 
@@ -146,6 +160,28 @@ cp .env.example .env.local   # then fill in real values (never commit them)
 | `pnpm test` | Vitest unit tests |
 | `pnpm seed:demo` | Seed the labelled demo corpus into Supabase with real embeddings. Refuses, writing nothing, unless the migrations, the database credential and a real embedding provider are all configured |
 | `pnpm canary` | Ask the canary question at 00:00, 06:00 and 12:00 against a running server and record the real responses to `docs/evidence/` |
+| `pnpm ingest:lesson` | Fetch-parse-and-ingest the recording's captions: 56 timestamped blocks in a course of their own. `--dry-run` parses and reports without writing and without any embedding request; `--captions <path>` points at another json3 file |
+| `pnpm canary:lesson` | Interrogate the real lesson: reads the stored transcript, builds its own expected-eligible oracle, and checks the scope count, the temporal invariant, citation eligibility, verbatim quotations, citation clocks and an unsupported question. `--positions`, `--max-turns`, `--label` |
+
+```bash
+# 1. fetch the recording's OWN automatic English captions (never write one by hand)
+yt-dlp --skip-download --write-auto-subs --sub-langs en --sub-format json3 \
+  -o '.freebuff/captions/%(id)s.%(ext)s' https://youtu.be/ZaPbP9DwBOE
+
+# 2. parse + segment, and report coverage without writing anything
+pnpm ingest:lesson --dry-run
+
+# 3. ingest (embeds in batches, one admission per batch against the day's cap)
+pnpm ingest:lesson
+
+# 4. interrogate the stored evidence
+pnpm canary:lesson --base http://127.0.0.1:4321 --positions 300,1200,3000
+```
+
+The caption file is a third-party artefact and is gitignored: the ingest command
+takes a path, so the text that reaches the database is the text a human chose to
+fetch. A malformed or out-of-order caption file is refused outright rather than
+re-sorted, because ordering is what makes the timestamps mean anything.
 
 ```bash
 pnpm canary --base http://127.0.0.1:4321 --label fixture-unconfigured
@@ -444,8 +480,11 @@ unverified, the health endpoint, this README and `docs/` say so explicitly.
 
 Specific consequences of that rule:
 
-- The demo corpus is a **simulation**. There is no lesson video; `Horizon.mp4`
-  is promotional material and is never presented as lesson content.
+- The lesson recording is **real**, and so is its transcript — but that
+  transcript is **machine transcription**: YouTube's automatic English captions,
+  ingested verbatim. Wording can be wrong even though nothing was edited, so the
+  ASR caveat is stated next to the playhead, and the synthetic sample lesson is a
+  separate, clearly labelled course that is never presented as the recording.
 - The offline embedder is a lexical hash, not a semantic model. It is labelled
   `synthetic-lexical-v1` everywhere it is used, and it is only used when no
   embedding credential exists.
@@ -464,14 +503,26 @@ Specific consequences of that rule:
 ```
 pnpm lint         exit 0
 pnpm typecheck    exit 0
-pnpm test         exit 0   251 tests, 16 files   (all mocked, incl. the concurrency, health and provider cases)
+pnpm test         exit 0   319 tests, 20 files   (all mocked; the transcript/integration cases run against fixtures written in the tests)
 pnpm build        exit 0
 pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
 pnpm verify:budget exit 0  12 concurrent generation reservations -> exactly 4 granted of a 4-slot budget; 12 concurrent embedding admissions -> exactly 3 of a cap of 3; cleanup complete, 0 probe rows
 pnpm verify:data-path exit 0  25 passed, 0 failed, 0 pending — real rows, zero provider calls
 pnpm smoke        exit 0   2 LIVE calls: 1 embedding (768d, all finite) + 1 generation (1 structured claim, charged 396 = 315 + 81)
+pnpm ingest:lesson exit 0  LIVE: 1505 caption lines -> 56 blocks, 99.6% coverage; 3 embedding requests (0 -> 3 of a cap of 10); 56/56 rows at 768 dimensions, 0 rows with fixture text
 pnpm canary       exit 0   18 passed, 0 failed, 9 not run  (live, database corpus; the 9 need fixture text)
+pnpm canary:lesson exit 0  31 passed, 0 failed, 1 not run (4 live turns, database corpus); the not-run turn is the defect fixed below, re-run as 8 passed / 0 failed / 0 not run
 ```
+
+That canary run also **found a real defect**: at an early position the turn came
+back `TEMPORARILY_UNAVAILABLE / PROVIDER_MALFORMED`, and the server log named the
+cause — `claims:too_big`. The model had returned more claims than the generation
+envelope accepted (8), so a supported question was reported as a provider outage.
+The count is not a truth property — Tier-1 checks every quotation against the
+payload and Tier-2 verifies every claim — so the bound was raised to 40 (and the
+verifier's verdict bound with it, above the claim bound), and the re-run answered
+with 14 verified claims, all 14 quotation-verbatim and all 14 inside the 4-block
+eligible set. Both artifacts are in [docs/evidence](docs/evidence).
 
 The concurrency tests are unit tests over a shared ledger: they prove no two
 turns can both hold the same budget, and that a refused turn reaches the provider

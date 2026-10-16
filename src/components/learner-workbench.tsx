@@ -13,30 +13,49 @@ import {
   TONE_CLASSES,
   reasonLabel,
 } from "@/lib/presentation/answer-state";
-import LessonVideo from "@/components/lesson-video";
+import LessonVideo, { type LessonVideoClockReport, type SeekRequest } from "@/components/lesson-video";
 import {
   LESSON_VIDEO,
   LESSON_VIDEO_EVIDENCE,
+  LESSON_VIDEO_SUGGESTED_QUESTIONS,
   type LessonVideoSource,
 } from "@/lib/lesson/video";
+import { LESSON_TRANSCRIPT_SOURCE } from "@/lib/lesson/transcript";
+import { describeEligibilityRule, resolveLessonPosition } from "@/lib/lesson/playhead";
 
 /**
  * The learner interface.
  *
- * COLOUR: every text element states its own colour. Nothing inherits a colour
- * and nothing is dimmed with `opacity-*`, because the previous build relied on
- * both and rendered white-on-white in a browser whose colour-scheme the app had
- * never pinned. See the contract at the top of `src/app/globals.css`.
+ * TWO LESSONS, NEVER BLURRED
+ *   The primary lesson is the recording's own transcript: 56 timestamped blocks
+ *   parsed from YouTube's automatic English captions for the selected video. The
+ *   synthetic sample (an invented retry-and-backoff lesson) is selectable on its
+ *   own, and every panel that could confuse the two states which one it is.
+ *
+ * ONE POSITION
+ *   The position a question is asked at is the player's own playback clock
+ *   whenever the player has reported one, and the interface says so beside the
+ *   number. When no clock exists — the embed cannot load, or playback has not
+ *   started — the position is set by hand and labelled as manual. It is never
+ *   presented as playback time.
+ *
+ * COLOUR: every text element states its own colour. Nothing inherits a colour and
+ * nothing is dimmed with `opacity-*`, because the previous build relied on both
+ * and rendered white-on-white in a browser whose colour-scheme the app had never
+ * pinned. See the contract at the top of `src/app/globals.css`.
  *
  * HONESTY: nothing on this page fabricates a result. Refusals, unavailability,
  * an absent credential and a silent scope refresh are each rendered as what they
  * are, and the status panel reports the same figures the health endpoint does.
  */
 export interface LearnerWorkbenchProps {
-  course: CourseSummary | null;
+  /** The recording's transcript course, when the evidence store has it. */
+  videoCourse: CourseSummary | null;
+  /** The labelled synthetic sample, when the evidence store has one. */
+  sampleCourse: CourseSummary | null;
   /**
-   * The lesson recording and where it can be played from. Resolved on the
-   * server from what is really on disk, so the panel never claims a source this
+   * The lesson recording and where it can be played from. Resolved on the server
+   * from what is really on disk, so the panel never claims a source this
    * deployment cannot produce.
    */
   lessonVideo: LessonVideoSource;
@@ -57,14 +76,29 @@ function formatClock(totalSeconds: number): string {
   return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
 }
 
-const PRESETS = [0, 360, 720] as const;
+/**
+ * Seek targets, chosen inside the recording's measured 56:39 and named for what
+ * the transcript shows starting there — read off the ingested blocks, not
+ * guessed. Each label is the section the timestamp actually begins.
+ */
+const VIDEO_SEEK_PRESETS = [0, 600, 1500, 2400, 3300] as const;
+const VIDEO_PRESET_LABELS: Record<number, string> = {
+  0: "Start",
+  600: "Labs start",
+  1500: "Vector DBs",
+  2400: "RAG + graph",
+  3300: "MCP",
+};
 
-/** Short label for a preset, so "00:00" is not the only thing on the button. */
-const PRESET_LABELS: Record<number, string> = {
+/** The sample fixture's own timeline, unchanged: a different lesson. */
+const SAMPLE_SEEK_PRESETS = [0, 360, 720] as const;
+const SAMPLE_PRESET_LABELS: Record<number, string> = {
   0: "Start",
   360: "Mid",
   720: "End",
 };
+
+type LessonView = "video" | "fixture";
 
 /**
  * Embedding-request usage, with the figure's scope stated rather than implied.
@@ -72,9 +106,7 @@ const PRESET_LABELS: Record<number, string> = {
  * The number must come from the store the cap is enforced in. When the cap is
  * durable, this process's counter is NOT the day's usage — it resets on every
  * restart — so showing it beside a durable cap would understate consumption and
- * make the remaining allowance look larger than it is. When the cap is
- * process-local, the process figure genuinely is the day's usage for this
- * instance, and the label says which instance that is.
+ * make the remaining allowance look larger than it is.
  */
 function describeEmbeddingRequests(runtime: HealthResponse["runtime"]): string {
   const cap =
@@ -93,7 +125,8 @@ function describeEmbeddingRequests(runtime: HealthResponse["runtime"]): string {
 
 export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
   const {
-    course,
+    videoCourse,
+    sampleCourse,
     lessonVideo,
     suggestedQuestions,
     runtimeAiConfigured,
@@ -107,10 +140,23 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
     storeError,
   } = props;
 
-  const duration = course?.durationSeconds ?? 900;
-  const courseId = course?.courseId ?? "";
+  const videoAvailable = videoCourse !== null;
+  const [view, setView] = useState<LessonView>(videoAvailable ? "video" : "fixture");
+  const activeCourse = view === "video" ? videoCourse : sampleCourse;
+  const courseId = activeCourse?.courseId ?? "";
+  const duration = activeCourse?.durationSeconds ?? 0;
 
-  const [playhead, setPlayhead] = useState(0);
+  /** The player's own report. `null` means it reported nothing — not zero. */
+  const [clock, setClock] = useState<LessonVideoClockReport | null>(null);
+  const [manualSeconds, setManualSeconds] = useState(0);
+  const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
+  /**
+   * The slider's thumb while a seek is in flight. It is a REQUEST, not a
+   * position, so the big clock never shows it: a scrub would otherwise print a
+   * time the player has not reached as though playback had produced it.
+   */
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+
   const [scope, setScope] = useState<ScopeSummary | null>(null);
   /**
    * Which scope request has SETTLED.
@@ -118,11 +164,12 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
    * "Refreshing…" is derived from this rather than set with a synchronous
    * setState at the top of an effect: that pattern cascades a render and is
    * rejected by the react-hooks lint rules. Comparing keys is exact — the key
-   * changes the instant the playhead moves, so the indicator cannot get stuck
-   * either way, and a failed refresh still clears it.
+   * changes the instant the playhead moves — so the indicator cannot get stuck.
    */
   const [settledScopeKey, setSettledScopeKey] = useState<string | null>(null);
-  const [question, setQuestion] = useState(suggestedQuestions[0] ?? "");
+  const [question, setQuestion] = useState(
+    videoAvailable ? (LESSON_VIDEO_SUGGESTED_QUESTIONS[0] ?? "") : (suggestedQuestions[0] ?? ""),
+  );
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<QuestionResponse | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -133,17 +180,54 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
   const [healthFailed, setHealthFailed] = useState(false);
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  const scopeRequestKey = `${courseId}|${Math.floor(playhead)}|${refreshToken}`;
+  const position = resolveLessonPosition({
+    courseKind: view,
+    clockSeconds: view === "video" ? (clock?.positionSeconds ?? null) : null,
+    manualSeconds,
+    durationSeconds: duration,
+  });
+  const playhead = position.seconds;
+  const playerClockLive = position.fromPlayer;
+
+  const scopeRequestKey = `${courseId}|${playhead}|${refreshToken}`;
   const scopePending = Boolean(courseId) && settledScopeKey !== scopeRequestKey;
 
-  // The scope indicator is informational: it is refreshed whenever the playhead
+  // A seek request is dropped after a few seconds so a player that never moved
+  // cannot leave the slider thumb stranded somewhere the clock disagrees with.
+  // The other way a preview clears — the player arriving — is handled in the
+  // clock callback itself, because that is an event rather than a reaction to
+  // freshly rendered state.
+  useEffect(() => {
+    if (seekPreview === null) return;
+    const timer = window.setTimeout(() => setSeekPreview(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [seekPreview]);
+
+  /**
+   * The player's report, and the moment a seek has visibly landed.
+   *
+   * `report === null` means the player has reported nothing, which is passed on
+   * as null rather than as zero so no position can be invented from it.
+   */
+  function handleClock(report: LessonVideoClockReport | null): void {
+    setClock(report);
+    if (
+      report !== null &&
+      seekPreview !== null &&
+      Math.abs(report.positionSeconds - seekPreview) < 2
+    ) {
+      setSeekPreview(null);
+    }
+  }
+
+  // The scope indicator is informational: it is refreshed whenever the position
   // moves and after each answered turn. State is only touched after the request
   // settles, and a stale response is discarded on cleanup.
   useEffect(() => {
     if (!courseId) return;
 
     const controller = new AbortController();
-    const url = `/api/v1/courses/${encodeURIComponent(courseId)}/scope?playheadSeconds=${Math.floor(playhead)}`;
+    const url = `/api/v1/courses/${encodeURIComponent(courseId)}/scope?playheadSeconds=${playhead}`;
 
     fetch(url, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
@@ -163,8 +247,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
   }, [courseId, playhead, refreshToken, scopeRequestKey]);
 
   // The status panel reads the SAME endpoint an operator would, so it cannot
-  // disagree with it. A dedicated duplicate of the derivation in the page would
-  // drift, and this is the panel a judge is most likely to trust.
+  // disagree with it.
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/v1/health", { cache: "no-store", signal: controller.signal })
@@ -180,12 +263,33 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
     return () => controller.abort();
   }, [refreshToken]);
 
+  function seek(seconds: number): void {
+    setSeekPreview(seconds);
+    setSeekRequest((previous) => ({ seconds, nonce: (previous?.nonce ?? 0) + 1 }));
+  }
+
+  function switchView(next: LessonView): void {
+    if (next === view) return;
+    setView(next);
+    setResult(null);
+    setRequestError(null);
+    setOpenCitation(null);
+    setScope(null);
+    setManualSeconds(0);
+    setSeekPreview(null);
+    setQuestion(
+      next === "video"
+        ? (LESSON_VIDEO_SUGGESTED_QUESTIONS[0] ?? "")
+        : (suggestedQuestions[0] ?? ""),
+    );
+  }
+
   async function ask() {
     if (!courseId || question.trim().length < 3) return;
     setPending(true);
     setRequestError(null);
     setOpenCitation(null);
-    setAskedAt(Math.floor(playhead));
+    setAskedAt(playhead);
     try {
       const response = await fetch(
         `/api/v1/courses/${encodeURIComponent(courseId)}/questions`,
@@ -194,7 +298,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: question.trim(),
-            playheadSeconds: Math.floor(playhead),
+            playheadSeconds: playhead,
           }),
         },
       );
@@ -220,6 +324,11 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
 
   const generationReady = runtimeAiConfigured;
   const canAsk = Boolean(courseId) && question.trim().length >= 3 && !pending;
+  const suggestions =
+    view === "video" ? [...LESSON_VIDEO_SUGGESTED_QUESTIONS] : suggestedQuestions;
+  const presets = view === "video" ? VIDEO_SEEK_PRESETS : SAMPLE_SEEK_PRESETS;
+  const presetLabels = view === "video" ? VIDEO_PRESET_LABELS : SAMPLE_PRESET_LABELS;
+  const sliderValue = seekPreview ?? playhead;
 
   return (
     <div className="min-h-screen">
@@ -273,16 +382,15 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
             Ask the lesson as far as you have watched.
           </h1>
           <p className="mt-2 max-w-3xl text-base text-slate-700">
-            Horizon answers from the lesson material it holds evidence for, and
-            only up to your playback position. A fact the material has not
-            reached yet is not merely hidden from the reply — it never reaches
-            the model.
+            Horizon answers from the recording&rsquo;s own transcript and only up to
+            your playback position. A passage the recording has not reached yet is
+            not merely hidden from the reply — it never reaches the model.
           </p>
 
           <ol className="mt-4 grid gap-3 sm:grid-cols-3">
             <Step number="1" title="Retrieve">
-              Both a keyword and a vector search run, each filtered by the same
-              eligibility predicate.
+              Both a keyword and a vector search run over the transcript, each
+              filtered by the same eligibility predicate.
             </Step>
             <Step number="2" title="Generate claims">
               The model returns structured claims that must quote the evidence
@@ -306,13 +414,30 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
           </Notice>
         )}
 
-        {evidenceSource === "fixture" && (
-          <Notice tone="warn" title="Sample evidence — synthetic content, not the lesson video">
+        {!videoAvailable && (
+          <Notice tone="warn" title="The recording's transcript is not in this evidence store">
             <p>
-              The evidence store in use is a labelled sample transcript, PDF,
-              slide and code fixture, so the eligibility and citation flow can be
-              demonstrated without a real transcript for the recording. It is not
-              the lesson video above and it is not an evaluated outcome.
+              {evidenceSource === "fixture"
+                ? "This deployment is running on the labelled sample fixture, so the recording's transcript is not available to retrieve from."
+                : "This evidence store has no course for the lesson recording yet. Run the transcript ingest command against this database to add it."}{" "}
+              The recording still plays, but nothing in it can be cited until its
+              transcript is ingested — and no answer below claims to come from it.
+            </p>
+            {videoCourse === null && evidenceSource === "supabase" && (
+              <p className="mt-1 font-mono text-xs">
+                pnpm ingest:lesson
+              </p>
+            )}
+          </Notice>
+        )}
+
+        {evidenceSource === "fixture" && (
+          <Notice tone="warn" title="Sample evidence — synthetic content, not the recording">
+            <p>
+              The only evidence store available is the labelled sample transcript,
+              PDF, slide and code fixture, so the eligibility and citation flow can
+              be demonstrated without a database. It is a different lesson from the
+              recording above, and it is not an evaluated outcome.
             </p>
             <p className="mt-1">{evidenceReason}</p>
           </Notice>
@@ -339,10 +464,10 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
         {!embeddingCredentialPresent && (
           <Notice tone="warn" title="No embedding credential is configured">
             <p>
-              The stored corpus was embedded with a real model, so a question
+              The stored transcript was embedded with a real model, so a question
               cannot be embedded into the same vector space. Turn will be refused
-              rather than searched with a stand-in vector, which would return
-              noise that still looks like a ranked list. Set{" "}
+              rather than searched with a stand-in vector, which would return noise
+              that still looks like a ranked list. Set{" "}
               <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[13px] text-slate-900">
                 HORIZON_EMBEDDING_API_KEY
               </code>
@@ -354,10 +479,16 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
         {/* ---------------- The lesson recording ---------------- */}
         <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-slate-900">Lesson video</h2>
-            <span className="rounded border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
-              Not transcribed or indexed
-            </span>
+            <h2 className="text-lg font-semibold text-slate-900">Lesson recording</h2>
+            {LESSON_VIDEO_EVIDENCE === "indexed" ? (
+              <span className="rounded border border-emerald-400 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-900">
+                Transcribed and indexed from its own captions
+              </span>
+            ) : (
+              <span className="rounded border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                Not transcribed or indexed
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-slate-700">
             <span className="font-medium text-slate-900">{LESSON_VIDEO.title}</span>{" "}
@@ -372,32 +503,36 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
             </a>
           </p>
 
-          <LessonVideo source={lessonVideo} />
+          <LessonVideo
+            source={lessonVideo}
+            onClock={view === "video" ? handleClock : undefined}
+            seekRequest={view === "video" ? seekRequest : null}
+          />
 
-          {/*
-            The one statement this revision exists to make. The player above is
-            real, and the evidence below is NOT from it, so the page says so
-            before the learner reads a single citation.
-          */}
-          <div className="mt-4 rounded-lg border border-amber-400 bg-amber-50 p-3">
-            <p className="text-sm font-semibold text-amber-900">
-              Horizon holds no evidence from this recording, so no answer can
-              cite it.
+          {/* Where the evidence for this recording came from, and what it is not. */}
+          <div className="mt-4 rounded-lg border border-slate-300 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-900">
+              Evidence source: {LESSON_TRANSCRIPT_SOURCE.label}
             </p>
-            <p className="mt-1 text-sm text-amber-900">
-              No transcript or caption file for this video exists in the
-              repository, and the file itself carries no subtitle stream. The
-              evidence below therefore comes from the{" "}
-              <strong>labelled sample fixture</strong> — a synthetic
-              retry-and-backoff lesson with its own short timeline. The fixture
-              is not this video, and nothing here presents its text, its
-              timestamps or its answers as though it came from this recording.
-            </p>
-            {LESSON_VIDEO_EVIDENCE === "not_indexed" && (
-              <p className="mt-1 text-sm text-amber-900">
-                Video-grounded Q&amp;A is therefore <strong>unavailable</strong>,
-                not merely unverified: a question about what the instructor says
-                in this recording cannot be answered from it.
+            {LESSON_VIDEO_EVIDENCE === "indexed" ? (
+              <>
+                <p className="mt-1 text-sm text-slate-700">
+                  The transcript above was downloaded from this recording&rsquo;s
+                  own caption track and ingested verbatim, with the timestamps
+                  YouTube reported for each caption line. No wording was cleaned
+                  up, corrected or summarised.
+                </p>
+                <p className="mt-1 text-sm text-slate-700">
+                  <strong>It is machine transcription.</strong>{" "}
+                  {LESSON_TRANSCRIPT_SOURCE.caveat} Where the captions mis-hear a
+                  word, that is what a quotation will show, because that is what
+                  the recording&rsquo;s captions say.
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-sm text-slate-700">
+                Nothing from this recording can be cited, and no answer claims to
+                come from it.
               </p>
             )}
           </div>
@@ -407,14 +542,58 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">Lesson</h2>
-              <span className="rounded border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                Sample fixture — synthetic, not the video above
+              <h2 className="text-lg font-semibold text-slate-900">Lesson position</h2>
+              <span
+                className={`rounded border px-2 py-0.5 text-xs font-semibold ${
+                  view === "video"
+                    ? "border-blue-300 bg-blue-50 text-blue-900"
+                    : "border-amber-400 bg-amber-50 text-amber-900"
+                }`}
+              >
+                {view === "video"
+                  ? "the recording — transcript evidence"
+                  : "sample fixture — synthetic, not the recording"}
               </span>
             </div>
-            <p className="mt-1 text-sm text-slate-700">
-              {course?.title ?? "No course is available from the configured source."}
-            </p>
+
+            {/* Which lesson the question is about. Never implicit. */}
+            <fieldset className="mt-3">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Lesson being asked about
+              </legend>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => switchView("video")}
+                  disabled={!videoAvailable}
+                  aria-pressed={view === "video"}
+                  className={`rounded-lg border px-3 py-1.5 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500 ${
+                    view === "video"
+                      ? "border-blue-700 bg-blue-700 text-white"
+                      : "border-slate-400 bg-white text-slate-900 hover:bg-slate-100"
+                  }`}
+                >
+                  Lesson recording (real captions)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchView("fixture")}
+                  disabled={!sampleCourse}
+                  aria-pressed={view === "fixture"}
+                  className={`rounded-lg border px-3 py-1.5 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500 ${
+                    view === "fixture"
+                      ? "border-amber-600 bg-amber-600 text-white"
+                      : "border-slate-400 bg-white text-slate-900 hover:bg-slate-100"
+                  }`}
+                >
+                  Sample fixture (synthetic)
+                </button>
+              </div>
+              <p className="mt-2 text-sm text-slate-700">
+                {activeCourse?.title ??
+                  "No lesson is available from the configured evidence source."}
+              </p>
+            </fieldset>
 
             <div className="mt-4 rounded-lg border border-slate-300 bg-slate-50 p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -422,7 +601,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                   htmlFor="playhead"
                   className="text-xs font-semibold uppercase tracking-wide text-slate-600"
                 >
-                  Sample-fixture position
+                  {view === "video" ? "Playback position" : "Sample-fixture position"}
                 </label>
                 <output
                   htmlFor="playhead"
@@ -435,29 +614,55 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                 </output>
               </div>
 
+              <p className="mt-1 text-sm text-slate-700" data-testid="position-source">
+                Source: {position.note}.
+              </p>
+
               <input
                 id="playhead"
                 type="range"
                 min={0}
                 max={duration}
                 step={1}
-                value={playhead}
-                onChange={(event) => setPlayhead(Number(event.target.value))}
+                value={Math.min(sliderValue, duration)}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  if (view === "video") seek(next);
+                  else setManualSeconds(next);
+                }}
                 aria-describedby="playhead-help"
                 className="mt-2 w-full cursor-pointer"
               />
+
+              {view === "video" && !playerClockLive && (
+                <p className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-2 text-xs font-medium text-amber-900">
+                  The player has not reported a playback clock, so the position
+                  above is the one set by this control and is labelled as manual.
+                  Press play in the recording above to ask from its real position.
+                </p>
+              )}
+
+              {view === "video" && seekPreview !== null && (
+                <p className="mt-2 text-xs text-slate-600" role="status">
+                  Seeking the player to {formatClock(seekPreview)} — the clock above
+                  still shows real playback time.
+                </p>
+              )}
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Jump to
                 </span>
-                {PRESETS.map((preset) => {
+                {presets.map((preset) => {
                   const active = Math.floor(playhead) === preset;
                   return (
                     <button
                       key={preset}
                       type="button"
-                      onClick={() => setPlayhead(preset)}
+                      onClick={() => {
+                        if (view === "video") seek(preset);
+                        else setManualSeconds(preset);
+                      }}
                       aria-pressed={active}
                       aria-label={`Jump to ${formatClock(preset)}`}
                       className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${
@@ -467,16 +672,17 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                       }`}
                     >
                       <span className="font-mono tabular-nums">{formatClock(preset)}</span>
-                      <span className="ml-1.5 font-normal">{PRESET_LABELS[preset]}</span>
+                      <span className="ml-1.5 font-normal">{presetLabels[preset]}</span>
                     </button>
                   );
                 })}
               </div>
 
               <p id="playhead-help" className="mt-2 text-xs text-slate-600">
-                Scrub the sample-fixture position and the eligible evidence
-                changes: fixture material the position has not reached is
-                withheld. This clock belongs to the fixture, not to the video.
+                {view === "video"
+                  ? "Moving this control seeks the recording, and the position reported back is the player's own clock. "
+                  : "Scrub the sample fixture's timeline; it belongs to the fixture, not to the recording. "}
+                {describeEligibilityRule(position)}
               </p>
             </div>
 
@@ -490,7 +696,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                 </span>
               </div>
               <p className="mt-0.5 text-sm text-slate-700">
-                eligible block{scope?.eligibleBlockCount === 1 ? "" : "s"} at{" "}
+                eligible transcript block{scope?.eligibleBlockCount === 1 ? "" : "s"} at{" "}
                 <span className="font-mono">{formatClock(playhead)}</span>
               </p>
               {scopePending && (
@@ -513,10 +719,20 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
               Ask about this moment
             </h2>
             <p className="mt-1 text-sm text-slate-700">
-              Answers may only use material unlocked at{" "}
-              <span className="font-mono">{formatClock(playhead)}</span> in the{" "}
-              <strong>labelled sample fixture</strong> — not the lesson video
-              above, which has no indexed transcript.
+              {view === "video" ? (
+                <>
+                  Answers may only use the recording&rsquo;s transcript up to{" "}
+                  <span className="font-mono">{formatClock(playhead)}</span>
+                  {position.fromPlayer ? ", taken from the player's own clock" : ", set by hand"}.
+                  Each block unlocks when the recording has reached its end.
+                </>
+              ) : (
+                <>
+                  Answers may only use the <strong>labelled sample fixture</strong>{" "}
+                  up to <span className="font-mono">{formatClock(playhead)}</span> —
+                  not the recording, whose evidence is in the other lesson.
+                </>
+              )}
             </p>
 
             <label
@@ -531,7 +747,11 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
               onChange={(event) => setQuestion(event.target.value)}
               rows={3}
               maxLength={500}
-              placeholder="e.g. What backoff constant does the instructor choose?"
+              placeholder={
+                view === "video"
+                  ? "e.g. What does the instructor say about the compliance score threshold?"
+                  : "e.g. What backoff constant does the instructor choose?"
+              }
               className="mt-1 w-full resize-y rounded-lg border border-slate-400 bg-white p-3 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-700"
             />
 
@@ -539,7 +759,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Examples
               </span>
-              {suggestedQuestions.map((suggestion) => (
+              {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
@@ -611,8 +831,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                   {result.evidence.generator === null ? " (no model call was made)" : ""}
                 </span>
                 <span className="text-sm text-slate-700">
-                  server time{" "}
-                  <span className="font-mono">{result.latencyMs} ms</span>
+                  server time <span className="font-mono">{result.latencyMs} ms</span>
                 </span>
               </div>
 
@@ -628,8 +847,17 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                   <span className="font-mono text-xs text-slate-600">
                     ({result.reason})
                   </span>
-                  . Nothing was invented to fill the gap — see the status panel
-                  below for the exact provider and budget state.
+                  . Nothing was invented to fill the gap — see the status panel below
+                  for the exact provider and budget state.
+                </p>
+              )}
+
+              {result.answerState === "INSUFFICIENT_EVIDENCE" && (
+                <p className="mt-2 text-sm text-slate-700">
+                  No eligible passage supports this question. That can mean the
+                  recording has not reached the part that covers it yet, or that the
+                  transcript does not cover it at all — and this interface cannot
+                  tell you which without disclosing material you have not watched.
                 </p>
               )}
 
@@ -687,18 +915,40 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                         ? " · course-wide"
                         : " · timeline-bound"}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setOpenCitation(null)}
-                      className="rounded border border-blue-700 px-2 py-0.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
-                    >
-                      Close
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {view === "video" &&
+                        lessonVideo.kind === "file" &&
+                        result.citations[openCitation].startSeconds !== null && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              seek(
+                                Math.max(
+                                  0,
+                                  Number(result.citations[openCitation].startSeconds) - 3,
+                                ),
+                              )
+                            }
+                            className="rounded border border-blue-700 bg-white px-2 py-0.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                          >
+                            Play this passage
+                          </button>
+                        )}
+                      <button
+                        type="button"
+                        onClick={() => setOpenCitation(null)}
+                        className="rounded border border-blue-700 px-2 py-0.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                   <p className="mt-2 font-mono text-xs text-slate-800">
                     evidence id: {result.citations[openCitation].evidenceId}
                     {result.citations[openCitation].startSeconds !== null
-                      ? ` · unlock ${formatClock(result.citations[openCitation].startSeconds as number)}`
+                      ? ` · ${formatClock(Number(result.citations[openCitation].startSeconds))}–${formatClock(
+                          Number(result.citations[openCitation].endSeconds),
+                        )}`
                       : ""}
                     {result.citations[openCitation].pageNumber !== null
                       ? ` · page ${result.citations[openCitation].pageNumber}`
@@ -707,7 +957,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                       ? ` · slide ${result.citations[openCitation].slideNumber}`
                       : ""}
                     {result.citations[openCitation].lineStart !== null
-                      ? ` · lines ${result.citations[openCitation].lineStart}–${result.citations[openCitation].lineEnd}`
+                      ? ` · caption lines ${result.citations[openCitation].lineStart}–${result.citations[openCitation].lineEnd}`
                       : ""}
                     {` · type ${result.citations[openCitation].blockType}`}
                   </p>
@@ -715,8 +965,12 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                     “{result.citations[openCitation].quote}”
                   </blockquote>
                   <p className="mt-2 text-xs text-slate-700">
-                    This quotation was matched verbatim against the stored block
-                    before the claim was renderable.
+                    This quotation was matched verbatim against the stored{" "}
+                    {result.citations[openCitation].blockType === "transcript"
+                      ? "caption block"
+                      : "block"}{" "}
+                    before the claim was renderable. The timestamps are the caption
+                    source&rsquo;s own.
                   </p>
                 </div>
               )}
@@ -726,15 +980,16 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                   Turn details
                 </summary>
                 <dl className="mt-3 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[minmax(0,11rem)_1fr]">
+                  <Field label="Lesson asked about">
+                    {activeCourse?.title ?? "(none)"}
+                  </Field>
+                  <Field label="Position source">{position.note}</Field>
                   <Field label="Answer state">{result.answerState}</Field>
                   <Field label="Reason code">{result.reason}</Field>
                   <Field label="Meaning">{reasonLabel(result.reason)}</Field>
                   <Field label="Evidence source">{result.evidence.source}</Field>
                   <Field label="Embedding in use">
                     {result.evidence.embeddingProvider} ({result.provenance.embeddingDimensions}d)
-                  </Field>
-                  <Field label="Embedding configured">
-                    {result.provenance.embeddingModel}
                   </Field>
                   <Field label="Generator">
                     {result.evidence.generator ?? "none (not configured)"}
@@ -793,10 +1048,16 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                 <Field label="Configured">
                   {health.checks.runtimeAi.configured ? "yes" : "no"}
                 </Field>
-                <Field label="Verified live">
-                  {health.checks.runtimeAi.reachable === null
-                    ? "not verified (a smoke test is required)"
-                    : String(health.checks.runtimeAi.reachable)}
+                {/*
+                  Not "reachable", and not a hardcoded yes: this is what the
+                  ledger can still prove about a completed call, including when
+                  that record was made. A deployment whose credential stopped
+                  working reads `none_recorded` however healthy the names look.
+                */}
+                <Field label="Completed provider call">
+                  {health.runtime.providerCallEvidence.state === "observed"
+                    ? `yes — ${health.runtime.providerCallEvidence.detail}`
+                    : health.runtime.providerCallEvidence.detail}
                 </Field>
               </StatusCard>
 

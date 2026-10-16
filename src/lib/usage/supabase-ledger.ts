@@ -8,6 +8,7 @@ import {
   type EmbeddingAdmissionRequest,
   type GenerationAdmissionRequest,
   type GenerationReservation,
+  type ProviderCallEvidence,
   type ReportedUsage,
   type ReservationDecision,
   type SettlementResult,
@@ -100,6 +101,15 @@ export interface UsageGateway {
     notBillable: boolean;
   }): Promise<SettlementRow>;
   insert(row: Record<string, unknown>): Promise<void>;
+  /** Newest settled call the provider reported usage for, or null. */
+  latestReportedGeneration(): Promise<{
+    settled_at: string | null;
+    occurred_at: string | null;
+    day: string | null;
+    provider: string | null;
+    model_id: string | null;
+    operation: string | null;
+  } | null>;
 }
 
 function toCount(value: number | string | null | undefined): number {
@@ -228,6 +238,30 @@ export class SupabaseUsageLedger implements UsageLedger {
   async record(entry: UsageEntry): Promise<void> {
     await this.gateway.insert(usageRow(entry));
   }
+
+  /**
+   * Read the newest settled, REPORTED generation row.
+   *
+   * `outcome = 'reported'` is the load-bearing filter: it is only written when
+   * the provider returned usage, so a reservation that collapsed to zero after a
+   * failed call cannot be mistaken for a working one. A row charged at its own
+   * reservation (`no_report_charged_reservation`) is excluded for the same
+   * reason — it means nothing came back.
+   */
+  async providerCallEvidence(): Promise<ProviderCallEvidence> {
+    const row = await this.gateway.latestReportedGeneration();
+    if (!row) return { state: "none_recorded" };
+    const at = row.settled_at ?? row.occurred_at;
+    if (!at) return { state: "none_recorded" };
+    return {
+      state: "observed",
+      at,
+      provider: row.provider ?? "unknown",
+      modelId: row.model_id,
+      operation: row.operation,
+      today: row.day === utcDayKey(),
+    };
+  }
 }
 
 /** Build a UsageGateway from a Supabase service-role client. */
@@ -330,6 +364,38 @@ export function createSupabaseUsageGateway(client: SupabaseClient): UsageGateway
           `Could not record usage: ${error.message}.`,
         );
       }
+    },
+
+    async latestReportedGeneration() {
+      // Across every day, not only today: a call that succeeded yesterday is
+      // still evidence that the credential works, and the caller decides how to
+      // describe that. `settled_at` may be null on a pre-0003 row, so the
+      // ordering falls back to the row's own timestamp by taking the newest
+      // non-null of either in the caller.
+      const { data, error } = await client
+        .from("usage_ledger")
+        .select("settled_at, occurred_at, day, provider, model_id, operation")
+        .eq("kind", "generation_tokens")
+        .eq("state", "settled")
+        .eq("outcome", "reported")
+        .order("settled_at", { ascending: false })
+        .limit(1);
+
+      if (error) {
+        throw new UsageLedgerFailure(
+          "provider_call_evidence",
+          `Could not read the provider-call record: ${error.message}.`,
+        );
+      }
+      const rows = (data ?? []) as Array<{
+        settled_at: string | null;
+        occurred_at: string | null;
+        day: string | null;
+        provider: string | null;
+        model_id: string | null;
+        operation: string | null;
+      }>;
+      return rows[0] ?? null;
     },
   };
 }

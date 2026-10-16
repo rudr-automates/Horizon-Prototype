@@ -325,6 +325,7 @@ describe("database-backed usage ledger", () => {
       insert: async (row) => {
         rows.push(row);
       },
+      latestReportedGeneration: async () => null,
       ...overrides,
     };
   }
@@ -656,5 +657,161 @@ describe("supabase gateway error handling", () => {
     // would compare a date against a timestamp and silently match nothing.
     expect(utcDayStart()).toMatch(/T00:00:00\.000Z$/);
     expect(utcDayKey()).not.toContain("T");
+  });
+});
+
+describe("what the ledger can prove about a completed provider call", () => {
+  /**
+   * A complete gateway, so the cases below can override exactly one method and
+   * still satisfy the interface. Everything not overridden is inert.
+   */
+  function gateway(overrides: Partial<UsageGateway> = {}): UsageGateway {
+    return {
+      dayTotals: async () => ({ settledTokens: 0, reservedTokens: 0 }),
+      embeddingRequestsForDay: async () => 0,
+      admitGenerationTokens: async () => ({
+        admitted: true,
+        reservation_id: "11111111-1111-5111-8111-111111111111",
+        spent_tokens: 0,
+        reserved_tokens: 0,
+        detail: "admitted",
+      }),
+      admitEmbeddingRequest: async () => ({ admitted: true, used_today: 1, detail: "counted" }),
+      settleReservation: async () => ({
+        charged_tokens: 0,
+        reported_tokens: 0,
+        outcome: "reported",
+        detail: "",
+      }),
+      insert: async () => {},
+      latestReportedGeneration: async () => null,
+      ...overrides,
+    };
+  }
+
+  it("reports a recorded call, and says whether it falls in today's UTC day", async () => {
+    const ledger = new SupabaseUsageLedger(
+      gateway({
+        latestReportedGeneration: async () => ({
+          settled_at: "2026-10-16T18:00:00.000Z",
+          occurred_at: "2026-10-16T17:59:00.000Z",
+          day: utcDayKey(),
+          provider: "groq",
+          model_id: "openai/gpt-oss-20b",
+          operation: "generate",
+        }),
+      }),
+    );
+
+    const evidence = await ledger.providerCallEvidence();
+    expect(evidence.state).toBe("observed");
+    if (evidence.state !== "observed") return;
+    expect(evidence.at).toBe("2026-10-16T18:00:00.000Z");
+    expect(evidence.provider).toBe("groq");
+    expect(evidence.today).toBe(true);
+  });
+
+  it("marks a call from an earlier UTC day as not fresh, because it proves the past only", async () => {
+    const ledger = new SupabaseUsageLedger(
+      gateway({
+        latestReportedGeneration: async () => ({
+          settled_at: "2020-01-01T00:00:00.000Z",
+          occurred_at: null,
+          day: "2020-01-01",
+          provider: "groq",
+          model_id: null,
+          operation: "verify",
+        }),
+      }),
+    );
+
+    const evidence = await ledger.providerCallEvidence();
+    expect(evidence.state).toBe("observed");
+    if (evidence.state !== "observed") return;
+    expect(evidence.today).toBe(false);
+  });
+
+  it("falls back to the row's own timestamp when it was never settled", async () => {
+    const ledger = new SupabaseUsageLedger(
+      gateway({
+        latestReportedGeneration: async () => ({
+          settled_at: null,
+          occurred_at: "2026-10-16T10:00:00.000Z",
+          day: utcDayKey(),
+          provider: "google-genai",
+          model_id: "gemini-3.6-flash",
+          operation: "generate",
+        }),
+      }),
+    );
+
+    const evidence = await ledger.providerCallEvidence();
+    expect(evidence.state).toBe("observed");
+    if (evidence.state !== "observed") return;
+    expect(evidence.at).toBe("2026-10-16T10:00:00.000Z");
+  });
+
+  it("says no call is recorded when the store is empty", async () => {
+    const ledger = new SupabaseUsageLedger(gateway());
+    expect(await ledger.providerCallEvidence()).toEqual({ state: "none_recorded" });
+  });
+
+  it("fails loudly rather than reporting 'none' when the store cannot be read", async () => {
+    // Reporting none_recorded here would assert that nothing had succeeded, when
+    // in fact nothing was established at all.
+    const ledger = new SupabaseUsageLedger(
+      gateway({
+        latestReportedGeneration: async () => {
+          throw new UsageLedgerFailure("provider_call_evidence", "the read failed");
+        },
+      }),
+    );
+
+    await expect(ledger.providerCallEvidence()).rejects.toThrow(/the read failed/);
+  });
+
+  it("says an in-memory ledger cannot attest to a past call", async () => {
+    // Not `none_recorded`: this mode keeps a real total for the process's life,
+    // but nothing durable, so an empty process is not evidence of no call.
+    const ledger = new InMemoryUsageLedger();
+    await ledger.record({
+      provider: "groq",
+      modelId: "openai/gpt-oss-20b",
+      requestId: null,
+      turnId: null,
+      promptTokens: 10,
+      completionTokens: 5,
+      reasoningTokens: 0,
+      operation: "generate",
+    });
+
+    expect(await ledger.providerCallEvidence()).toEqual({ state: "not_durable" });
+  });
+
+  it("only ever reads SETTLED rows whose outcome is 'reported'", async () => {
+    // A reservation charged at its own hold after a failed call must never be
+    // read as a working one, so the predicate is asserted against the query.
+    const filters: Array<[string, unknown]> = [];
+    let ordered: [string, unknown] | null = null;
+    const query = {
+      select: () => query,
+      eq: (column: string, value: unknown) => {
+        filters.push([column, value]);
+        return query;
+      },
+      order: (column: string, options: unknown) => {
+        ordered = [column, options];
+        return query;
+      },
+      limit: async () => ({ data: [], error: null }),
+    };
+    const client = { from: () => query };
+
+    await createSupabaseUsageGateway(client as unknown as SupabaseClient).latestReportedGeneration();
+
+    expect(filters).toContainEqual(["kind", "generation_tokens"]);
+    expect(filters).toContainEqual(["state", "settled"]);
+    expect(filters).toContainEqual(["outcome", "reported"]);
+    expect(ordered?.[0]).toBe("settled_at");
   });
 });

@@ -13,9 +13,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:demo": "tsx scripts/seed-demo.ts",
+    "ingest:lesson": "tsx scripts/ingest-lesson.ts",
     "verify:budget": "tsx scripts/verify-budget-concurrency.ts",
     "verify:data-path": "tsx scripts/verify-data-path.ts",
     "canary": "tsx scripts/canary.ts",
+    "canary:lesson": "tsx scripts/canary-lesson.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {

@@ -16,10 +16,14 @@
  *   filesystem path. The public descriptor below carries a route URL instead.
  *
  * EVIDENCE STATUS
- *   This video has NO transcript in the repository and its container carries no
- *   subtitle stream (ffprobe reports one h264 video stream and one aac audio
- *   stream, nothing else). So nothing here may be cited, and the interface says
- *   so. See `LESSON_VIDEO_EVIDENCE` below and docs/EVALUATION.md Part 08.
+ *   The recording's own automatic English captions HAVE been fetched, parsed and
+ *   ingested as timestamped evidence in a course of their own: 1505 caption
+ *   lines covering 0.1s–3386.5s of the 3399.3s recording, grouped into 56 blocks.
+ *   The video container itself still carries no subtitle stream (ffprobe reports
+ *   one h264 video stream and one aac audio stream, nothing else), so the text
+ *   lives in the database rather than beside the media. See
+ *   `LESSON_VIDEO_EVIDENCE` below, `@/lib/lesson/transcript` and
+ *   docs/EVALUATION.md Part 09.
  */
 
 /** The lesson selected for Horizon, identified by its original source. */
@@ -45,14 +49,30 @@ export const LESSON_VIDEO = {
 /**
  * What Horizon knows about this video's text.
  *
- * `"not_indexed"` is not a temporary placeholder: there is no transcript file,
- * no caption track in the container, and no ingestion step for this recording.
- * Video-grounded Q&A is therefore unavailable, not merely unverified, and the
- * interface must label it that way rather than letting a synthetic fixture stand
- * in for it. Change this value only when a real transcript for this video has
- * actually been ingested — and change the wording with it.
+ * `"indexed"` means the recording's own caption track has been parsed and
+ * ingested as timestamped evidence, and can therefore be cited. It does not mean
+ * the transcript is human-verified: it is YouTube's automatic speech recognition,
+ * so `LESSON_TRANSCRIPT_SOURCE.machineGenerated` is true and every screen that
+ * shows a quotation from it says so. Move this value back only if the ingested
+ * course is removed, and change the wording with it.
  */
-export const LESSON_VIDEO_EVIDENCE = "not_indexed" as const;
+export const LESSON_VIDEO_EVIDENCE = "indexed" as const;
+
+/**
+ * Questions the recording can actually answer, each pinned to the passage that
+ * carries it.
+ *
+ * They are not illustrative copy: every one is answerable from a named block of
+ * the ingested transcript, and `pnpm canary:lesson` re-checks the late one end to
+ * end. A suggestion the material cannot support would be the first thing to
+ * produce an honest refusal, which would read as a broken demo rather than as an
+ * honest one.
+ */
+export const LESSON_VIDEO_SUGGESTED_QUESTIONS = [
+  "What topics does the instructor list at the very start of this lesson?",
+  "Why does traditional keyword search fail for a question about resetting a password?",
+  "What happens when the compliance score falls below 75%?",
+] as const;
 
 /** The route that serves the local file when a deployment has one. */
 export const PUBLIC_VIDEO_ROUTE = "/api/v1/lesson/video";

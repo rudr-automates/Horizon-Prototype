@@ -48,6 +48,22 @@ const state = vi.hoisted(() => ({
   embeddingCredentialPresent: true,
   provider: "google-genai" as string,
   thinkingBudget: null as number | null,
+  /**
+   * What the stubbed ledger can prove about a completed provider call. The
+   * endpoint must render this, not infer it from configuration: a configured
+   * provider whose calls are all refused still looks perfectly healthy by name.
+   */
+  providerCallEvidence: { state: "not_durable" } as
+    | { state: "not_durable" }
+    | { state: "none_recorded" }
+    | {
+        state: "observed";
+        at: string;
+        provider: string;
+        modelId: string | null;
+        operation: string | null;
+        today: boolean;
+      },
 }));
 
 vi.mock("@/lib/env", () => ({
@@ -108,6 +124,7 @@ vi.mock("@/lib/server/context", () => ({
           if (!state.embeddingCountSucceeds) throw new Error("embedding count read failed");
           return state.embeddingRequestsToday;
         },
+        providerCallEvidence: async () => state.providerCallEvidence,
       },
       reason: "Usage is recorded in the database, so the daily total is durable and shared.",
     },
@@ -150,6 +167,71 @@ beforeEach(() => {
   state.embeddingCredentialPresent = true;
   state.provider = "google-genai";
   state.thinkingBudget = null;
+  state.providerCallEvidence = { state: "not_durable" };
+});
+
+describe("the completed-provider-call line", () => {
+  it("reports a call the ledger can prove, with its time and model", async () => {
+    state.providerCallEvidence = {
+      state: "observed",
+      at: "2026-10-16T18:00:00.000Z",
+      provider: "groq",
+      modelId: "openai/gpt-oss-20b",
+      operation: "generate",
+      today: true,
+    };
+
+    const body = await callHealth();
+
+    expect(body.runtime.providerCallEvidence.state).toBe("observed");
+    expect(body.runtime.providerCallEvidence.at).toBe("2026-10-16T18:00:00.000Z");
+    expect(body.runtime.providerCallEvidence.detail).toMatch(/inside today's UTC day/);
+    expect(body.checks.runtimeAi.detail).toMatch(/openai\/gpt-oss-20b/);
+  });
+
+  it("says an earlier-day call proves the past, not the present", async () => {
+    state.providerCallEvidence = {
+      state: "observed",
+      at: "2026-10-14T09:00:00.000Z",
+      provider: "groq",
+      modelId: "openai/gpt-oss-20b",
+      operation: "generate",
+      today: false,
+    };
+
+    const body = await callHealth();
+
+    expect(body.runtime.providerCallEvidence.detail).toMatch(/EARLIER UTC day/);
+    expect(body.runtime.providerCallEvidence.detail).not.toMatch(/inside today/);
+  });
+
+  it("distinguishes an in-memory ledger from 'no call ever succeeded'", async () => {
+    state.providerCallEvidence = { state: "not_durable" };
+
+    const body = await callHealth();
+
+    expect(body.runtime.providerCallEvidence.state).toBe("not_durable");
+    expect(body.runtime.providerCallEvidence.detail).toMatch(/keeps its record in memory/);
+  });
+
+  it("reports nothing when the durable store holds no completed call", async () => {
+    state.providerCallEvidence = { state: "none_recorded" };
+
+    const body = await callHealth();
+
+    expect(body.runtime.providerCallEvidence.state).toBe("none_recorded");
+    expect(body.runtime.providerCallEvidence.at).toBeNull();
+    expect(body.checks.runtimeAi.reachable).toBeNull();
+  });
+
+  it("claims nothing when the ledger read itself fails", async () => {
+    state.providerCallEvidence = undefined as never;
+
+    const body = await callHealth();
+
+    expect(body.runtime.providerCallEvidence.state).toBe("unreadable");
+    expect(body.runtime.providerCallEvidence.at).toBeNull();
+  });
 });
 
 describe("database health reports what actually happened", () => {

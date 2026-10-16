@@ -9,6 +9,7 @@ import {
   type EmbeddingAdmissionRequest,
   type GenerationAdmissionRequest,
   type GenerationReservation,
+  type ProviderCallEvidence,
   type ReportedUsage,
   type ReservationDecision,
   type SettlementResult,
@@ -234,6 +235,18 @@ export class InMemoryUsageLedger implements UsageLedger {
     if (this.entries.length > InMemoryUsageLedger.MAX_ENTRIES) {
       this.entries.splice(0, this.entries.length - InMemoryUsageLedger.MAX_ENTRIES);
     }
+  }
+
+  /**
+   * This ledger cannot answer it, and says so instead of guessing.
+   *
+   * `entries` here is a view of ONE process's life. When nothing is in it, the
+   * honest statement is "this mode keeps no durable record", not "no provider
+   * call has ever succeeded" — and a restarted process has an empty list even
+   * though calls were made a moment ago.
+   */
+  async providerCallEvidence(): Promise<ProviderCallEvidence> {
+    return { state: "not_durable" };
   }
 
   /** Test/diagnostic view of the UTC day this ledger is accounting for. */

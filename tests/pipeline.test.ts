@@ -586,6 +586,7 @@ describe("cumulative daily usage accounting", () => {
         throw new Error("must not be reached");
       },
       record: async () => {},
+      providerCallEvidence: async () => ({ state: "not_durable" }),
     };
 
     let embedCalls = 0;
@@ -642,6 +643,7 @@ describe("cumulative daily usage accounting", () => {
         throw new Error("must not be reached");
       },
       record: async () => {},
+      providerCallEvidence: async () => ({ state: "not_durable" }),
     };
 
     const outcome = await ask(
@@ -669,6 +671,7 @@ describe("cumulative daily usage accounting", () => {
         throw new Error("must not be reached");
       },
       record: async () => {},
+      providerCallEvidence: async () => ({ state: "not_durable" }),
     };
 
     const outcome = await ask(
@@ -698,6 +701,7 @@ describe("cumulative daily usage accounting", () => {
         throw new Error("settle failed");
       },
       record: (entry) => ledger.record(entry),
+      providerCallEvidence: () => ledger.providerCallEvidence(),
     };
 
     const outcome = await ask(

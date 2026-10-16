@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { RuntimeModelNotConfiguredError } from "@/lib/answer/provider";
+import {
+  RuntimeModelNotConfiguredError,
+  claimGenerationResultSchema,
+  verifierResultSchema,
+} from "@/lib/answer/provider";
 import { createRuntimeProviders } from "@/lib/answer/providers";
 import { readRuntimeConfig } from "@/lib/config";
 import { makeEnv } from "./helpers/fakes";
@@ -127,5 +131,61 @@ describe("error taxonomy", () => {
     expect(error.kind).toBe("not_configured");
     expect(error).toBeInstanceOf(RuntimeModelNotConfiguredError);
     expect(error).toBeInstanceOf(Error);
+  });
+});
+
+describe("the claim-generation envelope", () => {
+  /** A well-formed claim, so each case varies exactly one property. */
+  function claim(overrides: Record<string, unknown> = {}) {
+    return {
+      text: "The instructor connects to OpenAI and makes a real API call.",
+      evidenceIds: ["block-1"],
+      quote: "we connect OpenA models",
+      ...overrides,
+    };
+  }
+
+  it("accepts more claims than the interface has to render", () => {
+    // It used to accept at most 8. A live turn at an early timestamp came back
+    // with more, was rejected as `malformed_response`, and a supported question
+    // was reported as a provider outage. How many claims a model returns is not
+    // a property of whether its answer is grounded.
+    const result = claimGenerationResultSchema.safeParse({
+      claims: Array.from({ length: 14 }, (_, index) =>
+        claim({ text: `claim number ${index}` }),
+      ),
+      unansweredParts: false,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a long quotation, because a block can be that long", () => {
+    const longQuote = "word ".repeat(150).trim();
+    const result = claimGenerationResultSchema.safeParse({
+      claims: [claim({ quote: longQuote })],
+      unansweredParts: false,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("still refuses a claim that cites nothing", () => {
+    const result = claimGenerationResultSchema.safeParse({
+      claims: [claim({ evidenceIds: [] })],
+      unansweredParts: false,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("can always receive a verdict for every claim it accepted", () => {
+    const verdicts = Array.from({ length: 40 }, (_, index) => ({
+      index,
+      verdict: "SUPPORTED" as const,
+      reason: "supported by the quoted span",
+    }));
+
+    expect(verifierResultSchema.safeParse({ verdicts }).success).toBe(true);
   });
 });
