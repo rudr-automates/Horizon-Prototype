@@ -973,9 +973,17 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                     This quotation was matched verbatim against the stored{" "}
                     {result.citations[openCitation].blockType === "transcript"
                       ? "caption block"
-                      : "block"}{" "}
-                    before the claim was renderable. The timestamps are the caption
-                    source&rsquo;s own.
+                      : result.citations[openCitation].blockType === "pdf"
+                        ? "page text"
+                        : result.citations[openCitation].blockType === "ppt"
+                          ? "slide text"
+                          : "block"}{" "}
+                    before the claim was renderable.{" "}
+                    {result.citations[openCitation].blockType === "transcript"
+                      ? "The timestamps are the caption source’s own."
+                      : result.citations[openCitation].policy === "COURSE_WIDE"
+                        ? "This is approved reference material, so it is available at every playhead; it carries no clock to play from."
+                        : "This block unlocks when the recording reaches the passage it belongs to."}
                   </p>
                 </div>
               )}

@@ -36,6 +36,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LESSON_VIDEO, LESSON_VIDEO_SUGGESTED_QUESTIONS } from "@/lib/lesson/video";
+import { LESSON_LATE_MARKERS } from "@/lib/lesson/canaries";
 import { lessonTranscriptCourseId } from "@/lib/ingest/lesson-transcript";
 import { loadEnvFile, presentNames } from "./env-file";
 
@@ -49,10 +50,14 @@ const REQUIRED_DB_NAMES = [
  * The fact this canary uses to prove temporal scoping: a phrase that occurs in
  * exactly one place in the recording, late in it. Both spellings are checked
  * because the ASR writes the number and the phrase in the same sentence.
+ *
+ * The list lives in `src/lib/lesson/canaries.ts` because the document lint
+ * refuses to approve course-wide material containing it. Two copies would drift,
+ * and the drift would silently approve a deck that leaks the fact.
  */
 const CANARY = {
   label: "the compliance-score threshold stated late in the lesson",
-  terms: ["compliance score", "75%"],
+  terms: [...LESSON_LATE_MARKERS],
   /** Where the transcript states it, for the report. */
   appearsAtSeconds: 2699,
 } as const;
@@ -76,6 +81,7 @@ interface StoredBlock {
   unlockSeconds: number;
   policy: string;
   reviewState: string;
+  lintStatus: string;
   ingestStatus: string;
 }
 
@@ -138,11 +144,21 @@ function expectedEligibleIds(blocks: StoredBlock[], boundarySeconds: number): st
   return blocks
     .filter((block) => {
       if (block.ingestStatus !== "INDEXED") return false;
+      const approved = block.reviewState === "AUTO_APPROVED" || block.reviewState === "HUMAN_APPROVED";
       if (block.policy === "TIMELINE_BOUND") {
-        const approved = block.reviewState === "AUTO_APPROVED" || block.reviewState === "HUMAN_APPROVED";
         if (!approved) return false;
         if (!Number.isFinite(block.unlockSeconds)) return false;
         return block.unlockSeconds <= boundarySeconds;
+      }
+      if (block.policy === "COURSE_WIDE") {
+        // The documented second branch of the predicate. It was written as an
+        // unconditional `false` while no approved reference existed; once one
+        // does, that oracle would disagree with the app about a case the policy
+        // explicitly allows, and a disagreement is not evidence of a bug.
+        return (
+          block.reviewState === "HUMAN_APPROVED" &&
+          (block.lintStatus === "PASSED" || block.lintStatus === "ACKNOWLEDGED")
+        );
       }
       return false;
     })
@@ -155,7 +171,7 @@ async function loadBlocks(
 ): Promise<StoredBlock[]> {
   const { data, error } = await client
     .from("blocks")
-    .select("id, text_normalized, start_seconds, end_seconds, unlock_seconds, policy, review_state, ingest_status")
+    .select("id, text_normalized, start_seconds, end_seconds, unlock_seconds, policy, review_state, lint_status, ingest_status")
     .eq("course_id", courseId)
     .limit(5000);
   if (error) throw new Error(`Could not read the lesson's blocks: ${error.message}`);
@@ -168,6 +184,7 @@ async function loadBlocks(
     unlockSeconds: Number(row.unlock_seconds),
     policy: String(row.policy ?? ""),
     reviewState: String(row.review_state ?? ""),
+    lintStatus: String(row.lint_status ?? ""),
     ingestStatus: String(row.ingest_status ?? ""),
   }));
 }
@@ -389,6 +406,24 @@ async function main(): Promise<void> {
       detail: factUnlocked
         ? "not applicable: the fact is eligible at this position"
         : `searched the whole response body for ${CANARY.terms.map((term) => `"${term}"`).join(" and ")}`,
+    });
+
+    // ---- the course-wide positive control must not smuggle the fact ------
+    // An approved reference is eligible at EVERY playhead, so a reference that
+    // mentions a late-only fact would defeat temporal scoping without any bug in
+    // the predicate. The ingest lint refuses to approve such a document; this
+    // check is what proves the refusal held, from the rows themselves.
+    const leakingReferences = blocks.filter(
+      (block) =>
+        block.policy === "COURSE_WIDE" &&
+        eligible.has(block.id) &&
+        CANARY.terms.some((term) => normalize(block.text).includes(normalize(term))),
+    );
+    checks.push({
+      id: "references-do-not-leak",
+      description: "no approved course-wide block contains the late-only fact",
+      outcome: leakingReferences.length === 0 ? "PASS" : "FAIL",
+      detail: `${blocks.filter((block) => block.policy === "COURSE_WIDE").length} COURSE_WIDE block(s) in the course; ${leakingReferences.length} eligible and containing the fact`,
     });
 
     // ---- citation provenance, against the stored transcript --------------
