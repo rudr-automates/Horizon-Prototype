@@ -15,6 +15,11 @@ export interface EvidenceBlock {
   resourceKind: ResourceKind;
   blockType: BlockType;
   text: string;
+  /**
+   * Source line breaks for a transcript block, where the ingest preserved them.
+   * A reading-pane affordance only: prompts and quotations use `text`.
+   */
+  textOriginal?: string | null;
 
   startSeconds: number | null;
   endSeconds: number | null;

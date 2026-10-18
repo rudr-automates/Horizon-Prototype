@@ -28,10 +28,19 @@ honest refusal.
 > eligible set, from the retrieval payload and from the response body before that
 > point, and answered from a cited block after it.
 >
+> **The interface is a learning studio, not one long page.** Five surfaces —
+> Learn, Materials, Notes, Progress and System status — share one position and one
+> evidence store. The transcript pane reads only captions the lesson has reached,
+> the library states each source's policy before you open it, and the operator
+> diagnostics that used to sit under the question box have their own view. The
+> audit that drove this, what was kept, and what was deliberately not built are in
+> [docs/UI-AUDIT.md](docs/UI-AUDIT.md).
+>
 > What this revision does NOT claim: no authentication, no file-upload UI (the
 > documents are ingested by an operator command), no OCR for scanned pages, no
-> summary/quiz actions and no mock interview yet. Those are listed as open in the
-> status matrix below and in [docs/EVALUATION.md](docs/EVALUATION.md) Part 10.
+> summary/quiz actions, no mock interview and no instructor-review interface yet.
+> Those are listed as open in the status matrix below and in
+> [docs/EVALUATION.md](docs/EVALUATION.md) Part 10.
 
 ---
 
@@ -48,7 +57,11 @@ honest refusal.
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types; **embeddings still run on it, live** |
 | Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ✅ **live-verified on 2026-10-15** — one smoke request and three canary turns succeeded through this adapter. Endpoint, bearer auth, strict JSON Schema, usage mapping, 429 guidance and every failure path are also unit tested (38 cases, all mocked) |
-| Learner workbench (timeline presets, scope count, citations, status panel) | ✅ verified rendered at 1440px and 390px, hydrated, timeline selection confirmed live (eligible evidence 2 → 10 → 15) |
+| Learning studio: app shell, lesson stage, scope strip, assistant | ✅ verified rendered at 1440, 1024, 768, 390 and 360 px with the real player, a live seek and a live scope update (37 blocks at 25:00) |
+| Transcript pane (`GET /courses/:id/transcript`) | ✅ verified live — 24 timestamped passages at 25:00, ordinary text search, gaps stated rather than filled, seeking follows the player, and the endpoint returns only eligible captions |
+| Course materials library and document viewer (`/resources`, `/resources/:id`) | ✅ verified live — 3 sources with policy and counts, a 3-page PDF with page chips and text zoom, and a slide deck whose only 3 permitted blocks at 25:00 are the ones the deck has reached |
+| Notes, bookmarks and watched progress | ✅ verified live in a browser — one-click bookmark at 25:00, a note, both surviving a reload from `localStorage`; a 25-second playback recorded 25 s watched while a seek only moved the resume point. Local-only, and labelled as such |
+| System status view | ✅ verified live — same health payload as before, now separated from the learning surface |
 | Lesson video playback | ✅ **verified live** — the 235.0 MiB recording (56:39, 1920x1080 h264) streams from the local copy with byte-range support (`206` and a correct `Content-Range`, `416` past the end, `404` where no local copy exists), and the panel's clock is the element's own (`31:17 / 56:39` at a 1875 s seek). **Play this passage** seeks to its citation (2692.8 s → 2689.8 s) and then plays (advancing 3.00 s in 3 s). With the file absent the panel switches to the original YouTube embed and reads that player's own clock through the official IFrame Player API |
 | Video-grounded Q&A from the recording | ✅ **live-verified** — the recording's own automatic English captions (1505 lines, 0.1 s–3386.5 s of the recording's 3399.3 s, so 99.6% coverage) are parsed into **56 timestamped blocks** in a course of their own and are cited. A fact stated only late in the lesson (`compliance score` … `below 75%`, unlocking at 44:52) is absent from the eligible set and from the entire response body at 05:00 and at 20:00 — including when the learner asks about it directly — and is answered from a verbatim-cited block at 50:00. It is **machine transcription**, and every screen that shows it says so |
 | The transcript ingest itself (`pnpm ingest:lesson`) | ✅ **executed live** — captions parsed and segmented (56 blocks, mean 60.5 s), embedded in 3 batched requests against a cap of 10, every row 768-dimensional, every row `TIMELINE_BOUND/AUTO_APPROVED/INDEXED`, and **0 rows** carry synthetic-fixture text. OCR and PDF/slide parsing remain ❌ deferred |
@@ -76,8 +89,11 @@ honest refusal.
 | Course-wide review lint | ✅ **executed live** — the ingest refuses to approve a document course-wide if it contains a registered late-only fact or aligns to the last fifth of the recording, and requires an explicit `--acknowledge` to override. The approved study guide carries none of the late facts, and the canary checks that from the rows |
 | Alignment review (`pnpm review:alignments`) | ✅ **executed live** — weak or ambiguous alignments are written `PENDING` with no unlock time and are therefore ineligible. Of the deck's 9 blocks, 7 auto-approved, one was approved by hand at its own segment clock (14:18) and one rejected as a provenance slide. No reviewer identity or audit table exists in this schema; a rejection reason is appended to `blocks.alignment_method` |
 | Ingestion of code files, and OCR | ❌ deferred — PDF and PPTX text layers are ingested (above); a PDF with no text layer is refused rather than silently treated as indexed |
-| Summary-so-far and quiz-on-covered-content | ❌ not built — they are in the blueprint's learner journey and remain the largest missing learning action |
+| Summary-so-far and quiz-on-covered-content | ❌ not built — they are in the blueprint's learner journey and remain the largest missing learning action. No control for either is rendered |
 | Adaptive mock interview | ❌ not built — deferred, not claimed |
+| Instructor alignment review interface | ❌ not built — review runs through `pnpm review:alignments`, because there is no authentication and a browser control would expose a privileged decision to anonymous visitors |
+| Cross-device notes, bookmarks and progress | ❌ not built — there is no account, so these are stored in one browser and every panel says so |
+| Raster PDF rendering and OCR | ❌ not built — the viewer shows the permitted text layer; a scanned page with no text layer is refused at ingest |
 | Authentication, ownership and learner accounts | ❌ absent by design in this build: the server uses the service role, RLS denies `anon`, and there is no file-upload surface to abuse. Do not read "deployed" as "multi-tenant safe" |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
@@ -136,6 +152,9 @@ all say which lesson is in play.
 | `GET /api/v1/courses` | course list, plus which evidence store is in use |
 | `GET /api/v1/courses/:courseId` | one course |
 | `GET /api/v1/courses/:courseId/scope?playheadSeconds=` | eligible-block count at a position (never a syllabus oracle) |
+| `GET /api/v1/courses/:courseId/transcript?playheadSeconds=` | the captions eligible at that position, for the reading pane |
+| `GET /api/v1/courses/:courseId/resources?playheadSeconds=` | sources with policy and permitted counts, never text |
+| `GET /api/v1/courses/:courseId/resources/:resourceId?playheadSeconds=` | one source's permitted blocks, for the viewer |
 | `POST /api/v1/courses/:courseId/questions` | the full answer path |
 
 `POST /questions` returns HTTP 200 with `answerState`
@@ -306,9 +325,19 @@ src/
     api/v1/courses/route.ts
     api/v1/courses/[courseId]/route.ts
     api/v1/courses/[courseId]/scope/route.ts
+    api/v1/courses/[courseId]/transcript/route.ts  # eligible captions for the pane
+    api/v1/courses/[courseId]/resources/route.ts   # sources + policy, counts only
+    api/v1/courses/[courseId]/resources/[resourceId]/route.ts
     api/v1/courses/[courseId]/questions/route.ts   # the answer path
     page.tsx, layout.tsx
-  components/learner-workbench.tsx                 # the learner interface
+  components/
+    learning-studio.tsx      # the studio: position, scope, and the five surfaces
+    shell/app-shell.tsx      # rail on desktop, five-column nav on mobile
+    lesson/                  # stage, scope strip, transcript, assistant, personal hook
+    materials/               # library and document viewer
+    personal/                # bookmarks, notes, progress
+    status/                  # operator facts, off the learning surface
+    ui/                      # tokens-based primitives and inline icons
   lib/
     answer/gemini.ts         # official Google Gen AI adapter (generate + verify + embed)
     answer/pipeline.ts       # retrieve → guard → generate → check → verify → render

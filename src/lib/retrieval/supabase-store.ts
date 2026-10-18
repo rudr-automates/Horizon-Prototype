@@ -50,6 +50,12 @@ export interface BlockRow {
   resource_id: string;
   block_type: string;
   text_normalized: string | null;
+  /**
+   * The source's own line breaks, preserved at ingest for transcript blocks.
+   * Reading only: retrieval, prompts and quotations use `text_normalized`, whose
+   * whitespace is collapsed. Optional because not every query selects it.
+   */
+  text_original?: string | null;
   start_seconds: number | string | null;
   end_seconds: number | string | null;
   page_number: number | null;
@@ -99,6 +105,7 @@ export function mapBlockRow(row: BlockRow): EvidenceBlock {
     resourceKind: (row.resources?.kind ?? "transcript") as ResourceKind,
     blockType: row.block_type as BlockType,
     text: row.text_normalized ?? "",
+    textOriginal: row.text_original ?? null,
     startSeconds: toNumber(row.start_seconds),
     endSeconds: toNumber(row.end_seconds),
     pageNumber: row.page_number,
@@ -285,6 +292,7 @@ export function createSupabaseGateway(client: SupabaseClient): SqlGateway {
     "resource_id",
     "block_type",
     "text_normalized",
+    "text_original",
     "start_seconds",
     "end_seconds",
     "page_number",

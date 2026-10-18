@@ -1,88 +1,160 @@
 @import "tailwindcss";
 
 /*
- * THE COLOUR CONTRACT — why this file is not cosmetic.
+ * HORIZON DESIGN TOKENS
  *
- * The interface previously declared `color-scheme: light dark` and set NO
- * background and NO text colour anywhere. Both were therefore supplied by the
- * browser, and they came from DIFFERENT places: the base surface was the
- * document's default white, while the text colour resolved through the UA's
- * dark-scheme `CanvasText` — white. The result was white text on a white page.
- * Only elements carrying their own explicit colour (the badges, the Ask button)
- * were visible, which is exactly what "a blank window with unreadable text"
- * describes.
+ * One deliberate theme, stated once. `@theme` is Tailwind v4's token layer: every
+ * entry below becomes a CSS variable AND a utility (bg-surface, text-ink,
+ * border-line, font-mono...). Components therefore reference semantics rather
+ * than raw hex values, and a palette change happens here rather than in fifty
+ * class strings.
  *
- * Three rules now prevent that class of failure:
- *   1. `color-scheme: light` ONLY. The app ships one deliberate theme, so the UA
- *      must not re-map its palette, form controls or scrollbars to dark.
- *   2. The background and foreground are stated on `html` AND `body`. Neither is
- *      left to a default, so text can never be rendered in the canvas colour.
- *   3. Components use explicit colour utilities rather than inheriting a colour
- *      or dimming one with `opacity-*`. An opacity multiplier on an already
- *      wrong colour is what made the secondary text vanish first.
+ * THE COLOUR CONTRACT — why this is not cosmetic.
+ * The interface once declared `color-scheme: light dark` and set NO background
+ * and NO text colour anywhere. Both were supplied by the browser, from different
+ * places: the page was white, the text resolved through the dark-scheme
+ * `CanvasText` — white. Only elements with explicit colours were visible, which
+ * is what "a blank window with unreadable text" described.
+ *
+ * Three rules prevent that class of failure:
+ *   1. `color-scheme: light` ONLY. The app ships one theme, so the UA must not
+ *      re-map its palette, form controls or scrollbars.
+ *   2. Background and foreground are stated on `html` AND `body`. Neither is left
+ *      to a default.
+ *   3. Components state their own colour. Nothing inherits an unknown one, and
+ *      nothing dims text with `opacity-*`: an opacity multiplier on an already
+ *      wrong colour is what made secondary text disappear first.
  */
+
+@theme {
+  /* Surfaces */
+  --color-canvas: #f3f5f8;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #eef2f6;
+
+  /* Ink */
+  --color-ink: #0b1220;
+  --color-ink-soft: #475569;
+  --color-ink-faint: #64748b;
+
+  /* Lines */
+  --color-line: #e0e6ed;
+  --color-line-strong: #c6d0dc;
+
+  /* Brand */
+  --color-brand: #1d4ed8;
+  --color-brand-strong: #1e3a8a;
+  --color-brand-soft: #eaf1ff;
+  --color-brand-line: #b8cdfb;
+
+  /* Status */
+  --color-ok: #047857;
+  --color-ok-soft: #ecfdf5;
+  --color-ok-line: #a7e3c8;
+  --color-warn: #b45309;
+  --color-warn-soft: #fffbeb;
+  --color-warn-line: #f5d08a;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fef2f2;
+  --color-danger-line: #f4bcbc;
+  --color-neutral-soft: #f1f5f9;
+
+  /* Type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Shape */
+  --radius-panel: 0.875rem;
+  --radius-control: 0.5rem;
+
+  /* Elevation, used only on floating surfaces */
+  --shadow-panel: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -16px rgb(15 23 42 / 0.18);
+  --shadow-float: 0 10px 30px -12px rgb(15 23 42 / 0.25);
+}
 
 :root {
   color-scheme: light;
-
-  --horizon-canvas: #f1f5f9; /* slate-100 — page background */
-  --horizon-surface: #ffffff; /* cards and panels */
-  --horizon-ink: #0f172a; /* slate-900 — primary text */
-  --horizon-muted: #475569; /* slate-600 — secondary text */
-  --horizon-line: #cbd5e1; /* slate-300 — visible borders */
-  --horizon-accent: #1d4ed8; /* blue-700 */
 }
 
 html {
-  background-color: var(--horizon-canvas);
-  color: var(--horizon-ink);
-  /* The UA defaults the base font-size to 16px; stated so rem values are not at
-     the mercy of a browser or extension override. */
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  /* The UA defaults the base font-size to 16px; stated so rem values do not
+     depend on a browser or extension override. */
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: var(--horizon-canvas);
-  color: var(--horizon-ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Visible, consistent keyboard focus. Removing the outline without a
    replacement is the usual cause of "I cannot tell where I am" on a demo. */
 :focus-visible {
-  outline: 3px solid var(--horizon-accent);
+  outline: 2px solid var(--color-brand);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 /*
  * DO NOT re-declare `font` or `color` for form controls here.
  *
- * Two reasons, and the second one cost a real regression:
- *   1. Tailwind's preflight already sets `font: inherit` and `color: inherit`
- *      on form elements, inside `@layer base`.
- *   2. CSS written OUTSIDE every layer outranks ALL layered CSS. A plain
- *      `button { font: inherit; color: inherit }` here therefore beat
- *      `@layer utilities`, silently overriding every `text-white`, `text-xs`
- *      and `font-semibold` on any button or textarea — the Ask button rendered
- *      dark-on-blue at 1.24:1. Utilities must win over element defaults, which
- *      is precisely what the layer order is for.
+ * Tailwind's preflight already sets `font: inherit` and `color: inherit` inside
+ * `@layer base`. CSS written outside every layer outranks ALL layered CSS, so a
+ * plain `button { font: inherit; color: inherit }` here would beat every
+ * `text-white` and `font-semibold` utility, silently overprinting any button or
+ * textarea that carried them. Utilities must win over element defaults.
  */
 
 input[type="range"] {
-  accent-color: var(--horizon-accent);
+  accent-color: var(--color-brand);
 }
 
-/* A long quotation in a citation panel should wrap, not overflow its card.
-   This is a wrapping rule only; the monospace family comes from the utility
-   class so that the layered cascade keeps deciding. */
+/* A long quotation in a citation panel should wrap, not overflow its card. */
 pre,
 code {
   overflow-wrap: anywhere;
+}
+
+/* Thin, low-contrast scrollbars for the transcript and viewer panes, so a long
+   list reads as a pane rather than as a second page. */
+.scroll-pane {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.scroll-pane::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-pane::-webkit-scrollbar-thumb {
+  background-color: var(--color-line-strong);
+  border: 3px solid var(--color-surface);
+  border-radius: 999px;
+}
+
+/* Motion is decoration here. Everything that matters is instant, and these
+   transitions vanish for anyone who asked the OS to reduce motion. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

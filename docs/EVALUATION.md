@@ -1600,3 +1600,100 @@ the spend guard as built protects the pipeline, not the provider account.
 - **Mobile layout after these changes.** Verified in earlier parts at 390px; not
   re-checked after the citation-panel wording change.
 - **Summary, quiz and mock interview.** Not built.
+
+---
+
+# Part 11 — 2026-10-18: the learning studio (interface only)
+
+This part records an interface revision. No prompt, provider, retrieval branch,
+predicate, model or spend limit was changed, and **no model or embedding call was
+made**: the ledger read 15,052 tokens and 10/10 embedding requests before and
+after the work. The full audit that scoped this is
+[UI-AUDIT.md](UI-AUDIT.md); the decisions are D-035 to D-038.
+
+## P11-1 — What replaced what
+
+`src/components/learner-workbench.tsx` (1,366 lines, one page, diagnostics on the
+learning surface) was removed and replaced by a studio with five destinations:
+
+| Surface | Content |
+|---|---|
+| Learn | lesson stage (real player, transport, timeline, watched bar, bookmark), scope strip, transcript pane, assistant |
+| Materials | source library with policy and counts, permission-filtered document viewer with page/slide chips and text zoom |
+| Notes | bookmarks and notes at a position, editable, two-step delete, browser-local |
+| Progress | watched coverage versus furthest position, coverage map, resume |
+| System status | the previous health cards, unchanged in content |
+
+Two read endpoints were added, both returning only blocks permitted at the
+requested position:
+
+- `GET /api/v1/courses/:id/transcript?playheadSeconds=`
+- `GET /api/v1/courses/:id/resources/:resourceId?playheadSeconds=`
+
+`EvidenceBlock` gained an optional `textOriginal` (the stored caption line
+breaks) for the transcript pane. Prompts and quotation matching still use
+`text`.
+
+## P11-2 — Checks
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | exit 0, no warnings |
+| `pnpm typecheck` | exit 0 |
+| `pnpm test` | **365 passed in 23 files** (was 345 / 22). The new file is `tests/personal-and-panes.test.ts`, 20 cases |
+| `pnpm build` | exit 0; the two new routes appear in the route table |
+| `pnpm start --port 3100` | 200; loaded with **no console errors and no hydration warning** in the production build |
+
+The new tests cover the parts of the interface that can be wrong without a
+browser: persisted-state validation and entry-level recovery, bookmark and note
+caps, the rule that a step over five seconds is a seek and not watching, range
+merging, watched fraction and buckets, transcript gap detection, half-open
+segment lookup, case-insensitive search, paragraph re-flow that preserves every
+word, and resource grouping by page/slide/line.
+
+## P11-3 — Browser verification
+
+Rendered in Chromium through the preview panel, against the real database and the
+real 235 MiB local recording.
+
+| Width | Result |
+|---|---|
+| 1440×1000 | rail + two-column Learn; Materials with page chips; Status with live ledger figures |
+| 1024×900 | rail, single content column; top bar truncates the breadcrumb rather than stacking the status label |
+| 768×900 | mobile header, five equal nav columns, full-width player, no horizontal overflow |
+| 390×844 | same, scope strip stacked, assistant immediately after the scope strip |
+| 360×780 | nav labels still fit; timeline controls wrap rather than clip |
+
+Interactions executed, not inferred:
+
+- A jump to **25:00** seeked the real element (`currentTime` 1500) and the scope
+  moved to **37 eligible blocks**, matching `GET /scope`.
+- The transcript request at that boundary returned **24** timestamped passages;
+  the pane scrolled to the reached passage after the seek, and the current-line
+  highlight was absent because the block containing 25:00 had not finished
+  unlocking. That absence is the predicate working, not a rendering bug.
+- **Bookmark** at 25:00 and a note were saved, then survived a full reload
+  (`localStorage` inspected: 1 bookmark, 1 note).
+- Playing from 00:00 for 25 s recorded **25 s watched**, while the earlier seek
+  left `watched` empty and moved only `furthestSeconds` to 1500. The Progress
+  screen showed both figures and the coverage map filled only the first bucket.
+- Switching to the sample lesson through the lesson switcher changed the stage,
+  removed the recording's source link, labelled the timeline as the fixture's own,
+  and loaded that course's scope, transcript and materials.
+- Materials at 25:00: study guide 10/10 blocks permitted (course-wide), slides
+  3/9, transcript 24/56. The viewer's default selection is the study guide, not
+  the transcript.
+
+## P11-4 — Not verified
+
+- **A live answer rendered in the redesigned assistant.** The provider calls are
+  metered and this phase forbade them, so no question was asked. The result and
+  citation markup compiles against the response contract and mirrors the markup
+  verified in Part 10, but the rendered result state has not been seen since the
+  redesign. This is the first thing to check when the daily budget resets.
+- **The deployed origin for this revision.** The local production build is
+  verified above; the deployment outcome is appended below once it exists.
+- **A mobile re-check after this exact commit.** The widths above were checked on
+  the working tree immediately before the commit; nothing changed after them.
+- The PDF viewer shows the stored text layer, with headings and in-page paragraph
+  breaks flattened at ingest (P10 limitation). It is text, not a page facsimile.

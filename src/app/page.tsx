@@ -1,4 +1,4 @@
-import LearnerWorkbench from "@/components/learner-workbench";
+import LearningStudio from "@/components/learning-studio";
 import { describeConfigurationProblems } from "@/lib/config";
 import { createServerContext } from "@/lib/server/context";
 import { resolveServerLessonVideoSource } from "@/lib/lesson/video-file";
@@ -46,7 +46,7 @@ export default async function HomePage() {
   }
 
   return (
-    <LearnerWorkbench
+    <LearningStudio
       videoCourse={videoCourse}
       sampleCourse={sampleCourse}
       // Resolved from the filesystem on every request, so the panel states the
@@ -57,9 +57,6 @@ export default async function HomePage() {
       // ingested transcript actually contains.
       suggestedQuestions={[DEMO_QUESTIONS.canary, DEMO_QUESTIONS.courseWideControl]}
       runtimeAiConfigured={providers.configured}
-      provider={config.provider}
-      textModel={config.model}
-      embeddingProvider={providers.embeddingProviderId}
       embeddingCredentialPresent={providers.embeddingConfigured}
       // Reported rather than left to be inferred from a refusal: a wrong
       // provider name and a credential in the wrong variable both look like an

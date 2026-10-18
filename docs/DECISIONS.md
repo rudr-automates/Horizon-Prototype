@@ -1035,3 +1035,78 @@ number an operator reads is the number the provider charged.
 
 **Consequence:** the ledger is still the authority for the pipeline's behaviour, but it
 is not an account-level meter, and it is now documented as such.
+
+---
+
+## D-035 — The interface is five surfaces on one position, and diagnostics moved rather than multiplied
+
+**Context.** A single 1,366-line page held the player, the scope count, the
+assistant, the transcript disclosure, the materials disclosure and six runtime
+cards. Every one of those was real, and together they read as an operator's
+report. The most common question a first-time viewer asked was what they were
+supposed to look at.
+
+**Decision.** Split the page into five destinations — Learn, Materials, Notes,
+Progress, System status — with a persistent rail and a five-column mobile nav.
+The position, the eligible count and the eligibility rule stay adjacent to the
+player, because they are the product. Health, ledger, schema and request
+diagnostics move to System status, reading the same `/api/v1/health` payload the
+old panel did. No fact was deleted; some facts were given their own address.
+
+**Consequence.** The shell is a client component and the section is client state,
+not a route. That keeps the player mounted while moving between Learn and
+Materials, at the cost of shareable per-section URLs. If deep links are needed, the
+section belongs in the query string and the player must be kept out of the
+re-mount path.
+
+## D-036 — Reading panes ask the store for eligible blocks, not for a slice computed in the browser
+
+**Context.** The transcript and the document viewer need text. The obvious
+implementation is one broad read plus a client-side filter by
+`unlock_seconds <= playhead`. That would put future material in the browser and
+make eligibility a presentation rule.
+
+**Decision.** Two read endpoints — `/transcript` and `/resources/:resourceId` —
+call `store.listEligible` with the requested playhead and return only what the
+predicate permits. No unlock time, no future text and no future heading is
+serialized. The transcript additionally returns the stored caption line breaks so
+the pane can re-flow them without changing a word.
+
+**Consequence.** The panes can lag the player by up to the five-second bucket the
+client refreshes on, and cannot lead it. Within the existing trust model the
+client asserts its own position; that is unchanged from the question path and is
+now written down rather than assumed.
+
+## D-037 — Personal data is browser-local, and progress separates coverage from resume position
+
+**Context.** The blueprint asks for bookmarks, notes and progress. Horizon has no
+authentication, and its own rules forbid implying a capability that does not
+exist.
+
+**Decision.** Bookmarks, notes and watched ranges live in `localStorage` behind a
+small external store read with `useSyncExternalStore`. Every surface that shows
+them says "saved in this browser". Progress keeps two numbers: watched coverage,
+built from merged playback ranges, and the furthest position, which is a resume
+point. A playback step longer than five seconds is a seek and is not counted as
+watching.
+
+**Consequence.** There is no cross-device sync, no reviewer identity and no
+per-user authorization problem to get wrong. Clearing site data deletes the
+record, and the page says so.
+
+## D-038 — No instructor-review interface without an identity to review as
+
+**Context.** The review workflow is real: `review-alignments.ts` lists pending
+alignments, approves with an unlock time and rejects with a reason, and the
+resulting rows change what is eligible. A UI would be straightforward.
+
+**Decision.** Do not build it. Every route in this app is public and there is no
+authentication, so an approve button in the browser would let any visitor change
+what every learner can cite. The capability stays a CLI, and the limitation is
+reported in the readiness matrix instead of being papered over with a disabled
+button.
+
+**Consequence.** A judge cannot see the review step in the product. The materials
+library shows the *result* of review (pending counts, rejected counts, policy
+labels), which is the part that affects learning, and the CLI is recorded in
+EVALUATION.

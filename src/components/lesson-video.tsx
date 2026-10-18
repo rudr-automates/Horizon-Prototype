@@ -32,6 +32,11 @@ import { formatPlaybackClock, type LessonVideoSource } from "@/lib/lesson/video"
 export interface LessonVideoClockReport {
   positionSeconds: number;
   durationSeconds: number;
+  /**
+   * The player's own play/pause state, where it reports one. Optional because a
+   * player that cannot be asked is not evidence of pausing.
+   */
+  playing?: boolean;
 }
 
 interface YouTubePlayerLike {
@@ -40,6 +45,9 @@ interface YouTubePlayerLike {
   /** Present on a real player; guarded because a resumed player may lack it. */
   seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
   playVideo?: () => void;
+  pauseVideo?: () => void;
+  /** 1 is PLAYING in the IFrame API's PlayerState enum. */
+  getPlayerState?: () => number;
   destroy: () => void;
 }
 
@@ -118,6 +126,8 @@ export interface SeekRequest {
    * unset and therefore only moves the playhead.
    */
   play?: boolean;
+  /** Pause instead. The transport asks for exactly one of these. */
+  pause?: boolean;
 }
 
 export default function LessonVideo({
@@ -187,6 +197,7 @@ export default function LessonVideo({
                 onClockRef.current?.({
                   positionSeconds: current,
                   durationSeconds: playbackDuration,
+                  playing: player.getPlayerState?.() === 1,
                 });
               }, CLOCK_POLL_MS);
             },
@@ -227,6 +238,15 @@ export default function LessonVideo({
       setPlaybackBlocked(false);
       element.currentTime = target;
       setPosition(target);
+      if (seekRequest.pause) {
+        element.pause();
+        onClockRef.current?.({
+          positionSeconds: target,
+          durationSeconds: element.duration,
+          playing: false,
+        });
+        return;
+      }
       onClockRef.current?.({ positionSeconds: target, durationSeconds: element.duration });
       if (seekRequest.play) {
         // Playback is requested once the seek has SETTLED. Asking in the same tick
@@ -250,7 +270,8 @@ export default function LessonVideo({
     const player = playerRef.current;
     if (!player?.seekTo) return;
     player.seekTo(target, true);
-    if (seekRequest.play) player.playVideo?.();
+    if (seekRequest.pause) player.pauseVideo?.();
+    else if (seekRequest.play) player.playVideo?.();
     setPosition(target);
   }, [seekRequest, source.kind]);
 
@@ -270,19 +291,35 @@ export default function LessonVideo({
             onClockRef.current?.({
               positionSeconds: event.currentTarget.currentTime,
               durationSeconds: event.currentTarget.duration,
+              playing: false,
             });
           }}
           onDurationChange={(event) => setDuration(event.currentTarget.duration)}
           // Playback that started by any route — this panel's button or the
           // learner's own — retires the refusal notice, which would otherwise
           // outlive the condition it described.
-          onPlay={() => setPlaybackBlocked(false)}
+          onPlay={(event) => {
+            setPlaybackBlocked(false);
+            onClockRef.current?.({
+              positionSeconds: event.currentTarget.currentTime,
+              durationSeconds: event.currentTarget.duration,
+              playing: true,
+            });
+          }}
+          onPause={(event) =>
+            onClockRef.current?.({
+              positionSeconds: event.currentTarget.currentTime,
+              durationSeconds: event.currentTarget.duration,
+              playing: false,
+            })
+          }
           onTimeUpdate={(event) => {
             const current = event.currentTarget.currentTime;
             setPosition(current);
             onClockRef.current?.({
               positionSeconds: current,
               durationSeconds: event.currentTarget.duration,
+              playing: !event.currentTarget.paused,
             });
           }}
           onSeeked={(event) => {
@@ -291,6 +328,7 @@ export default function LessonVideo({
             onClockRef.current?.({
               positionSeconds: current,
               durationSeconds: event.currentTarget.duration,
+              playing: !event.currentTarget.paused,
             });
           }}
         />
