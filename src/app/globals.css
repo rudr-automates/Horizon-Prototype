@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * HORIZON DESIGN TOKENS
+ * HORIZON DESIGN TOKENS — "Midnight Aurora"
  *
  * One deliberate theme, stated once. `@theme` is Tailwind v4's token layer: every
  * entry below becomes a CSS variable AND a utility (bg-surface, text-ink,
@@ -9,56 +9,74 @@
  * than raw hex values, and a palette change happens here rather than in fifty
  * class strings.
  *
- * THE COLOUR CONTRACT — why this is not cosmetic.
- * The interface once declared `color-scheme: light dark` and set NO background
- * and NO text colour anywhere. Both were supplied by the browser, from different
- * places: the page was white, the text resolved through the dark-scheme
- * `CanvasText` — white. Only elements with explicit colours were visible, which
- * is what "a blank window with unreadable text" described.
+ * WHY DARK, AND WHY IT IS NOT COSMETIC
+ *   Horizon is watched: a learner sits with a recording for tens of minutes, so
+ *   the interface is a low-light reading surface, not a page of chrome. The
+ *   identity is a quiet midnight field with aurora light behind the hero and the
+ *   stage, glass for navigation and the hero, and OPAQUE surfaces everywhere text
+ *   is read (transcript, citations, answers, forms, tables, resource text).
  *
- * Three rules prevent that class of failure:
- *   1. `color-scheme: light` ONLY. The app ships one theme, so the UA must not
- *      re-map its palette, form controls or scrollbars.
- *   2. Background and foreground are stated on `html` AND `body`. Neither is left
- *      to a default.
- *   3. Components state their own colour. Nothing inherits an unknown one, and
- *      nothing dims text with `opacity-*`: an opacity multiplier on an already
- *      wrong colour is what made secondary text disappear first.
+ * THE COLOUR CONTRACT
+ *   An interface once declared `color-scheme: light dark` and set NO background
+ *   and NO text colour anywhere. Both were supplied by the browser from different
+ *   places: the page was white, the text resolved through the dark-scheme
+ *   `CanvasText` — white. Only elements with explicit colours were visible, which
+ *   is what "a blank window with unreadable text" described.
+ *
+ *   Four rules prevent that class of failure:
+ *     1. `color-scheme: dark` ONLY. One theme ships, so the UA must not re-map its
+ *        palette, form controls or scrollbars.
+ *     2. Background and foreground are stated on `html` AND `body`. Neither is
+ *        left to a default.
+ *     3. Components state their own colour. Nothing inherits an unknown one, and
+ *        secondary text uses a TOKEN with a measured contrast ratio rather than
+ *        an `opacity-*` multiplier, which is what made secondary text disappear
+ *        first the last time a theme was assumed.
+ *     4. Every text/background pair below was measured, not eyeballed. Ratios are
+ *        recorded beside the values so a future change can be checked against the
+ *        number it has to beat (WCAG AA body text = 4.5:1, large/UI = 3:1).
  */
 
 @theme {
-  /* Surfaces */
-  --color-canvas: #f3f5f8;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f8fafc;
-  --color-surface-sunken: #eef2f6;
+  /* Surfaces — opaque by default, because text is read on them */
+  --color-canvas: #060a14;
+  --color-surface: #0c1322;
+  --color-surface-muted: #111a2d;
+  --color-surface-sunken: #080e1a;
 
-  /* Ink */
-  --color-ink: #0b1220;
-  --color-ink-soft: #475569;
-  --color-ink-faint: #64748b;
+  /* Ink — ratios measured against --color-surface (#0c1322) */
+  --color-ink: #eef4ff; /* 16.8:1 */
+  --color-ink-soft: #b3c1d9; /* 10.2:1 */
+  --color-ink-faint: #8b9bb7; /*  6.6:1 */
+  /* Text that sits ON a brand fill. */
+  --color-ink-inverse: #071022; /* 7.6:1 on --color-brand */
 
-  /* Lines */
-  --color-line: #e0e6ed;
-  --color-line-strong: #c6d0dc;
+  /* Lines — translucent so they read over both canvas and glass */
+  --color-line: rgb(255 255 255 / 0.09);
+  --color-line-strong: rgb(255 255 255 / 0.18);
 
-  /* Brand */
-  --color-brand: #1d4ed8;
-  --color-brand-strong: #1e3a8a;
-  --color-brand-soft: #eaf1ff;
-  --color-brand-line: #b8cdfb;
+  /* Brand — periwinkle. Bright enough for links and icons on dark, and dark
+     enough under --color-ink-inverse for primary buttons (7.6:1). */
+  --color-brand: #7aa2ff; /* 7.5:1 as text on --color-surface */
+  --color-brand-strong: #a9c1ff; /* 8.3:1 on --color-brand-soft over surface */
+  --color-brand-soft: rgb(122 162 255 / 0.13);
+  --color-brand-line: rgb(122 162 255 / 0.36);
 
-  /* Status */
-  --color-ok: #047857;
-  --color-ok-soft: #ecfdf5;
-  --color-ok-line: #a7e3c8;
-  --color-warn: #b45309;
-  --color-warn-soft: #fffbeb;
-  --color-warn-line: #f5d08a;
-  --color-danger: #b91c1c;
-  --color-danger-soft: #fef2f2;
-  --color-danger-line: #f4bcbc;
-  --color-neutral-soft: #f1f5f9;
+  /* Status — each tone has a text value and a matching dark tint */
+  --color-ok: #5eead4; /* 12.5:1 */
+  --color-ok-soft: rgb(94 234 212 / 0.1);
+  --color-ok-line: rgb(94 234 212 / 0.32);
+  --color-warn: #fbbf6b; /* 11.3:1 */
+  --color-warn-soft: rgb(251 191 107 / 0.1);
+  --color-warn-line: rgb(251 191 107 / 0.34);
+  --color-danger: #fb7185; /*  6.9:1 */
+  --color-danger-soft: rgb(251 113 133 / 0.12);
+  --color-danger-line: rgb(251 113 133 / 0.4);
+  --color-neutral-soft: rgb(255 255 255 / 0.05);
+
+  /* Glass — navigation, hero, and floating chrome only. Never behind body text. */
+  --color-glass: rgb(12 19 34 / 0.62);
+  --color-glass-strong: rgb(8 14 26 / 0.92);
 
   /* Type */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -67,16 +85,20 @@
     "Liberation Mono", monospace;
 
   /* Shape */
-  --radius-panel: 0.875rem;
-  --radius-control: 0.5rem;
+  --radius-panel: 1rem;
+  --radius-control: 0.625rem;
 
-  /* Elevation, used only on floating surfaces */
-  --shadow-panel: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -16px rgb(15 23 42 / 0.18);
-  --shadow-float: 0 10px 30px -12px rgb(15 23 42 / 0.25);
+  /* Elevation — dark surfaces need a hairline of light on top and a deep,
+     soft shadow below; a plain box-shadow disappears against the canvas. */
+  --shadow-panel: inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 1px 2px rgb(0 0 0 / 0.4), 0 18px 44px -30px rgb(0 0 0 / 0.9);
+  --shadow-float: inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 18px 50px -18px rgb(0 0 0 / 0.75);
+  --shadow-glow: 0 0 0 1px rgb(122 162 255 / 0.18), 0 24px 70px -30px rgb(91 123 255 / 0.55);
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 html {
@@ -90,6 +112,7 @@ html {
 }
 
 body {
+  position: relative;
   margin: 0;
   min-height: 100vh;
   background-color: var(--color-canvas);
@@ -100,12 +123,34 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/*
+ * The aurora. Four very low-opacity radial lights, fixed behind everything, so
+ * the midnight field has depth without a decorative image or a paint cost while
+ * scrolling: it is one fixed, non-interactive layer, and `prefers-reduced-motion`
+ * does not apply because nothing animates.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 38rem at 8% -12%, rgb(64 106 255 / 0.22), transparent 62%),
+    radial-gradient(46rem 30rem at 96% -4%, rgb(139 92 246 / 0.16), transparent 62%),
+    radial-gradient(52rem 34rem at 50% 118%, rgb(20 184 166 / 0.12), transparent 64%);
+}
+
 /* Visible, consistent keyboard focus. Removing the outline without a
    replacement is the usual cause of "I cannot tell where I am" on a demo. */
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: 8px;
+}
+
+::selection {
+  background: rgb(122 162 255 / 0.32);
 }
 
 /*
@@ -114,18 +159,98 @@ body {
  * Tailwind's preflight already sets `font: inherit` and `color: inherit` inside
  * `@layer base`. CSS written outside every layer outranks ALL layered CSS, so a
  * plain `button { font: inherit; color: inherit }` here would beat every
- * `text-white` and `font-semibold` utility, silently overprinting any button or
- * textarea that carried them. Utilities must win over element defaults.
+ * `text-*` and `font-semibold` utility, silently overprinting any control that
+ * carried them. Utilities must win over element defaults.
  */
 
 input[type="range"] {
   accent-color: var(--color-brand);
 }
 
-/* A long quotation in a citation panel should wrap, not overflow its card. */
-pre,
-code {
-  overflow-wrap: anywhere;
+/*
+ * Glass. Applied to the navigation rail, the top bars and the hero panel only.
+ *
+ * Two decisions worth stating:
+ *   - It is a component-layer class, so Tailwind utilities still win when a
+ *     surface needs to override a colour.
+ *   - Below 768px the blur is dropped and the tint is raised. Backdrop blur on a
+ *     phone is a compositing cost paid on every scroll frame, and the glass look
+ *     survives without it.
+ */
+@layer components {
+  .glass {
+    background-color: var(--color-glass);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    backdrop-filter: blur(20px) saturate(150%);
+  }
+
+  .glass-strong {
+    background-color: var(--color-glass-strong);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+  }
+
+  @media (max-width: 767px) {
+    .glass,
+    .glass-strong {
+      background-color: var(--color-glass-strong);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  /*
+   * The lesson timeline. A native range input is the only control that is
+   * keyboard-accessible, screen-reader-labelled and touch-correct for free, so it
+   * is kept and restyled rather than replaced by a div track.
+   */
+  .timeline {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 1.5rem;
+    background: transparent;
+    cursor: pointer;
+  }
+  .timeline::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-surface-sunken);
+    border: 1px solid var(--color-line);
+  }
+  .timeline::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -5px;
+    height: 16px;
+    width: 16px;
+    border-radius: 999px;
+    background: var(--color-brand);
+    border: 2px solid #0b1220;
+    box-shadow: 0 0 0 3px rgb(122 162 255 / 0.22);
+  }
+  .timeline:disabled::-webkit-slider-thumb {
+    background: var(--color-ink-faint);
+    box-shadow: none;
+  }
+  .timeline::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-surface-sunken);
+    border: 1px solid var(--color-line);
+  }
+  .timeline::-moz-range-thumb {
+    height: 14px;
+    width: 14px;
+    border-radius: 999px;
+    background: var(--color-brand);
+    border: 2px solid #0b1220;
+  }
+
+  /* A long quotation in a citation panel should wrap, not overflow its card. */
+  pre,
+  code {
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Thin, low-contrast scrollbars for the transcript and viewer panes, so a long
@@ -144,8 +269,10 @@ code {
   border-radius: 999px;
 }
 
-/* Motion is decoration here. Everything that matters is instant, and these
-   transitions vanish for anyone who asked the OS to reduce motion. */
+/*
+ * Motion is decoration here. Everything that matters is instant, and these
+ * transitions vanish for anyone who asked the OS to reduce motion.
+ */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

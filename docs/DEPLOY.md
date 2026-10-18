@@ -10,9 +10,14 @@ site.
 
 What was verified on that origin, with the values observed:
 
+**Route change on 2026-10-18:** `/` is now the welcome page and the learning studio
+is at **`/learn`**. The figure below was taken while `/` still served the studio; the
+current state of both routes is verified in [EVALUATION.md](EVALUATION.md) Part 12, and
+`docs/DEPLOY.md` §6 lists both checks separately.
+
 | Check | Observed on https://horizon-prototype.vercel.app |
 |---|---|
-| Home page | `200`, 20,259 bytes, `text/html` |
+| Home page (then the studio; now `/learn`) | `200`, 20,259 bytes, `text/html` |
 | `GET /api/v1/health` | `ok: true`, `spendGuard: "permitted"`, `querySucceeded: true`, `schemaObjects: "verified"`, `durableLedger: "usable"`, `configurationProblems: []` |
 | Evidence store | `evidenceSource: "supabase"` — the recording's transcript and its two compiled documents |
 | Scope moves with position | `10` at 00:03, `20` at 10:00, `66` at 50:00 |
@@ -180,7 +185,8 @@ Open the URL in a clean browser session and then:
 
 | Check | Expected |
 |---|---|
-| Home page | Loads; **Lesson recording (real captions)** is the selected lesson and "Transcribed and indexed from its own captions" is visible |
+| Home (`/`) | Loads without any model call: the hero, the continue card built from this browser's own stored progress, and the catalogue rows the evidence store returned, with a synthetic course labelled as synthetic |
+| Studio (`/learn`) | Loads; the lesson recording is the selected lesson and "Captions indexed" is visible; `?lesson=sample` opens the labelled synthetic corpus, `?section=materials` opens the library, and `?start=<seconds>` resumes on the player's first clock report and then clears itself from the address |
 | Lesson video | The player renders and its clock advances while playing and follows a seek. On a host the source line names the original YouTube embed, because the recording was not uploaded — that is the expected state, not a defect |
 | Position provenance | The panel reads `Source: the player's own playback clock.` once the player has started. If a host's browser refuses the embed, it must instead read `Source: set by hand, because no player has reported a clock in this session` — never a number presented as playback |
 | Evidence scope moves with the clock | `pnpm canary:lesson --base https://<project>.vercel.app --positions 300,1200,3000` exits 0, each count matching the harness's own oracle. Observed on the deployed origin once documents existed: **10 / 20 / 66** — the 10 course-wide reference blocks are present at every position, and the rest unlock with the recording. (Before the documents were ingested the same origin read 4 / 19 / 49.) |

@@ -36,6 +36,23 @@ honest refusal.
 > audit that drove this, what was kept, and what was deliberately not built are in
 > [docs/UI-AUDIT.md](docs/UI-AUDIT.md).
 >
+> **The root route is a welcome page, and the studio lives at `/learn`.** Home
+> states the promise, offers the lesson *this browser* has progress in (read from
+> `localStorage`, with the reached position and the watched time shown as the two
+> different figures they are), lists the courses the evidence store actually
+> returned, and explains the four-step learning loop. It makes no model call. A
+> lesson link carries `?start=` only when a real position exists, and the studio
+> applies it once the player reports a clock — never from the link alone.
+>
+> **One identity, "Midnight Aurora".** A dark reading surface: glass for the
+> navigation rail, the top bars and the hero panel, and opaque surfaces for
+> everything read for minutes (transcript, citations, answers, resource text,
+> forms). Every text/background pair has a measured contrast ratio recorded beside
+> its token in [`src/app/globals.css`](src/app/globals.css), so the palette can be
+> checked against a number rather than an impression. One theme ships, and
+> `color-scheme: dark` is stated so the browser never re-maps the palette it was
+> not asked to.
+>
 > What this revision does NOT claim: no authentication, no file-upload UI (the
 > documents are ingested by an operator command), no OCR for scanned pages, no
 > summary/quiz actions, no mock interview and no instructor-review interface yet.
@@ -57,7 +74,8 @@ honest refusal.
 | Claims-only generator, Tier-1 deterministic checks, Tier-2 verifier | ✅ unit tested |
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types; **embeddings still run on it, live** |
 | Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ✅ **live-verified on 2026-10-15** — one smoke request and three canary turns succeeded through this adapter. Endpoint, bearer auth, strict JSON Schema, usage mapping, 429 guidance and every failure path are also unit tested (38 cases, all mocked) |
-| Learning studio: app shell, lesson stage, scope strip, assistant | ✅ verified rendered at 1440, 1024, 768, 390 and 360 px with the real player, a live seek and a live scope update (37 blocks at 25:00) |
+| Home entry point (`/`) | ✅ verified rendered at 1440, 1024, 768, 390 and 360 px — the hero, a continue card built from this browser's real progress (`in progress`, `watched 00:00`, `reached 25:00`), the two real catalogue rows with the synthetic sample labelled, and no horizontal overflow at any of the five widths |
+| Learning studio (`/learn`): app shell, lesson stage, scope strip, assistant | ✅ verified rendered at 1440, 1024, 768, 390 and 360 px with the real player, a live seek and a live scope update (37 blocks at 25:00); `?lesson=`, `?section=` and `?start=` deep links verified in the browser, including a resume that seeked the real element to 1500 s and then removed the consumed `start` parameter |
 | Transcript pane (`GET /courses/:id/transcript`) | ✅ verified live — 24 timestamped passages at 25:00, ordinary text search, gaps stated rather than filled, seeking follows the player, and the endpoint returns only eligible captions |
 | Course materials library and document viewer (`/resources`, `/resources/:id`) | ✅ verified live — 3 sources with policy and counts, a 3-page PDF with page chips and text zoom, and a slide deck whose only 3 permitted blocks at 25:00 are the ones the deck has reached |
 | Notes, bookmarks and watched progress | ✅ verified live in a browser — one-click bookmark at 25:00, a note, both surviving a reload from `localStorage`; a 25-second playback recorded 25 s watched while a seek only moved the resume point. Local-only, and labelled as such |
@@ -103,6 +121,12 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
 
 ## The learner flow
 
+0. Land on **Home**. It says what the product does, offers the lesson this
+   browser actually has progress in, and lists the courses the evidence store
+   returned, with the synthetic sample labelled as synthetic. It makes no model
+   call, so opening the product costs nothing against the daily budget. Everything
+   it links to is a surface that exists; there is no disabled or placeholder
+   destination anywhere in the navigation.
 1. Watch the lesson recording. It is the real video, its clock is its own, and
    the **evidence is the recording's own transcript** — YouTube's automatic
    English captions, ingested verbatim with the timestamps the source reported.
@@ -329,8 +353,11 @@ src/
     api/v1/courses/[courseId]/resources/route.ts   # sources + policy, counts only
     api/v1/courses/[courseId]/resources/[resourceId]/route.ts
     api/v1/courses/[courseId]/questions/route.ts   # the answer path
-    page.tsx, layout.tsx
+    page.tsx                 # Home: the welcome entry point (no model call)
+    learn/page.tsx           # the studio, with ?lesson= ?section= ?start= deep links
+    layout.tsx
   components/
+    home/home-experience.tsx # hero, continue card, catalogue, capabilities, limits
     learning-studio.tsx      # the studio: position, scope, and the five surfaces
     shell/app-shell.tsx      # rail on desktop, five-column nav on mobile
     lesson/                  # stage, scope strip, transcript, assistant, personal hook
@@ -350,6 +377,9 @@ src/
     demo/lesson.ts           # SYNTHETIC sample corpus with a future-only fact
     eligibility/predicate.ts # THE canonical eligibility predicate (TS + SQL twin)
     persistence/turns.ts     # minimal turn records, honestly reported
+    presentation/continue-lesson.ts # which lesson Home continues, and where it links
+    presentation/transcript-view.ts # caption selection, gaps, search, paragraph re-flow
+    presentation/resources.ts       # page/slide/line grouping for the viewer
     retrieval/*              # stores, lexical helpers, RRF fusion, citation labels
     server/context.ts        # per-request dependency assembly
 supabase/migrations/0001_init.sql              # schema
@@ -545,8 +575,8 @@ Specific consequences of that rule:
 ```
 pnpm lint         exit 0
 pnpm typecheck    exit 0
-pnpm test         exit 0   319 tests, 20 files   (all mocked; the transcript/integration cases run against fixtures written in the tests)
-pnpm build        exit 0
+pnpm test         exit 0   371 tests, 23 files   (all mocked; the transcript/integration cases run against fixtures written in the tests)
+pnpm build        exit 0   routes: / (Home), /learn (studio), 9 API routes
 pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
 pnpm verify:budget exit 0  12 concurrent generation reservations -> exactly 4 granted of a 4-slot budget; 12 concurrent embedding admissions -> exactly 3 of a cap of 3; cleanup complete, 0 probe rows
 pnpm verify:data-path exit 0  25 passed, 0 failed, 0 pending — real rows, zero provider calls

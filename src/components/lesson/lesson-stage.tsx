@@ -8,6 +8,12 @@
  * progress bar reports what this browser has actually watched. Nothing here
  * interpolates a position, and nothing claims coverage from the furthest point
  * reached — those are different facts and the labels keep them apart.
+ *
+ * THE TRANSPORT IS PART OF THE STAGE, NOT FLOATING OVER IT
+ *   Controls sit in a single band attached to the panel, separated by a hairline
+ *   rather than hovering over the picture, so the grouping says what they act on.
+ *   The video itself stays on pure black: a translucent control strip over the
+ *   frame would make a 1080p lecture harder to read for no gain.
  */
 import type { LessonVideoClockReport, SeekRequest } from "@/components/lesson-video";
 import LessonVideo from "@/components/lesson-video";
@@ -66,11 +72,11 @@ export function LessonStage({
   const percent = Math.round(progressFraction * 100);
 
   return (
-    <Panel>
-      <div className="flex flex-wrap items-start justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
+    <Panel className="overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
               {isVideo ? "Lesson recording" : "Synthetic sample"}
             </p>
             {isVideo ? (
@@ -78,13 +84,13 @@ export function LessonStage({
                 {captionsIndexed ? "Captions indexed" : "Not indexed"}
               </Pill>
             ) : (
-              <Pill tone="warn">Labeled fixture · not the recording</Pill>
+              <Pill tone="warn">Labelled fixture · not the recording</Pill>
             )}
           </div>
-          <h1 className="mt-1.5 text-lg font-semibold leading-7 tracking-tight text-ink sm:text-[22px] sm:leading-8">
+          <h1 className="mt-2 text-balance text-xl font-semibold leading-7 tracking-[-0.02em] text-ink sm:text-[26px] sm:leading-8">
             {title}
           </h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
             <span>{author}</span>
             <span aria-hidden="true" className="text-line-strong">·</span>
             <span className="font-mono tabular-nums">{formatPlaybackClock(durationSeconds)}</span>
@@ -108,10 +114,20 @@ export function LessonStage({
 
       <div className="px-4 sm:px-5">
         {isVideo ? (
-          <LessonVideo source={source} onClock={onClock} seekRequest={seekRequest} />
+          <div className="relative">
+            {/* A single low-opacity glow behind the frame. It is decoration, it is
+                outside the panel's text flow, and it costs one composited layer. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -inset-3 rounded-panel bg-[radial-gradient(60%_70%_at_50%_0%,rgb(122_162_255/0.18),transparent_70%)] blur-lg"
+            />
+            <div className="relative">
+              <LessonVideo source={source} onClock={onClock} seekRequest={seekRequest} />
+            </div>
+          </div>
         ) : (
-          <div className="rounded-panel border border-warn-line bg-warn-soft p-4">
-            <p className="text-sm font-semibold text-ink">
+          <div className="rounded-control border border-warn-line bg-warn-soft p-4">
+            <p className="text-sm font-semibold text-warn">
               This sample lesson has no recording.
             </p>
             <p className="mt-1 text-xs leading-5 text-ink-soft">
@@ -123,8 +139,8 @@ export function LessonStage({
         )}
       </div>
 
-      {/* ---------------- Timeline ---------------- */}
-      <div className="px-4 pb-4 pt-3 sm:px-5">
+      {/* ---------------- Transport ---------------- */}
+      <div className="mt-4 border-t border-line bg-surface-muted/70 px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-3">
           <output
             htmlFor="lesson-timeline"
@@ -142,7 +158,7 @@ export function LessonStage({
             onChange={(event) => onSeek(Number(event.target.value))}
             aria-label={isVideo ? "Playback position" : "Sample timeline position"}
             aria-valuetext={`${formatPlaybackClock(playhead)} of ${formatPlaybackClock(durationSeconds)}`}
-            className="min-w-0 flex-1 cursor-pointer accent-brand"
+            className="timeline min-w-0 flex-1"
             disabled={durationSeconds <= 0}
           />
           <span className="w-[4.6rem] text-right font-mono text-xs tabular-nums text-ink-faint">
@@ -212,7 +228,7 @@ export function LessonStage({
 
           <span aria-hidden="true" className="mx-1 hidden h-5 w-px bg-line sm:block" />
 
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
             Jump
           </span>
           <div className="flex flex-wrap gap-1">
@@ -225,9 +241,9 @@ export function LessonStage({
                   onClick={() => onSeek(preset.seconds)}
                   aria-pressed={active}
                   aria-label={`Jump to ${formatPlaybackClock(preset.seconds)}, ${preset.label}`}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-[background-color,border-color,color] duration-150 ${
                     active
-                      ? "border-brand bg-brand text-white"
+                      ? "border-brand bg-brand text-ink-inverse"
                       : "border-line bg-surface text-ink-soft hover:border-brand-line hover:bg-brand-soft hover:text-brand-strong"
                   }`}
                 >
@@ -240,7 +256,7 @@ export function LessonStage({
         </div>
 
         {isVideo && !playerReady && (
-          <p className="mt-2 rounded-control border border-warn-line bg-warn-soft px-2.5 py-1.5 text-[11px] leading-4 text-warn">
+          <p className="mt-2.5 rounded-control border border-warn-line bg-warn-soft px-2.5 py-1.5 text-[11px] leading-4 text-warn">
             The player has reported no clock, so the position is the one set here and is
             labelled as manual. Press play in the player to ask from its real position.
           </p>

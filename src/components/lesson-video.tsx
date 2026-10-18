@@ -276,7 +276,7 @@ export default function LessonVideo({
   }, [seekRequest, source.kind]);
 
   return (
-    <div className="mt-3">
+    <div>
       {source.kind === "file" ? (
         <video
           ref={videoRef}
@@ -285,7 +285,7 @@ export default function LessonVideo({
           playsInline
           preload="metadata"
           aria-label="Lesson recording"
-          className="aspect-video w-full rounded-lg border border-slate-300 bg-slate-900"
+          className="aspect-video w-full rounded-control border border-line-strong bg-black"
           onLoadedMetadata={(event) => {
             setDuration(event.currentTarget.duration);
             onClockRef.current?.({
@@ -336,35 +336,35 @@ export default function LessonVideo({
         // The IFrame Player API replaces this element with its own iframe. It is
         // rendered inside a bordered box so an empty frame during load — or a
         // failed load — never looks like a broken page.
-        <div className="aspect-video w-full overflow-hidden rounded-lg border border-slate-300 bg-slate-900">
+        <div className="aspect-video w-full overflow-hidden rounded-control border border-line-strong bg-black">
           <div ref={mountRef} className="h-full w-full" />
         </div>
       )}
 
-      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm text-slate-700">
+      <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm text-ink-soft">
           {clockLabel === null ? (
             "The player's clock is unavailable."
           ) : (
             <>
               Playing at{" "}
-              <span className="font-mono font-semibold tabular-nums text-slate-900">
+              <span className="font-mono font-semibold tabular-nums text-ink">
                 {clockLabel}
               </span>
-              <span className="text-slate-600">
+              <span className="text-ink-faint">
                 {duration > 0 ? ` / ${formatPlaybackClock(duration)}` : ""}
               </span>
             </>
           )}
         </p>
-        <p className="font-mono text-xs text-slate-600">
+        <p className="font-mono text-xs text-ink-faint">
           {source.kind === "file"
             ? `${formatSize(source.bytes)} · local copy`
             : `original source · ${source.youtubeId}`}
         </p>
       </div>
 
-      <p className="mt-1 text-xs text-slate-600">
+      <p className="mt-1 text-xs leading-5 text-ink-faint">
         {source.kind === "file" ? (
           <>
             Streamed from the local copy in this workspace (
@@ -378,7 +378,7 @@ export default function LessonVideo({
             Player API, because a host has no local copy of the recording.{" "}
             <a
               href={source.watchUrl}
-              className="font-medium text-blue-800 underline"
+              className="font-medium text-brand underline decoration-brand-line underline-offset-2 hover:decoration-brand"
               target="_blank"
               rel="noreferrer"
             >
@@ -391,7 +391,7 @@ export default function LessonVideo({
 
       {playbackBlocked && (
         <p
-          className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+          className="mt-2 rounded-control border border-warn-line bg-warn-soft p-3 text-sm font-medium text-warn"
           role="status"
         >
           The browser refused to start playback, so the recording is paused at that
@@ -401,7 +401,7 @@ export default function LessonVideo({
 
       {source.kind === "embed" && embedStatus === "failed" && (
         <p
-          className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+          className="mt-2 rounded-control border border-warn-line bg-warn-soft p-3 text-sm font-medium text-warn"
           role="status"
         >
           The YouTube player could not start here, so no playback clock is being

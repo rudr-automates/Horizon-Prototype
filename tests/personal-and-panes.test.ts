@@ -25,6 +25,12 @@ import {
   transcriptGaps,
 } from "@/lib/presentation/transcript-view";
 import { groupResourceBlocks } from "@/lib/presentation/resources";
+import {
+  buildLessonEntries,
+  chooseContinueLesson,
+  lessonHref,
+} from "@/lib/presentation/continue-lesson";
+import type { CourseSummary } from "@/lib/contracts/question";
 
 const NOW = "2026-10-18T12:00:00.000Z";
 const COURSE = "course_1";
@@ -317,5 +323,95 @@ describe("resource viewer grouping", () => {
       "Lines 12–14",
     ]);
     expect(groups[0]?.blocks.map((block) => block.id)).toEqual(["p1a", "p1b"]);
+  });
+});
+
+describe("home continue-lesson selection", () => {
+  const recording: CourseSummary = {
+    courseId: "083d7195-9371-5202-93dc-a724ad7982cc",
+    title: "Don't learn AI Agents without Learning these Fundamentals — KodeKloud (lesson recording)",
+    durationSeconds: 3399.2959,
+    demoContent: false,
+  };
+  const sample: CourseSummary = {
+    courseId: "83eafd47-15d8-50e0-9edc-ee6fb580cb83",
+    title: "Sample Lesson — Retry and Backoff Strategies (synthetic demo)",
+    durationSeconds: 900,
+    demoContent: false,
+  };
+
+  it("names the recording by id and marks anything else as a synthetic sample", () => {
+    const entries = buildLessonEntries([sample, recording], recording.courseId);
+    expect(entries.map((entry) => entry.kind)).toEqual(["sample", "recording"]);
+    expect(entries[0]?.synthetic).toBe(true);
+    expect(entries[1]?.synthetic).toBe(false);
+  });
+
+  it("treats an unflagged course as real material, not as the fixture", () => {
+    const real = { ...sample, title: "Week 4 — recursion", demoContent: false };
+    const [entry] = buildLessonEntries([real], recording.courseId);
+    expect(entry?.kind).toBe("sample");
+    expect(entry?.synthetic).toBe(false);
+  });
+
+  it("offers the recording as a not-started choice when nothing has been watched", () => {
+    const entries = buildLessonEntries([sample, recording], recording.courseId);
+    const choice = chooseContinueLesson(entries, {});
+    expect(choice?.entry.kind).toBe("recording");
+    expect(choice?.started).toBe(false);
+    expect(choice?.seconds).toBe(0);
+    expect(lessonHref(choice!.entry)).toBe("/learn?lesson=recording");
+  });
+
+  it("follows the lesson with the most recent progress, not the first row", () => {
+    const entries = buildLessonEntries([recording, sample], recording.courseId);
+    const progress = {
+      [sample.courseId]: {
+        courseId: sample.courseId,
+        furthestSeconds: 300,
+        watched: [{ start: 240, end: 300 }],
+        updatedAt: "2026-10-18T12:00:00.000Z",
+      },
+      [recording.courseId]: {
+        courseId: recording.courseId,
+        furthestSeconds: 1500,
+        watched: [{ start: 1200, end: 1260 }],
+        updatedAt: "2026-10-18T11:00:00.000Z",
+      },
+    };
+    const choice = chooseContinueLesson(entries, progress);
+    expect(choice?.entry.courseId).toBe(sample.courseId);
+    expect(choice?.watched).toBe(60);
+    expect(choice?.fraction).toBeCloseTo(60 / 900, 5);
+    expect(lessonHref(choice!.entry, choice!.seconds)).toBe(
+      `/learn?lesson=sample&start=300`,
+    );
+  });
+
+  it("keeps a reached position separate from watched time", () => {
+    const entries = buildLessonEntries([recording], recording.courseId);
+    const choice = chooseContinueLesson(entries, {
+      [recording.courseId]: {
+        courseId: recording.courseId,
+        furthestSeconds: 120,
+        watched: [],
+        updatedAt: "2026-10-18T12:00:00.000Z",
+      },
+    });
+    // A seek is enough to offer the position again, and it is enough to call the
+    // lesson started, but it must never become watched coverage: the two figures
+    // are reported separately precisely so this case cannot inflate one with the
+    // other.
+    expect(choice?.started).toBe(true);
+    expect(choice?.seconds).toBe(120);
+    expect(choice?.watched).toBe(0);
+    expect(choice?.fraction).toBe(0);
+    expect(lessonHref(choice!.entry, choice!.seconds)).toBe(
+      "/learn?lesson=recording&start=120",
+    );
+  });
+
+  it("returns null rather than inventing a lesson for an empty catalogue", () => {
+    expect(chooseContinueLesson([], {})).toBeNull();
   });
 });

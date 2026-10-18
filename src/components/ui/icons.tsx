@@ -12,6 +12,8 @@
 import type { SVGProps } from "react";
 
 const PATHS = {
+  home: "M4 10.5 12 4l8 6.5V20H4v-9.5Zm5 9.5v-6h6v6",
+  sparkle: "M12 4l1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6L12 4Zm6 9.5.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z",
   learn: "M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5V5.5Zm0 15A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5Z",
   materials: "M4 4h6l2 3h8v13H4V4Zm3 9h10M7 17h6",
   notes: "M6 3h9l4 4v14H6V3Zm8 0v5h5M9 12h7M9 16h5",

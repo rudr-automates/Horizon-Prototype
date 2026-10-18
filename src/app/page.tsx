@@ -1,70 +1,63 @@
-import LearningStudio from "@/components/learning-studio";
-import { describeConfigurationProblems } from "@/lib/config";
+import { HomeExperience } from "@/components/home/home-experience";
 import { createServerContext } from "@/lib/server/context";
 import { resolveServerLessonVideoSource } from "@/lib/lesson/video-file";
 import { lessonTranscriptCourseId } from "@/lib/ingest/lesson-transcript";
-import { DEMO_QUESTIONS } from "@/lib/demo/lesson";
+import { buildLessonEntries } from "@/lib/presentation/continue-lesson";
 import type { CourseSummary } from "@/lib/contracts/question";
 
-// The page reads server configuration on every request.
+// The page reads server configuration and the evidence store on every request.
 export const dynamic = "force-dynamic";
 
+/**
+ * Home.
+ *
+ * ONE READ, NO MODEL CALL
+ *   Everything on this page comes from a single `listCourses()` read of the
+ *   evidence store plus whatever this browser has already saved locally. It does
+ *   not ask a provider anything, and it does not open a lesson, so landing here
+ *   costs nothing against the daily token budget.
+ *
+ * THE RECORDING IS CHOSEN BY FACT
+ *   The video's transcript course is found by the id its own ingest command
+ *   derives from the video id, not by "whichever row came back first" — which is
+ *   what once selected the synthetic sample on a database-backed deployment. The
+ *   id also decides which catalogue entry is labelled the lesson recording and
+ *   which is marked synthetic.
+ */
 export default async function HomePage() {
-  const { config, providers, storeResolution } = createServerContext();
+  const { providers, storeResolution } = createServerContext();
   const store = storeResolution.store;
 
-  /**
-   * Two courses, deliberately separate.
-   *
-   * The video's transcript course is identified by the id its ingest command
-   * derives from the video's own id, so the primary lesson is chosen by fact
-   * rather than by "whichever row came back first" — which is what used to select
-   * the synthetic sample on a database-backed deployment.
-   *
-   * The sample is whatever else is there. It is passed separately, not merged, so
-   * the interface can label it as synthetic on its own terms.
-   */
   const lessonCourseId = lessonTranscriptCourseId();
-  let videoCourse: CourseSummary | null = null;
-  let sampleCourse: CourseSummary | null = null;
+  let courses: CourseSummary[] = [];
   let storeError: string | null = null;
 
   try {
-    const courses = await store.listCourses();
-    videoCourse = courses.find((course) => course.courseId === lessonCourseId) ?? null;
-
-    const others = courses.filter((course) => course.courseId !== lessonCourseId);
-    sampleCourse =
-      others.find((course) => course.demoContent) ?? others[0] ?? null;
-
-    if (!videoCourse && !sampleCourse) {
-      storeError = "No course is available from the configured evidence source.";
-    }
+    courses = await store.listCourses();
   } catch {
     storeError =
       "The database-backed evidence store is configured but the query failed. The schema migration has probably not been applied yet.";
   }
 
+  const videoCourseId =
+    courses.find((course) => course.courseId === lessonCourseId)?.courseId ?? null;
+
+  // The recording leads the catalogue; the rest keep the store's own order.
+  const entries = buildLessonEntries(courses, videoCourseId).sort((a, b) =>
+    a.kind === b.kind ? 0 : a.kind === "recording" ? -1 : 1,
+  );
+
   return (
-    <LearningStudio
-      videoCourse={videoCourse}
-      sampleCourse={sampleCourse}
-      // Resolved from the filesystem on every request, so the panel states the
-      // source this deployment can really play rather than the one we hoped for.
-      lessonVideo={resolveServerLessonVideoSource()}
-      // The sample fixture's own suggested questions. The recording's are
-      // declared with the video itself, because each is pinned to a passage the
-      // ingested transcript actually contains.
-      suggestedQuestions={[DEMO_QUESTIONS.canary, DEMO_QUESTIONS.courseWideControl]}
-      runtimeAiConfigured={providers.configured}
-      embeddingCredentialPresent={providers.embeddingConfigured}
-      // Reported rather than left to be inferred from a refusal: a wrong
-      // provider name and a credential in the wrong variable both look like an
-      // outage on screen. Contains settings names only, never values.
-      configurationProblems={describeConfigurationProblems(config)}
+    <HomeExperience
+      entries={entries}
       evidenceSource={store.mode}
       evidenceReason={storeResolution.reason}
       storeError={storeError}
+      runtimeAiConfigured={providers.configured}
+      embeddingCredentialPresent={providers.embeddingConfigured}
+      // Resolved from the filesystem on every request, so the hero states the
+      // source this deployment can really play rather than the one we hoped for.
+      lessonVideoKind={resolveServerLessonVideoSource().kind}
     />
   );
 }

@@ -1110,3 +1110,82 @@ button.
 library shows the *result* of review (pending counts, rejected counts, policy
 labels), which is the part that affects learning, and the CLI is recorded in
 EVALUATION.
+---
+
+## D-039 — Home is a real route, and the studio moved to `/learn`
+
+**Context.** `/` rendered the studio directly. A first-time visitor saw a lesson
+player, an evidence count and an ask box, with no statement of what the product
+does. The product's promise was legible only after using it.
+
+**Decision.** Move the studio to `/learn` unchanged in behaviour and make `/` a
+welcome page built from the live course catalogue and this browser's own saved
+progress. Home makes **no** model call, so landing on the product costs nothing
+against the daily budget, and every action it offers leads to a surface that
+exists.
+
+**Consequence.** Every existing link, bookmark and document that named the studio
+root now names Home. The shell carries a Home item on both desktop and mobile, and
+the breadcrumb starts at `Horizon`, so the workspace is one click from the front
+door in either direction. The alternative — a marketing page with fabricated
+social proof — was rejected: the numbers on Home are the store's own courses and
+the browser's own progress, and nothing else.
+
+---
+
+## D-040 — Midnight Aurora: one dark theme with recorded contrast ratios
+
+**Context.** The first revision shipped a light theme whose only stated defence
+was that one theme is simpler than two. That is true, but it left the palette
+unexamined: `text-white` on a mid-blue button read at about 2:1, and secondary
+text was dimmed with opacity rather than a token.
+
+**Decision.** One dark identity, stated once in `@theme`, with the measured
+contrast ratio of every ink and status token recorded beside its value, and filled
+controls using `text-ink-inverse` rather than white. Glass is a component-layer
+class applied to chrome and the hero only; all reading surfaces stay opaque.
+
+**Consequence.** The palette can be changed against numbers rather than
+impressions, and a reviewer can check the claim on the token instead of trusting
+the screenshot. It also means a light theme is a real project (every pair
+re-measured, and a QA pass per preference) rather than a toggle, which is why it
+is not offered.
+
+---
+
+## D-041 — Deep links carry the lesson, the surface and a real resume position
+
+**Context.** The studio's lesson switch and five surfaces were local component
+state. A link could not open a surface, a refresh dropped both, and a learner
+returning to a 56-minute recording had to find their place by hand even though the
+browser already knew it.
+
+**Decision.** Read `?lesson=`, `?section=` and `?start=` on the server so the
+first paint is the right one, write them with `history.replaceState` so the
+address stays shareable and refresh-survivable without a history entry per tab
+click, and apply `?start=` on the player's first clock report — then remove it from
+the address.
+
+**Consequence.** Back from the studio still goes Home, a lesson link can be shared
+with the position it was taken at, and a seek is never applied twice. Applying the
+position on mount instead was rejected after checking: a range write before the
+element has metadata is discarded by the browser, which would have produced a
+resume control that resumes nothing.
+
+---
+
+## D-042 — The transcript, citations and answers stay on opaque surfaces
+
+**Context.** Glass is the identity's most distinctive device, and the easiest one
+to over-apply: a translucent transcript or citation card looks striking in a
+screenshot and is measurably worse to read for forty minutes.
+
+**Decision.** Glass is limited to the navigation rail, the top bars, the hero card
+and floating chrome. Panels that carry text a learner reads — transcript,
+citations, answers, resource pages, forms, tables — keep an opaque surface, and the
+rule is written in `globals.css` where the tokens are defined.
+
+**Consequence.** The two treatments have to coexist, so the shell reads as
+layered glass over a midnight field while the working area reads as a document.
+That contrast is the point: the atmosphere belongs to the frame, not to the
+material being studied.

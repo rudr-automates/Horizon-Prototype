@@ -106,7 +106,7 @@ export function AssistantPanel({
           </p>
           <h2 className="text-[15px] font-semibold leading-6 text-ink">Ask this lesson</h2>
         </div>
-        <Pill tone="brand">
+        <Pill tone="brand" className="shrink-0">
           <Icon name="clock" size={11} />
           through {formatPlaybackClock(playhead)}
         </Pill>
@@ -281,10 +281,10 @@ export function AssistantPanel({
                             type="button"
                             aria-expanded={open}
                             onClick={() => setOpenCitation(open ? null : flatIndex)}
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-[background-color,border-color,color] duration-150 ${
                               open
-                                ? "border-brand bg-brand text-white"
-                                : "border-brand-line bg-brand-soft text-brand-strong hover:bg-white"
+                                ? "border-brand bg-brand text-ink-inverse"
+                                : "border-brand-line bg-brand-soft text-brand-strong hover:border-brand hover:bg-surface-muted"
                             }`}
                           >
                             <Icon

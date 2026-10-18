@@ -170,7 +170,11 @@ read-only). Retrieval, prompts and quotation matching still use `text`.
   require a vision model, which the spend rule for this phase forbids.
 - **Cross-device notes, bookmarks and progress.** No account, no server-side
   personal store.
-- **Dark theme.** One theme, deliberately.
+- **A theme switch.** Superseded the same day: revision 3 (§9) replaced the light
+theme with the dark "Midnight Aurora" identity. The decision that survives is
+"exactly one theme, stated once", not "a light one": a switch would double every
+contrast pair that has to be measured, and it would need a per-preference QA pass
+on a surface set that has none.
 
 ## 8. Limitations of this verification
 
@@ -187,3 +191,129 @@ read-only). Retrieval, prompts and quotation matching still use `text`.
   offers text zoom, but it does not re-typeset the document.
 - **The materials viewer is text, not a facsimile.** A page looks like its text,
   not like the page.
+
+---
+
+## 9. Revision 3 — "Midnight Aurora" and the home entry point (2026-10-18, same day)
+
+### What was asked, and what changed in structure
+
+Two things were true of revision 2: it had no front door, and it looked like a
+competent internal tool. `/` dropped every visitor straight into a lesson player
+with an ask box and no statement of what the product is for, and the whole
+interface was one light theme built from neutral greys.
+
+- `/` is now **Home**: hero, continue card, course catalogue, the four-step
+  learning loop, six capability cards and an explicit "what this build does not
+  do" panel.
+- `/learn` is the studio, moved unchanged in behaviour. The root route is no
+  longer the workspace.
+- Every screen shares one dark identity. Glass is used for chrome and the hero
+  only; reading surfaces stay opaque.
+
+### The identity, and why each choice is checkable
+
+The palette, radii, shadows and glass rules live in
+[`src/app/globals.css`](../src/app/globals.css) as `@theme` tokens. Two decisions
+are worth recording because they are easy to get wrong and cheap to verify:
+
+1. **Contrast is recorded, not eyeballed.** Each ink token carries its measured
+   ratio against `--color-surface` in a comment: `ink` 16.8:1, `ink-soft` 10.2:1,
+   `ink-faint` 6.6:1, `brand` 7.5:1, and `ink-inverse` 7.6:1 on `brand`. Status
+   tones are the same (ok 12.5:1, warn 11.3:1, danger 6.9:1). A future palette
+   change has a number to beat instead of an impression to match.
+2. **Primary buttons use `text-ink-inverse`, not `text-white`.** On a periwinkle
+   fill, white is about 2:1 and fails AA; the dark ink token is 7.6:1. Every
+   filled control in the app was switched, and the reason is written beside the
+   token so it is not "fixed" back.
+
+Glass is deliberately bounded. `.glass` and `.glass-strong` are component-layer
+classes applied to the rail, the two top bars and the hero card. Below 768px the
+blur is dropped and the tint raised, because backdrop blur on a phone is a
+compositing cost on every scroll frame.
+
+### Home: what it is allowed to say
+
+Every figure on Home is either a real course fact from the evidence store or a
+real number from this browser's `localStorage`. Specifically:
+
+- **Continue learning** reads the personal store through the existing
+  `useSyncExternalStore` hook, and picks the lesson with the most recently updated
+  progress record, not the first catalogue row. A record with a reached position
+  but no watched time is still offered, and the two figures are printed
+  separately ("Watched 00:00 of 56:39 · 0% · reached 25:00") so a seek can never
+  look like coverage.
+- **The catalogue** renders `listCourses()` as returned. The recording is
+  identified by the id its own ingest derives from the video id; anything else is
+  labelled a sample only when the catalogue itself says so (`demoContent` or its
+  own title). With two courses it adds a note saying this is a two-course
+  prototype rather than a library, instead of padding the grid.
+- **Capability cards** state the availability of the deployment in front of the
+  reader: whether a generation key is configured, whether an embedding credential
+  is present, whether the player is the local copy or the original embed.
+- **No model call is made anywhere on the page.** It is a read plus browser-local
+  state, so the daily token budget is untouched by visiting it.
+
+### The studio, restyled rather than only recoloured
+
+- Glass rail and top bars; a gradient brand mark that links Home; a `Home` item in
+  both navigations (six items on mobile, all visible at 360px, no horizontal
+  scroll); an `All lessons` link in the top bar.
+- The lesson stage keeps its transport attached to the panel instead of floating
+  over the picture, with the watched bar, the position-source line and the jump
+  presets in one band. The timeline is still a native `range` input — the only
+  control that is keyboard-accessible, labelled and touch-correct for free — and
+  it is restyled, not replaced by a div.
+- Panels gained an eyebrow in the brand colour and a little more air; the
+  transcript, citation, answer and resource surfaces stayed opaque and kept their
+  sizes.
+
+### Deep links, and the position they carry
+
+`/learn` reads `?lesson=recording|sample`, `?section=learn|materials|notes|progress|status`
+and `?start=<seconds>` on the server, so a shared link opens the right surface on
+the first paint. Switching lesson or surface updates the address with
+`history.replaceState`, which keeps the address shareable and refresh-survivable
+without adding a history entry per tab click, so Back still returns to Home.
+
+`?start=` is applied on the **player's first clock report**, not on mount: a seek
+written before the element has metadata is silently discarded by the browser, and
+a "resume" link that resumes nothing is worse than none. Once applied, the
+parameter is removed from the address so a refresh cannot re-apply a stale
+position. Both halves were verified in the browser: `?start=1500` seeked the real
+element to 1500s (25:00), and the address came back as `/learn`.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `pnpm lint` / `pnpm typecheck` / `pnpm build` | exit 0; routes `/` and `/learn` both present in the build output |
+| `pnpm test` | 371 passed in 23 files, including 6 new cases for the continue-lesson rules (recording identified by id, unflagged material not called synthetic, most-recent progress wins, a reached position is not watched coverage, empty catalogue returns null) |
+| Widths | 1440, 1024, 768, 390 and 360 px, on Home and on `/learn`, in a real browser |
+| Horizontal overflow | none at any of the five widths; measured as `scrollWidth - clientWidth` on the document, not inferred from the layout |
+| Resume | `?start=1500` → `currentTime` 1500, clock `25:00`, position source `the player's own playback clock`, address cleaned afterwards |
+| Lesson switch | selecting the sample changed the heading, removed the video element, stated that the sample has no recording, and set `?lesson=sample` |
+| Scope and transcript at 25:00 | 37 eligible blocks, 24 passages, last passage ends at 1470.799s — unchanged by the redesign |
+| Accessibility fixes found by inspection | the responsive header's hidden items were relying on class-order (`hidden sm:inline-flex` racing `inline-flex`); each is now inside a responsive wrapper. Footer links got a 24px tap target |
+| AI spend | 15,052 tokens and 10/10 embedding requests before and after; no provider call was made in this revision |
+
+### Not built here
+
+- **The redesigned answer state is still unrendered.** Rendering a live answer
+  needs a metered provider call, which this phase forbids. The markup compiles
+  against the response contract and is a restyle of markup verified in Part 10.
+- **No completion score, streak or grade.** Watched time is reported because it is
+  measured; the others would not be.
+- **No account surface.** Nothing on Home implies cross-device sync, because
+  there is none.
+
+### Limitations of this verification
+
+- Every width was checked against the local production-parity build in the
+  browser; the deployed origin is checked separately and recorded in
+  [EVALUATION Part 12](EVALUATION.md).
+- The glass blur was verified by rendering, not by measuring frame time. The
+  phone-sized rule (no blur, stronger tint) is a deliberate precaution rather than
+  a measurement of a slow device.
+- Home's continue card was exercised with real stored progress created in the
+  browser (a seek to 25:00 and a bookmark); no other progress state was simulated.

@@ -28,7 +28,7 @@
  *   always at or BEFORE that clock, so a pane can lag a caption by a few seconds
  *   but can never reveal one the learner has not reached.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell, type SectionId, type ShellStatusTone } from "@/components/shell/app-shell";
 import { AssistantPanel } from "@/components/lesson/assistant-panel";
 import { LessonStage, type JumpPreset } from "@/components/lesson/lesson-stage";
@@ -76,6 +76,12 @@ const SAMPLE_PRESETS: JumpPreset[] = [
 export interface LearningStudioProps {
   videoCourse: CourseSummary | null;
   sampleCourse: CourseSummary | null;
+  /** Which lesson a deep link asked for. Falls back to what is available. */
+  initialLesson?: LessonView;
+  /** Which surface a deep link asked for. */
+  initialSection?: SectionId;
+  /** A saved position to resume, from a real progress record. 0 means none. */
+  initialSeconds?: number;
   lessonVideo: LessonVideoSource;
   suggestedQuestions: string[];
   runtimeAiConfigured: boolean;
@@ -92,6 +98,9 @@ export default function LearningStudio(props: LearningStudioProps) {
   const {
     videoCourse,
     sampleCourse,
+    initialLesson,
+    initialSection = "learn",
+    initialSeconds = 0,
     lessonVideo,
     suggestedQuestions,
     runtimeAiConfigured,
@@ -103,15 +112,21 @@ export default function LearningStudio(props: LearningStudioProps) {
   } = props;
 
   const videoAvailable = videoCourse !== null;
-  const [section, setSection] = useState<SectionId>("learn");
-  const [view, setView] = useState<LessonView>(videoAvailable ? "video" : "fixture");
+  const [section, setSection] = useState<SectionId>(initialSection);
+  const [view, setView] = useState<LessonView>(
+    initialLesson ?? (videoAvailable ? "video" : "fixture"),
+  );
 
   const activeCourse = view === "video" ? videoCourse : sampleCourse;
   const courseId = activeCourse?.courseId ?? "";
   const duration = activeCourse?.durationSeconds ?? 0;
 
   const [clock, setClock] = useState<LessonVideoClockReport | null>(null);
-  const [manualSeconds, setManualSeconds] = useState(0);
+  // A carried position on the labelled sample is the sample's own timeline, so it
+  // can be the initial value rather than an effect that writes state after mount.
+  const [manualSeconds, setManualSeconds] = useState(
+    initialLesson === "fixture" ? initialSeconds : 0,
+  );
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
   /** Ticks on every seek so the transcript can follow a jump, and only a jump. */
   const [seekNonce, setSeekNonce] = useState(0);
@@ -288,6 +303,28 @@ export default function LearningStudio(props: LearningStudioProps) {
 
   /* ---------------- Actions ---------------- */
 
+  /**
+   * A carried resume position is applied on the player's FIRST clock report.
+   *
+   * Not in an effect on mount: the recording has not necessarily loaded its
+   * metadata by then, and a seek written before that is silently discarded by the
+   * browser, which would leave a "resume" link that resumes nothing. Waiting for
+   * the player to report a position means the seek lands on a player that can
+   * accept it, and it happens exactly once.
+   */
+  const resumeApplied = useRef(false);
+  function handleClock(report: LessonVideoClockReport | null): void {
+    if (report !== null && !resumeApplied.current && initialSeconds > 0) {
+      resumeApplied.current = true;
+      seek(initialSeconds);
+      // The carried position is consumed, so it is removed from the address bar.
+      // Leaving it there would re-apply an old resume point on every refresh,
+      // even after the learner has moved somewhere else.
+      syncUrl({ start: null });
+    }
+    setClock(report);
+  }
+
   function seek(seconds: number, options?: { play?: boolean; pause?: boolean }): void {
     const ceiling = Math.max(1, Math.floor(duration));
     const target = Math.max(0, Math.min(Math.round(seconds), ceiling));
@@ -331,11 +368,33 @@ export default function LearningStudio(props: LearningStudioProps) {
         : (suggestedQuestions[0] ?? ""),
     );
     resetPlaybackBaseline();
+
+    // The lesson is part of the address, so the link on screen and the link a
+    // learner copies agree. `replaceState` rather than a navigation: switching
+    // lesson is not a new page in the history, and the back button should still
+    // return to the page that led here.
+    syncUrl({ lesson: next === "video" ? "recording" : "sample", start: null });
   }
 
   function navigate(next: SectionId): void {
     setSection(next);
     window.scrollTo({ top: 0, behavior: "auto" });
+    // Same reasoning as the lesson switch: the surface is shareable and survives
+    // a refresh, without adding a history entry per tab click.
+    syncUrl({ section: next });
+  }
+
+  /** Write studio state into the address bar without navigating. */
+  function syncUrl(changes: { lesson?: string; section?: string; start?: string | null }): void {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (changes.lesson !== undefined) url.searchParams.set("lesson", changes.lesson);
+    if (changes.section !== undefined) url.searchParams.set("section", changes.section);
+    if (changes.start !== undefined) {
+      if (changes.start === null) url.searchParams.delete("start");
+      else url.searchParams.set("start", changes.start);
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
   }
 
   async function ask(): Promise<void> {
@@ -536,7 +595,7 @@ export default function LearningStudio(props: LearningStudioProps) {
                 positionNote={position.note}
                 captionsIndexed={LESSON_VIDEO_EVIDENCE === "indexed"}
                 seekRequest={view === "video" ? seekRequest : null}
-                onClock={view === "video" ? setClock : () => undefined}
+                onClock={view === "video" ? handleClock : () => undefined}
                 onSeek={seek}
                 onBookmark={bookmarkCurrent}
                 bookmarkedAt={bookmarkedAt}

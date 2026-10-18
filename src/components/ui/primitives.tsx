@@ -16,15 +16,20 @@ import { Icon, type IconName } from "@/components/ui/icons";
 
 type ButtonTone = "primary" | "secondary" | "ghost" | "danger";
 
+/*
+ * Contrast note: primary and danger fills are LIGHT in this theme, so their text
+ * is `text-ink-inverse` (7.6:1 on brand, 6.9:1 on danger), not `text-white`,
+ * which reads at about 2:1 on a periwinkle button and fails AA outright.
+ */
 const BUTTON_TONES: Record<ButtonTone, string> = {
   primary:
-    "border-brand bg-brand text-white hover:bg-brand-strong hover:border-brand-strong disabled:border-line-strong disabled:bg-line-strong disabled:text-white",
+    "border-brand bg-brand text-ink-inverse hover:border-brand-strong hover:bg-brand-strong disabled:border-line-strong disabled:bg-line-strong disabled:text-ink-faint",
   secondary:
     "border-line-strong bg-surface text-ink hover:border-brand-line hover:bg-brand-soft disabled:border-line disabled:bg-surface-muted disabled:text-ink-faint",
   ghost:
-    "border-transparent bg-transparent text-ink-soft hover:bg-surface-sunken hover:text-ink disabled:text-ink-faint",
+    "border-transparent bg-transparent text-ink-soft hover:bg-surface-muted hover:text-ink disabled:text-ink-faint",
   danger:
-    "border-danger-line bg-danger-soft text-danger hover:border-danger hover:bg-danger hover:text-white",
+    "border-danger-line bg-danger-soft text-danger hover:border-danger hover:bg-danger hover:text-ink-inverse",
 };
 
 const BUTTON_SIZES = {
@@ -49,7 +54,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`inline-flex items-center justify-center rounded-control border font-semibold transition-colors disabled:cursor-not-allowed ${BUTTON_TONES[tone]} ${BUTTON_SIZES[size]} ${className}`}
+      className={`inline-flex items-center justify-center rounded-control border font-semibold transition-[background-color,border-color,color,box-shadow] duration-150 disabled:cursor-not-allowed ${BUTTON_TONES[tone]} ${BUTTON_SIZES[size]} ${className}`}
       {...rest}
     >
       {icon && <Icon name={icon} size={size === "sm" ? 14 : 16} />}
@@ -75,7 +80,7 @@ export function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-control border transition-colors disabled:cursor-not-allowed ${BUTTON_TONES[tone]} ${className}`}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-control border transition-[background-color,border-color,color] duration-150 disabled:cursor-not-allowed ${BUTTON_TONES[tone]} ${className}`}
       {...rest}
     >
       <Icon name={name} size={16} />
@@ -90,7 +95,7 @@ const PILL_TONES: Record<PillTone, string> = {
   ok: "border-ok-line bg-ok-soft text-ok",
   warn: "border-warn-line bg-warn-soft text-warn",
   danger: "border-danger-line bg-danger-soft text-danger",
-  neutral: "border-line bg-surface-sunken text-ink-soft",
+  neutral: "border-line bg-neutral-soft text-ink-soft",
   outline: "border-line-strong bg-surface text-ink-soft",
 };
 
@@ -116,14 +121,22 @@ export function Panel({
   children,
   className = "",
   as: Tag = "section",
+  tone = "solid",
 }: {
   children: ReactNode;
   className?: string;
   as?: "section" | "div" | "aside" | "article";
+  /**
+   * `glass` is for chrome and the hero. It is never used for text that has to be
+   * read for minutes at a time — see the reading-surface rule in globals.css.
+   */
+  tone?: "solid" | "glass";
 }) {
   return (
     <Tag
-      className={`rounded-panel border border-line bg-surface shadow-panel ${className}`}
+      className={`rounded-panel border bg-surface shadow-panel ${
+        tone === "glass" ? "glass border-line-strong shadow-float" : "border-line"
+      } ${className}`}
     >
       {children}
     </Tag>
@@ -156,6 +169,47 @@ export function PanelHeader({
         </h2>
         {description && (
           <p className="mt-0.5 text-xs leading-5 text-ink-soft">{description}</p>
+        )}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+export function SectionHeading({
+  eyebrow,
+  title,
+  description,
+  actions,
+  level = 1,
+}: {
+  eyebrow?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  /** 1 for a page title, 2 for a titled block inside a page. */
+  level?: 1 | 2;
+}) {
+  const Tag = level === 1 ? "h1" : "h2";
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0 max-w-2xl">
+        {eyebrow && (
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
+            {eyebrow}
+          </p>
+        )}
+        <Tag
+          className={
+            level === 1
+              ? "mt-2 text-balance text-2xl font-semibold leading-9 tracking-[-0.02em] text-ink sm:text-[30px] sm:leading-10"
+              : "mt-1.5 text-balance text-xl font-semibold leading-7 tracking-[-0.01em] text-ink"
+          }
+        >
+          {title}
+        </Tag>
+        {description && (
+          <p className="mt-2 text-sm leading-6 text-ink-soft">{description}</p>
         )}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

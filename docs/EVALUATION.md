@@ -1697,3 +1697,74 @@ Interactions executed, not inferred:
   the working tree immediately before the commit; nothing changed after them.
 - The PDF viewer shows the stored text layer, with headings and in-page paragraph
   breaks flattened at ingest (P10 limitation). It is text, not a page facsimile.
+
+
+---
+
+# Part 12 — 2026-10-18: the home entry point and the Midnight Aurora identity (interface only)
+
+Revision 3 of the interface. No prompt, provider, retrieval branch, eligibility
+rule, model, budget or spend limit was changed, and **no provider call was made**:
+the ledger read 15,052 tokens and 10/10 embedding requests before the work and the
+same figures after it (`/api/v1/health` on the local server and on the deployed
+origin).
+
+## P12-1 — What changed
+
+- `/` is a welcome page. It reads `listCourses()` once and this browser's
+  `localStorage`; it makes no model call. The hero states the promise, the
+  continue card shows the lesson with the most recent real progress, the catalogue
+  lists the courses the store returned with the synthetic sample labelled, and an
+  explicit "what this build does not do" panel replaces marketing claims.
+- `/learn` is the studio, with `?lesson=`, `?section=` and `?start=` read on the
+  server. The resume position is applied on the player's first clock report and
+  then removed from the address.
+- One dark identity in `@theme`, with the measured contrast ratio of every ink and
+  status token recorded beside it, filled controls on `text-ink-inverse`, and
+  glass restricted to the rail, the top bars and the hero.
+- 6 new unit cases for the continue-lesson rules. `tests/personal-and-panes.test.ts`
+  now has 26.
+
+## P12-2 — Checks
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | exit 0 |
+| `pnpm typecheck` | exit 0 |
+| `pnpm test` | **371 passed in 23 files** (was 365 in 23) |
+| `pnpm build` | exit 0; `/` and `/learn` both in the route table |
+
+## P12-3 — Browser checks, measured not inferred
+
+Against the local dev server with the real recording, the real database and the
+real personal store:
+
+| Check | Measured result |
+|---|---|
+| Horizontal overflow at 1440 / 1024 / 768 / 390 / 360 px on `/` and `/learn` | `scrollWidth - clientWidth` = **0** at every width (the document reports 1423/1007/751/373/343 px of content width) |
+| Resume from a link (`/learn?start=1500`) | `video.currentTime` **1500**, clock `25:00`, position source `the player's own playback clock`, and the address returned to `/learn` after the position was consumed |
+| Evidence at that position | scope **37 blocks**, transcript **24 passages**, last passage ends at **1470.799 s** — identical to Part 11, so the redesign changed no eligibility behaviour |
+| Lesson switch | heading changed to the sample, the video element was removed, the control was disabled and the pane stated the sample has no recording; address became `?lesson=sample` |
+| Bookmark | saved at the current position and read back from `localStorage` as `horizon.personal.v1` (`1` bookmark), with the confirmation shown in the pane |
+| Home continue card after that activity | `in progress` · `Watched 00:00 of 56:39 · 0% · reached 25:00` · primary link `/learn?lesson=recording&start=1500` |
+| Accessibility | no element with a tap target under 24 px remains in the header or footer; the six-item mobile navigation shows all six labels at 360 px with no clipping |
+| Console | no errors and no hydration warning on either route |
+
+## P12-4 — One defect the responsive check found
+
+The product header's three anchor links were hidden with `hidden sm:inline-flex`
+next to a base class that also set a display value. Both are plain utilities at the
+same specificity, so which won depended on stylesheet order rather than class
+order, and at 390 px "How it works" rendered on a phone and pushed the page into
+horizontal scroll. Each link now sits inside a `hidden sm:inline-flex` wrapper,
+because a variant is generated after every plain utility. The overflow measurement
+above is the proof: it was non-zero before the change and zero after.
+
+## P12-5 — Not verified here
+
+- **No live answer was rendered through the redesigned assistant.** That needs a
+  metered provider call, which this phase forbids. The markup is type-checked
+  against the response contract and is a restyle of markup verified in Part 10.
+- **Frame timing under glass.** The blur is bound to three chrome surfaces and is
+  disabled below 768 px, but no slow-device frame measurement was made.
+- **The deployed origin for this revision.** Appended below once it exists.
