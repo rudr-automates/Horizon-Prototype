@@ -12,8 +12,14 @@ What was verified on that origin, with the values observed:
 
 **Route change on 2026-10-18:** `/` is now the welcome page and the learning studio
 is at **`/learn`**. The figure below was taken while `/` still served the studio; the
-current state of both routes is verified in [EVALUATION.md](EVALUATION.md) Part 12, and
-`docs/DEPLOY.md` §6 lists both checks separately.
+current state of both routes was verified after the redesign in
+[EVALUATION.md](EVALUATION.md) **Part 12 (§ P12-6)**, which records the deployed
+responses, health values, scope counts and the ten measured screenshots. §6 below
+lists both routes as separate checks.
+
+**Last deployed:** 2026-10-18, `main` at `96759b7` — `/` 200 (35.6 KB), `/learn` 200,
+`/api/v1/health` `ok` with `evidenceSource: "supabase"` and the ledger still at
+15,052 tokens (no provider call was made by this revision).
 
 | Check | Observed on https://horizon-prototype.vercel.app |
 |---|---|

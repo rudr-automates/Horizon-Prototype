@@ -1767,4 +1767,61 @@ above is the proof: it was non-zero before the change and zero after.
   against the response contract and is a restyle of markup verified in Part 10.
 - **Frame timing under glass.** The blur is bound to three chrome surfaces and is
   disabled below 768 px, but no slow-device frame measurement was made.
-- **The deployed origin for this revision.** Appended below once it exists.
+- **The deployed origin for this revision.** Since verified and recorded in P12-6
+  below, on both the preview and production.
+
+## P12-6 — Deployment
+
+Both environments were deployed from this repository's `main` at commit
+`96759b7`, with the Vercel CLI, after the preview was verified.
+
+| Environment | URL | Mode | Result |
+|---|---|---|---|
+| Preview | `horizon-prototype-8qvmfvpph-irrelevant3.vercel.app` | fixture (preview has no production env) | `/` 200 (33.5 KB), `/learn` 200, `/learn?lesson=sample` 200, health 200 with `evidenceSource: "fixture"`, `demoContent: true` |
+| Production | https://horizon-prototype.vercel.app | Supabase | `/` 200 (35.6 KB), `/learn` 200 (38.6 KB), `/learn?section=materials` 200, `/learn?lesson=sample` 200, `/api/v1/lesson/video` 404 as designed |
+
+Production values observed after the deploy:
+
+- `GET /api/v1/health`: `ok`, `evidenceSource: "supabase"`, `spendGuard: "permitted"`,
+  `querySucceeded: true`, **15,052 tokens** and **10/10 embedding requests** — the
+  same figures as before the work, so this revision made no provider call.
+- Scope at 00:00 → **10** eligible blocks; at 25:00 → **37**; transcript at 25:00 →
+  **24** passages. Identical to Part 11, so nothing about eligibility moved.
+- Home in the browser at 1440 px: `Learn beyond the lecture.`, the two real
+  catalogue rows with the synthetic sample labelled and the two-course note shown,
+  continue link `/learn?lesson=recording`, the evidence line reading "Evidence
+  source: Supabase database … This page makes no model call.", and
+  `scrollWidth - clientWidth = 0`.
+- Studio in the browser at 1440 px: the real YouTube embed
+  (`youtube.com/embed/ZaPbP9DwBOE`), the source line "original source ·
+  ZaPbP9DwBOE", scope 10 blocks at 00:00, both navigations present (6 items each),
+  `scrollWidth - clientWidth = 0`.
+
+### Screenshots, and what was measured about them
+
+Ten screenshots of **each** deployed origin were captured at 1440, 1024, 768, 390
+and 360 px for `/` and `/learn` (headless Chrome, `--virtual-time-budget`), because
+the editor's own preview surface stopped compositing frames partway through this
+session. Each frame was then decoded and measured rather than assumed:
+
+| Origin | Mean luminance (of 255) | Pixels differing from the modal colour | Distinct sampled colours |
+|---|---|---|---|
+| Preview `/` | 30.3 – 49.3 | 0.686 – 0.862 | 1,930 – 2,225 |
+| Preview `/learn` | 28.7 – 32.3 | 0.712 – 0.765 | 1,036 – 1,366 |
+| Production `/` | 30.7 – 49.3 | 0.686 – 0.862 | 1,865 – 2,225 |
+| Production `/learn` | 38.3 – 44.3 | 0.718 – 0.757 | 7,607 – 14,726 |
+
+A blank or failed frame measures ~255 luminance with a spread near zero. Every
+captured frame is dark, is mostly non-modal content, and the studio's colour count
+on the production origin (7,600–14,700) is an order of magnitude above the fixture
+preview's, which is what rendering the real embed, transcript and materials looks
+like. The frames are in `.logs/shots/` (gitignored, because they are host snapshots
+rather than repository artifacts).
+
+### Still not established on the deployed origin
+
+- **A live answer through the redesigned assistant.** The daily ceiling and this
+  phase's rules both forbid it; it remains the first thing to check on a fresh UTC
+  day, as recorded in P11-4.
+- **Frame timing with glass enabled on a low-powered device.** The blur is bound to
+  three chrome surfaces and disabled below 768 px, but no device profiling was done.
