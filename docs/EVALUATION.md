@@ -1799,17 +1799,22 @@ Production values observed after the deploy:
 
 ### Screenshots, and what was measured about them
 
-Ten screenshots of **each** deployed origin were captured at 1440, 1024, 768, 390
-and 360 px for `/` and `/learn` (headless Chrome, `--virtual-time-budget`), because
-the editor's own preview surface stopped compositing frames partway through this
-session. Each frame was then decoded and measured rather than assumed:
+Screenshots were captured at 1440, 1024, 768, 390 and 360 px for every surface on
+the deployed **production** origin — `/`, `/learn` and the four other sections —
+thirty frames in total, because the editor's own preview surface stopped compositing
+frames partway through this session. Headless Chrome with `--virtual-time-budget`
+was used instead. Each frame was then decoded and measured rather than assumed:
 
-| Origin | Mean luminance (of 255) | Pixels differing from the modal colour | Distinct sampled colours |
+| Origin and surface | Mean luminance (of 255) | Pixels differing from the modal colour | Distinct sampled colours |
 |---|---|---|---|
 | Preview `/` | 30.3 – 49.3 | 0.686 – 0.862 | 1,930 – 2,225 |
 | Preview `/learn` | 28.7 – 32.3 | 0.712 – 0.765 | 1,036 – 1,366 |
 | Production `/` | 30.7 – 49.3 | 0.686 – 0.862 | 1,865 – 2,225 |
 | Production `/learn` | 38.3 – 44.3 | 0.718 – 0.757 | 7,607 – 14,726 |
+| Production Materials | 22.3 – 27.0 | 0.637 – 0.718 | 1,054 – 1,596 |
+| Production Notes | 21.7 – 25.3 | 0.604 – 0.705 | 877 – 1,131 |
+| Production Progress | 22.3 – 25.0 | 0.558 – 0.663 | 843 – 1,087 |
+| Production Status | 21.7 – 24.7 | 0.534 – 0.672 | 850 – 1,118 |
 
 A blank or failed frame measures ~255 luminance with a spread near zero. Every
 captured frame is dark, is mostly non-modal content, and the studio's colour count
@@ -1817,6 +1822,22 @@ on the production origin (7,600–14,700) is an order of magnitude above the fix
 preview's, which is what rendering the real embed, transcript and materials looks
 like. The frames are in `.logs/shots/` (gitignored, because they are host snapshots
 rather than repository artifacts).
+
+The four secondary surfaces were also measured for horizontal overflow in the
+browser at the tightest width, 360 px, on the production origin: Materials, Notes,
+Progress and Status each reported `scrollWidth - clientWidth = 0` with no element
+extending past the content width. Their honest copy was present in the same check
+(the browser-local storage note on Notes, "no playback recorded yet" and the
+seek-is-not-watching rule on Progress, and the "what this page does and does not
+claim" panel on Status, which read `Operational` with the ledger still at 15,052
+tokens).
+
+The populated Notes surface was exercised end to end as well, on the local
+production-parity build: a bookmark taken from the player's transport appeared as
+`1 saved position` with its timestamp, a note typed into the panel saved to
+`localStorage` and rendered as `1 note`, the deep link updated to
+`/learn?section=notes`, and both were removed again afterwards so the profile was
+left as it was found.
 
 ### Still not established on the deployed origin
 
