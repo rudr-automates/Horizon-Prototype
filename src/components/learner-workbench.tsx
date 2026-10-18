@@ -700,7 +700,10 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                 </span>
               </div>
               <p className="mt-0.5 text-sm text-slate-700">
-                eligible transcript block{scope?.eligibleBlockCount === 1 ? "" : "s"} at{" "}
+                {/* Not "transcript blocks": at 00:00 every eligible block is
+                    approved reference material, and calling those transcript
+                    blocks would misdescribe what the count is counting. */}
+                eligible evidence block{scope?.eligibleBlockCount === 1 ? "" : "s"} at{" "}
                 <span className="font-mono">{formatClock(playhead)}</span>
               </p>
               {scopePending && (
