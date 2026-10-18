@@ -486,38 +486,40 @@ export default function LearningStudio(props: LearningStudioProps) {
             </Alert>
           )}
 
-          {!videoAvailable && (
-            <Alert tone="warn" title="The recording's transcript is not in this evidence store">
-              {evidenceSource === "fixture"
-                ? "This deployment is running on the labelled sample fixture, so the recording's transcript cannot be retrieved."
-                : "This evidence store has no course for the lesson recording yet. Run the transcript ingest command against this database to add it."}{" "}
-              The recording still plays, but nothing in it can be cited.
+          {/* One notice, not three. A fixture deployment has no recording course,
+              so its two conditions are the same fact and are stated once; the
+              configuration detail lives on the status surface rather than
+              pushing the lesson below three full-width warnings. */}
+          {!videoAvailable && evidenceSource === "fixture" && (
+            <Alert tone="warn" title="Sample evidence — the recording is not available here">
+              This deployment runs on the labelled synthetic fixture, so nothing from
+              the recording can be cited. The eligibility, citation and refusal path is
+              running for real against that corpus; the lesson stage says which one.
             </Alert>
           )}
 
-          {evidenceSource === "fixture" && (
-            <Alert tone="warn" title="Sample evidence — synthetic content, not the recording">
-              The eligibility, citation and refusal path is running for real, against a
-              labelled synthetic corpus. It is a different lesson from the recording.
+          {!videoAvailable && evidenceSource !== "fixture" && (
+            <Alert tone="warn" title="The recording's transcript is not in this evidence store">
+              This evidence store has no course for the lesson recording yet. Run the
+              transcript ingest command against this database to add it. The recording
+              still plays, but nothing in it can be cited.
             </Alert>
           )}
 
           {configurationProblems.length > 0 && (
             <Alert
               tone="warn"
-              title={`${configurationProblems.length} configuration problem${configurationProblems.length === 1 ? "" : "s"}`}
+              title={`${configurationProblems.length} configuration problem${configurationProblems.length === 1 ? "" : "s"} to review`}
               action={
                 <button
                   type="button"
                   onClick={() => navigate("status")}
                   className="font-semibold underline"
                 >
-                  Review
+                  Open status
                 </button>
               }
-            >
-              {configurationProblems[0]}
-            </Alert>
+            />
           )}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_25rem]">
