@@ -47,6 +47,28 @@ export const FINAL_TOP_K = 6;
 /** Cap on eligible blocks counted for the scope chip. */
 const SCOPE_COUNT_LIMIT = 1000;
 
+/**
+ * Claims whose verification is worth paying for.
+ *
+ * The generator is asked for at most five. A response that returns more is
+ * capped HERE rather than in the Zod schema, because an over-long array used to
+ * be rejected as `malformed_response` — which turned a supported question into a
+ * reported provider outage. Excess claims are dropped before the verification
+ * call, so one turn's verifier prompt stays bounded on a metered free tier.
+ */
+export const MAX_VERIFIED_CLAIMS = 5;
+
+/**
+ * Characters of each block sent to the generator.
+ *
+ * The stored blocks run to about 950 characters today, and the longest video
+ * blocks reach roughly 2,000, so this only bites on a document page or a
+ * transcript block that runs long. It bounds the prompt on a provider with a
+ * tokens-per-minute ceiling. Tier-1 still compares quotations against the FULL
+ * stored text, so a truncated prompt cannot weaken the verbatim check.
+ */
+export const MAX_EVIDENCE_CHARS_PER_BLOCK = 1500;
+
 export const REFUSAL_MESSAGE =
   "I can't support that answer with the material available for this response.";
 export const PARTIAL_NOTE =
@@ -568,9 +590,14 @@ export async function answerQuestion(
   }
 
   // 8. Generate structured claims from eligible evidence only.
+  // The prompt text is bounded per block for the cost and rate-limit reasons
+  // above; citations are still resolved against the untruncated block.
+  const promptTextById = new Map(
+    payloadBlocks.map((block) => [block.id, truncateForPrompt(block.text)]),
+  );
   const generationPrompt = [
     input.question,
-    ...payloadBlocks.map((block) => block.text),
+    ...payloadBlocks.map((block) => promptTextById.get(block.id) ?? ""),
   ].join("\n");
 
   const generationReservation = await reserveCall(
@@ -586,7 +613,10 @@ export async function answerQuestion(
   try {
     const outcome = await generator.generate({
       question: input.question,
-      evidence: payloadBlocks.map((block) => ({ id: block.id, text: block.text })),
+      evidence: payloadBlocks.map((block) => ({
+        id: block.id,
+        text: promptTextById.get(block.id) ?? "",
+      })),
     });
     generated = outcome.result;
     await settleCall(generationReservation, reportedFromUsage(outcome.usage), { failed: false });
@@ -607,8 +637,10 @@ export async function answerQuestion(
   const payloadIdSet = new Set(payloadIds);
   const blockTextById = new Map(payloadBlocks.map((block) => [block.id, block.text]));
 
+  const considered = generated.claims.slice(0, MAX_VERIFIED_CLAIMS);
+
   const tier1Survivors: GeneratedClaim[] = [];
-  for (const claim of generated.claims) {
+  for (const claim of considered) {
     const result = checkClaimDeterministically(claim, {
       payloadEvidenceIds: payloadIdSet,
       blockTextById,
@@ -684,7 +716,11 @@ export async function answerQuestion(
     return refuse("NOT_IN_MATERIALS", "UNSUPPORTED_BY_EVIDENCE");
   }
 
-  const droppedAny = claims.length < generated.claims.length;
+  // A claim dropped by the MAX_VERIFIED_CLAIMS cap is not counted here: the
+  // generator was told the limit, the cap is a spend bound rather than a
+  // verification loss, and marking every over-eager response partial would make
+  // the partial state mean two unrelated things.
+  const droppedAny = claims.length < considered.length;
   const partial = droppedAny || generated.unansweredParts;
 
   const internal: InternalAnswerState = partial ? "ANSWERED_PARTIAL" : "ANSWERED";
@@ -705,6 +741,15 @@ export async function answerQuestion(
     provenance: baseProvenance,
     guard: { ...guardState },
   };
+}
+
+/**
+ * The prompt copy of a block: unchanged when short, cut with an explicit marker
+ * when long, so the model can see that the text continues past what it was shown.
+ */
+function truncateForPrompt(text: string): string {
+  if (text.length <= MAX_EVIDENCE_CHARS_PER_BLOCK) return text;
+  return `${text.slice(0, MAX_EVIDENCE_CHARS_PER_BLOCK)} [text continues]`;
 }
 
 /**

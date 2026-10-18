@@ -43,3 +43,7 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+
+# Vercel CLI state. Its injected OIDC token lands in .env.local, which the
+# `.env.*` rule above already covers.
+.vercel

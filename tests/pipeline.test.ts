@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { answerQuestion, type AnswerPipelineDeps } from "@/lib/answer/pipeline";
+import {
+  answerQuestion,
+  MAX_EVIDENCE_CHARS_PER_BLOCK,
+  MAX_VERIFIED_CLAIMS,
+  type AnswerPipelineDeps,
+} from "@/lib/answer/pipeline";
 import {
   ProviderFailure,
   type ClaimGenerator,
@@ -717,5 +722,82 @@ describe("cumulative daily usage accounting", () => {
     // invariant to assert is the TOTAL, not the wording.)
     expect(await failingSettle.spentToday()).toBeGreaterThan(0);
     expect(outcome.guard.spentTokensToday).toBe(await failingSettle.spentToday());
+  });
+});
+
+describe("bounded model payloads", () => {
+  /**
+   * A store whose blocks carry extra text at the end.
+   *
+   * The padding never touches a quotation's span, so these tests isolate the
+   * prompt bound and the claim cap rather than changing what is verifiable.
+   */
+  function paddedStore(inner: EvidenceStore, extraChars: number): EvidenceStore {
+    const pad = ` ${"filler ".repeat(Math.ceil(extraChars / 7))}`;
+    const padBlock = (block: { text: string }) => ({ ...block, text: block.text + pad });
+    const store = Object.create(inner) as EvidenceStore;
+    store.listEligible = async (boundary, limit) =>
+      (await inner.listEligible(boundary, limit)).map((block) => padBlock(block) as typeof block);
+    store.getBlocksByIds = async (boundary, ids) =>
+      (await inner.getBlocksByIds(boundary, ids)).map((block) => padBlock(block) as typeof block);
+    return store;
+  }
+
+  it("bounds the text sent per block, without truncating what a quotation is checked against", async () => {
+    const { generator, calls } = scriptedGenerator([
+      {
+        text: "Delays multiply by a base factor.",
+        evidenceIds: ["b_0003"],
+        quote: "multiplies the previous delay by a base factor",
+      },
+    ]);
+
+    const outcome = await ask(
+      makeDeps(generator, supportAll, paddedStore(new FixtureEvidenceStore(embedder), 4000)),
+      DEMO_QUESTIONS.canary,
+      720,
+    );
+
+    expect(outcome.answerState).toBe("ANSWERED");
+    const sent = calls[0]?.evidence ?? [];
+    expect(sent.length).toBeGreaterThan(0);
+    for (const item of sent) {
+      // The marker is part of the prompt copy, so the ceiling is inclusive of it.
+      expect(item.text.length).toBeLessThanOrEqual(MAX_EVIDENCE_CHARS_PER_BLOCK + 20);
+    }
+    // The quote still has to match the block as STORED, which was twice as long.
+    expect(outcome.claims[0].citations[0].evidenceId).toBe("b_0003");
+  });
+
+  it("verifies at most the claim cap and does not call the capped claims a partial answer", async () => {
+    const seen: number[] = [];
+    const countingVerifier: SemanticVerifier = {
+      providerId: "fake-verifier",
+      verify: async (targets) => {
+        seen.push(targets.length);
+        return {
+          verdicts: targets.map((target) => ({
+            index: target.index,
+            verdict: "SUPPORTED" as const,
+            reason: "",
+          })),
+          usage: null,
+        };
+      },
+    };
+
+    const claims = Array.from({ length: 9 }, (_, index) => ({
+      text: `Claim number ${index + 1} about how a delay is computed.`,
+      evidenceIds: ["b_0003"],
+      quote: "multiplies the previous delay by a base factor",
+    }));
+
+    const { generator } = scriptedGenerator(claims);
+    const outcome = await ask(makeDeps(generator, countingVerifier), DEMO_QUESTIONS.canary, 720);
+
+    expect(seen).toEqual([MAX_VERIFIED_CLAIMS]);
+    expect(outcome.claims).toHaveLength(MAX_VERIFIED_CLAIMS);
+    // Dropping the overflow is a spend bound, not a verification failure.
+    expect(outcome.answerState).toBe("ANSWERED");
   });
 });

@@ -1,0 +1,15 @@
+# Nothing in this file is needed to build the app, and the first entry must never
+# be uploaded: the lesson recording is 235 MiB of third-party video that this
+# repository deliberately does not track. A host plays the YouTube embed instead
+# (see docs/DEPLOY.md §1).
+*.mp4
+*.mkv
+*.mov
+*.webm
+
+# Local-only artefacts: fetched captions, logs, CLI state, build cache.
+.freebuff/
+.logs/
+.vercel/
+docs/evidence/
+tsconfig.tsbuildinfo
