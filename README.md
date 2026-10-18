@@ -53,7 +53,7 @@ honest refusal.
 | Google Gen AI adapter (`gemini-3.6-flash`, `gemini-embedding-001`) | ✅ implemented, unit tested against the real SDK's own types; **embeddings still run on it, live** |
 | Groq adapter (`openai/gpt-oss-20b`, OpenAI-compatible Chat Completions) | ✅ **live-verified on 2026-10-15** — one smoke request and three canary turns succeeded through this adapter. Endpoint, bearer auth, strict JSON Schema, usage mapping, 429 guidance and every failure path are also unit tested (38 cases, all mocked) |
 | Learner workbench (timeline presets, scope count, citations, status panel) | ✅ verified rendered at 1440px and 390px, hydrated, timeline selection confirmed live (eligible evidence 2 → 10 → 15) |
-| Lesson video playback | ✅ **verified live** — the 235.0 MiB recording (56:39, 1920x1080 h264) streams from the local copy with byte-range support (`206` and a correct `Content-Range`, `416` past the end, `404` where no local copy exists), and the panel's clock is the element's own (`31:17 / 56:39` at a 1875 s seek). With the file absent the panel switches to the original YouTube embed and reads that player's own clock through the official IFrame Player API |
+| Lesson video playback | ✅ **verified live** — the 235.0 MiB recording (56:39, 1920x1080 h264) streams from the local copy with byte-range support (`206` and a correct `Content-Range`, `416` past the end, `404` where no local copy exists), and the panel's clock is the element's own (`31:17 / 56:39` at a 1875 s seek). **Play this passage** seeks to its citation (2692.8 s → 2689.8 s) and then plays (advancing 3.00 s in 3 s). With the file absent the panel switches to the original YouTube embed and reads that player's own clock through the official IFrame Player API |
 | Video-grounded Q&A from the recording | ✅ **live-verified** — the recording's own automatic English captions (1505 lines, 0.1 s–3386.5 s of the recording's 3399.3 s, so 99.6% coverage) are parsed into **56 timestamped blocks** in a course of their own and are cited. A fact stated only late in the lesson (`compliance score` … `below 75%`, unlocking at 44:52) is absent from the eligible set and from the entire response body at 05:00 and at 20:00 — including when the learner asks about it directly — and is answered from a verbatim-cited block at 50:00. It is **machine transcription**, and every screen that shows it says so |
 | The transcript ingest itself (`pnpm ingest:lesson`) | ✅ **executed live** — captions parsed and segmented (56 blocks, mean 60.5 s), embedded in 3 batched requests against a cap of 10, every row 768-dimensional, every row `TIMELINE_BOUND/AUTO_APPROVED/INDEXED`, and **0 rows** carry synthetic-fixture text. OCR and PDF/slide parsing remain ❌ deferred |
 | Playback clock → evidence scope | ✅ **verified live** — the position a question is asked at is the player's own clock (`Source: the player's own playback clock.`), and the eligible count moves with it: 0 blocks at 00:03, 9 at 10:00, 19 at 20:00, 49 at 50:00, each matching an independently written oracle. With no player clock the control falls back to a manual position that is labelled as manual |
@@ -104,6 +104,10 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
 5. Tier-1 deterministic checks reject unknown ids and non-verbatim quotes.
    Tier-2 model-assisted verification rejects claims the cited evidence does not
    support. Only surviving claims are rendered, with server-resolved citations.
+   Each citation opens its evidence, and **Play this passage** seeks the player to
+   that passage and plays it, so the learner can watch the moment a claim came
+   from. A browser that refuses to start playback says so under the player rather
+   than leaving a still frame under a button that says Play.
 6. If nothing survives, or nothing eligible exists, the learner sees a refusal.
 
 Ask `What happens when the compliance score falls below 75%?` at 10:00 and again

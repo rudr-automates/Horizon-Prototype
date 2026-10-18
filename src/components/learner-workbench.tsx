@@ -263,9 +263,13 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
     return () => controller.abort();
   }, [refreshToken]);
 
-  function seek(seconds: number): void {
+  function seek(seconds: number, options?: { play?: boolean }): void {
     setSeekPreview(seconds);
-    setSeekRequest((previous) => ({ seconds, nonce: (previous?.nonce ?? 0) + 1 }));
+    setSeekRequest((previous) => ({
+      seconds,
+      nonce: (previous?.nonce ?? 0) + 1,
+      ...(options?.play ? { play: true } : {}),
+    }));
   }
 
   function switchView(next: LessonView): void {
@@ -927,6 +931,7 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                                   0,
                                   Number(result.citations[openCitation].startSeconds) - 3,
                                 ),
+                                { play: true },
                               )
                             }
                             className="rounded border border-blue-700 bg-white px-2 py-0.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"

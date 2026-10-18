@@ -901,3 +901,23 @@ than as a yes/no badge, so "it worked yesterday" cannot read as "it works now".
 **Consequence:** The panel now reads
 `yes — A completed call is recorded at 2026-10-16T19:06:58Z (groq / openai/gpt-oss-20b, verify), which is inside today's UTC day.`
 A wrong or revoked credential reads `none_recorded` however healthy its names look.
+
+## D-028 — A control labelled Play plays, and a seek never implies playback
+
+The citation panel offers **Play this passage** next to the passage a claim cites.
+It seeked to `startSeconds - 3` and stopped, so clicking a button that says *Play*
+left a still frame, and the one control that could take a learner to the evidence
+did not do what its label said.
+
+**Decision:** Playback intent travels with the seek request as an explicit flag,
+set only by this button; the slider and the preset jumps keep requesting a seek
+alone, so scrubbing cannot start playback behind the learner's back. The flag is
+also the reason the seek must settle first: requesting `play()` in the same tick as
+the `currentTime` assignment makes Chromium abort the play (`AbortError`) and leave
+the element paused — the fix that only added a `play()` call looked identical to
+the defect from the outside.
+
+**Consequence:** The button now seeks and plays, and the panel's clock follows the
+player to the passage. A browser that still refuses to start playback is reported
+under the player rather than silently showing a still frame. Measured live in
+EVALUATION.md Part 09 (P9-8).

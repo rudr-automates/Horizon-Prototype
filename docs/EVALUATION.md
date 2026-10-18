@@ -1387,7 +1387,44 @@ generation tokens in total; the ingest itself cost 3 requests and no tokens.
 Counters were never reset or raised, and no cap was bypassed. The remaining 4 868
 tokens of the day were deliberately **not** spent on further turns.
 
-## P9-8. Not established here
+## P9-8. The citation's play button, and the defect it was hiding
+
+A citation panel offers **Play this passage**, and until this check it did not
+play. It seeked — `startSeconds - 3` — and stopped there, so a learner who clicked
+a button labelled *Play* got a still frame with no explanation. Two things were
+wrong, and the second only appears once the first is fixed:
+
+1. the handler requested a seek with no playback intent at all; and
+2. requesting playback in the **same tick** as the seek makes Chromium abort it —
+   `play()` is rejected with `AbortError` and the element ends up paused, which is
+   how the first attempt at a fix behaved in this browser.
+
+The seek request now carries an explicit `play` flag, set only by this button, and
+playback is requested **after the seek settles** (`seeked`). Measured on the
+running production build at `127.0.0.1:4321`, with the recorded 50:00 turn served
+into the real UI and a real pointer click:
+
+| Check | Observed |
+|---|---|
+| Seek target | `startSeconds` 2692.8 → element at **2689.8 s** (`44:49`, the passage start with a 3 s lead-in) |
+| Playback requested | `play()` called with `seeking: false` — after `seeked`, not alongside it |
+| Playback accepted | `play()` **resolved**; `play` and `playing` events fired; not rejected |
+| Playback sustained | `currentTime` advanced **2693.0 → 2696.1** over 3.2 s (`advanced 3.09`), still playing at the read |
+| Panel clock | read `Playing at 44:55 / 56:39`, `PLAYBACK POSITION` `44:55` — the player's own clock |
+| Refusal path | with playback blocked, the panel says so instead of showing a still frame under a Play button |
+| A preset jump does **not** play | video paused first, then a real click on `Jump to 10:00`: element at **600.0 s**, still **paused**, **0** `play()` calls, panel `10:00` |
+| Eligibility follows the seek | **49** blocks at 50:00 → **44** at 44:55 → **9** at 10:00 |
+
+Two limits on this evidence. There is no screenshot: the preview webview reported
+that it was **not being composited** (`it produced no frames`), so no PNG exists
+for this check. And in that un-composited state Chromium **suspends playback** —
+about a second after a play is accepted, with no script call — which is why the
+sustained row was re-measured in a freshly opened tab. The suspension is the
+browser's, not the app's, and it is visible as such: the refused-playback notice
+stays down (`play()` resolved, nothing was refused) while the panel's clock simply
+stops where the browser stopped it.
+
+## P9-9. Not established here
 
 - **Whether the ASR text is faithful to the audio.** It is faithful to the
   *captions*; whether YouTube's recognition is correct is not something this
@@ -1400,3 +1437,7 @@ tokens of the day were deliberately **not** spent on further turns.
   embed instead of the local file — has not been exercised on a host.
 - **A second provider or model.** One live provider (Groq) and one embedding model
   were exercised. No claim is made about others.
+- **Sustained playback in the un-composited preview webview.** Playback was
+  sustained in a normal tab; in a webview Chromium was not compositing, media is
+  suspended roughly a second after a play is accepted. That is a property of that
+  browser state, and it is reported rather than worked around.

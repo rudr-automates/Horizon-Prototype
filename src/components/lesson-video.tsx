@@ -39,6 +39,7 @@ interface YouTubePlayerLike {
   getDuration: () => number;
   /** Present on a real player; guarded because a resumed player may lack it. */
   seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
+  playVideo?: () => void;
   destroy: () => void;
 }
 
@@ -111,6 +112,12 @@ type EmbedStatus = "loading" | "ready" | "failed";
 export interface SeekRequest {
   seconds: number;
   nonce: number;
+  /**
+   * Also start playing from the seeked position. Used by "Play this passage",
+   * where the label promises playback; a scrub or a preset jump leaves this
+   * unset and therefore only moves the playhead.
+   */
+  play?: boolean;
 }
 
 export default function LessonVideo({
@@ -143,6 +150,8 @@ export default function LessonVideo({
     source.kind === "embed" ? "loading" : "ready",
   );
   const [embedError, setEmbedError] = useState<string | null>(null);
+  /** Set only when the browser refused a requested playback start. */
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
 
   const youtubeId = source.kind === "embed" ? source.youtubeId : null;
 
@@ -215,14 +224,33 @@ export default function LessonVideo({
     if (source.kind === "file") {
       const element = videoRef.current;
       if (!element) return;
+      setPlaybackBlocked(false);
       element.currentTime = target;
       setPosition(target);
       onClockRef.current?.({ positionSeconds: target, durationSeconds: element.duration });
+      if (seekRequest.play) {
+        // Playback is requested once the seek has SETTLED. Asking in the same tick
+        // as the seek makes Chromium abort the play with "interrupted by a new load
+        // request", which would leave a still frame under a button that says Play.
+        // A refusal is reported in the panel rather than swallowed, so a paused
+        // player can never be mistaken for playback that started.
+        const start = () => {
+          void element.play().catch(() => {
+            setPlaybackBlocked(true);
+          });
+        };
+        if (element.seeking) {
+          element.addEventListener("seeked", start, { once: true });
+        } else {
+          start();
+        }
+      }
       return;
     }
     const player = playerRef.current;
     if (!player?.seekTo) return;
     player.seekTo(target, true);
+    if (seekRequest.play) player.playVideo?.();
     setPosition(target);
   }, [seekRequest, source.kind]);
 
@@ -245,6 +273,10 @@ export default function LessonVideo({
             });
           }}
           onDurationChange={(event) => setDuration(event.currentTarget.duration)}
+          // Playback that started by any route — this panel's button or the
+          // learner's own — retires the refusal notice, which would otherwise
+          // outlive the condition it described.
+          onPlay={() => setPlaybackBlocked(false)}
           onTimeUpdate={(event) => {
             const current = event.currentTarget.currentTime;
             setPosition(current);
@@ -318,6 +350,16 @@ export default function LessonVideo({
           </>
         )}
       </p>
+
+      {playbackBlocked && (
+        <p
+          className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+          role="status"
+        >
+          The browser refused to start playback, so the recording is paused at that
+          position. Press play in the player to continue.
+        </p>
+      )}
 
       {source.kind === "embed" && embedStatus === "failed" && (
         <p
