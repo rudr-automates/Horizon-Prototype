@@ -5,37 +5,33 @@ recorded lesson, asks a question, and receives an answer supported only by
 content that is **permitted at their current position** — with citations — or an
 honest refusal.
 
-> **Repository state:** this is the **Part 06 revision**. The learner workbench,
-> timestamp-scoped retrieval, claims-only generation, deterministic +
-> model-assisted verification and safe refusals are built; generation is now
-> provider-selectable and runs on **Groq**'s OpenAI-compatible API, with a separate
-> credential for Google embeddings. **All three Supabase migrations are applied and
-> a runtime AI credential is configured**, so the demo corpus lives in the database
-> with real embeddings and the database-backed retrieval path has run against it.
+> **Repository state:** the **learning-assistant revision**, deployed.
 >
-> **Generation now runs on Groq and the live path works.** One real smoke call and
-> all three canary positions succeeded on 2026-10-15: real cited answers at 06:00
-> and 12:00, an honest refusal at 00:00, and three turns persisted to the database.
-> The Google free-tier quota that blocked earlier attempts is an account limit on a
-> provider that no longer serves generation.
+> **There is a public URL: <https://horizon-prototype.vercel.app>.** The home
+> page, health endpoint, course list and scope endpoint were checked on that
+> origin on 2026-10-18: HTTP 200, an authenticated database read, and the scope
+> count moving 10 → 20 → 66 as the playhead advances. The recording itself is not
+> uploaded there, so the player is the original YouTube embed — verified present
+> on the deployed page with the right video id. See [docs/DEPLOY.md](docs/DEPLOY.md).
 >
-> **The Part 08 revision adds the real lesson video.** The selected recording
-> plays in the interface — from the operator's local copy when one is present,
-> otherwise from the original YouTube source — and the panel reports its real
-> playback clock and its real duration. **Horizon holds no evidence from that
-> video**, so video-grounded Q&A is *unavailable*, not merely unverified: there is
-> no transcript for it anywhere in the repository and the file itself carries no
-> subtitle stream. Answers still come from the **labelled synthetic fixture**, and
-> the interface now names it at every point where its numbers appear. See
-> [docs/EVALUATION.md](docs/EVALUATION.md) Part 08.
+> **The evidence is the recording's own.** YouTube's automatic English captions
+> were ingested verbatim into **56 timestamped blocks** in a course of their own,
+> alongside **two documents compiled from those same captions**: a 3-page study
+> guide approved as course-wide reference (10 blocks, eligible at every playhead)
+> and a 9-slide deck whose blocks unlock where the recording covers them. Answers
+> are cited from those blocks, and every screen says the transcript is machine
+> transcription.
 >
-> What is still NOT true, and must not be read into anything below:
-> **there is no public deployment** — no URL exists, and nothing here was verified
-> on a deployed origin. Both budget names are now configured locally, with no
-> process override in effect (`spendGuard: "permitted"`, empty
-> `configurationProblems`), which is a change from Part 07 — but a host has its
-> own environment and must set them itself. See [docs/DEPLOY.md](docs/DEPLOY.md)
-> §3 and [docs/DECISIONS.md](docs/DECISIONS.md).
+> **Questions are answered only from what the learner has watched.** The eligible
+> set is computed from the player's own clock: 10 reference blocks at 00:00, 20 at
+> 10:00, 66 at 50:00. A fact stated 44:52 into the lesson is absent from the
+> eligible set, from the retrieval payload and from the response body before that
+> point, and answered from a cited block after it.
+>
+> What this revision does NOT claim: no authentication, no file-upload UI (the
+> documents are ingested by an operator command), no OCR for scanned pages, no
+> summary/quiz actions and no mock interview yet. Those are listed as open in the
+> status matrix below and in [docs/EVALUATION.md](docs/EVALUATION.md) Part 10.
 
 ---
 
@@ -75,8 +71,14 @@ honest refusal.
 | Lesson canary with a database-derived oracle (`pnpm canary:lesson`) | ✅ **ran live: 31 passed, 0 failed, 1 not run**, then 8 passed / 0 failed / 0 not run for the early turn it exposed. It reads the stored transcript and builds its own expected-eligible set, so citation ids, quotations and clocks are checked against the real evidence rather than a fixture |
 | `runtime.providerCallEvidence` on `/api/v1/health` | ✅ **verified live** — replaces a line that read "not verified (a smoke test is required)" forever with what the ledger can prove: the newest settled, reported provider call, its time, and whether it is inside the current UTC day (`observed` at 2026-10-16T19:06:58Z, groq / `openai/gpt-oss-20b`). Modes `none_recorded`, `not_durable` and `unreadable` are kept distinct, and nothing is inferred from configuration |
 | Turn persistence to a real database | ✅ **verified live** — three canary turns were written to `public.turns` (`persistence: {"persisted":true,"mode":"supabase"}`) at boundaries 0 / 360 / 720 s, with the same answer states the responses reported. The unconfigured path still reports `persisted: false` honestly |
-| Public deployment | ❌ not attempted; staged procedure and the four-part release gate are in [DEPLOY.md](docs/DEPLOY.md). **No public URL exists** |
-| Ingestion of PDFs, slides and code, and OCR | ❌ deferred — only the recording's caption track is ingested (above) |
+| Public deployment | ✅ **live at <https://horizon-prototype.vercel.app>** — Vercel build from this repository with production env vars, deployment protection disabled so a judge can open it, and the origin verified on 2026-10-18: home 200, health `ok: true`, `evidenceSource: "supabase"`, scope 10/20/66, YouTube embed present. The 235 MiB recording is not uploaded, so `GET /api/v1/lesson/video` answers `404` there by design |
+| PDF and PPTX ingestion (`pnpm ingest:resource`) | ✅ **executed live** — a 3-page study guide and a 9-slide deck, both compiled from the recording's captions, parsed with page/slide provenance, embedded in 1 request each at 768 dimensions, and read back from the database. Scanned pages are reported as visual-only and are NOT counted as extracted |
+| Course-wide review lint | ✅ **executed live** — the ingest refuses to approve a document course-wide if it contains a registered late-only fact or aligns to the last fifth of the recording, and requires an explicit `--acknowledge` to override. The approved study guide carries none of the late facts, and the canary checks that from the rows |
+| Alignment review (`pnpm review:alignments`) | ✅ **executed live** — weak or ambiguous alignments are written `PENDING` with no unlock time and are therefore ineligible. Of the deck's 9 blocks, 7 auto-approved, one was approved by hand at its own segment clock (14:18) and one rejected as a provenance slide. No reviewer identity or audit table exists in this schema; a rejection reason is appended to `blocks.alignment_method` |
+| Ingestion of code files, and OCR | ❌ deferred — PDF and PPTX text layers are ingested (above); a PDF with no text layer is refused rather than silently treated as indexed |
+| Summary-so-far and quiz-on-covered-content | ❌ not built — they are in the blueprint's learner journey and remain the largest missing learning action |
+| Adaptive mock interview | ❌ not built — deferred, not claimed |
+| Authentication, ownership and learner accounts | ❌ absent by design in this build: the server uses the service role, RLS denies `anon`, and there is no file-upload surface to abuse. Do not read "deployed" as "multi-tenant safe" |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
 evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALUATION.md).
@@ -90,6 +92,10 @@ evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALU
    English captions, ingested verbatim with the timestamps the source reported.
    The page states where they came from and that they are machine transcription,
    so a mis-heard word in a quotation is visible as the source's, not ours.
+   The course also holds **two documents compiled from those captions**: a study
+   guide marked *approved reference* (available at every playhead, and labelled as
+   such on every citation) and a slide deck whose blocks are time-gated like the
+   transcript, each unlocking where the recording covers it.
 2. Seek (the slider or a preset seeks the real player). The position shown is the
    player's clock, and the scope chip reports how many transcript blocks are
    eligible *at that position*. A block unlocks when it has been watched to its
@@ -165,6 +171,9 @@ cp .env.example .env.local   # then fill in real values (never commit them)
 | `pnpm seed:demo` | Seed the labelled demo corpus into Supabase with real embeddings. Refuses, writing nothing, unless the migrations, the database credential and a real embedding provider are all configured |
 | `pnpm canary` | Ask the canary question at 00:00, 06:00 and 12:00 against a running server and record the real responses to `docs/evidence/` |
 | `pnpm ingest:lesson` | Fetch-parse-and-ingest the recording's captions: 56 timestamped blocks in a course of their own. `--dry-run` parses and reports without writing and without any embedding request; `--captions <path>` points at another json3 file |
+| `pnpm build:materials` | Compile a study-guide PDF and a slide deck from the STORED transcript into `.freebuff/materials/` (gitignored). No model call, no invented text; both documents state their provenance on their face |
+| `pnpm ingest:resource --file <path> --mode reference\|aligned` | Parse, chunk, embed and write a PDF or PPTX as a course resource. `reference` is `COURSE_WIDE` and human-approved, and is refused if the lint objects unless `--acknowledge "reason"` is given; `aligned` is `TIMELINE_BOUND`, auto-approved only above the confidence and margin floors, otherwise `PENDING`. `--dry-run` makes no embedding request |
+| `pnpm review:alignments` | List `PENDING` document blocks with their scores; `--approve <id> --unlock <mm:ss>` or `--reject <id> --reason "…"` |
 | `pnpm canary:lesson` | Interrogate the real lesson: reads the stored transcript, builds its own expected-eligible oracle, and checks the scope count, the temporal invariant, citation eligibility, verbatim quotations, citation clocks and an unsupported question. `--positions`, `--max-turns`, `--label` |
 
 ```bash
@@ -581,8 +590,11 @@ and the current revision's re-verification against the persisted corpus, now wit
 (re-run on the current build, same result).
 All model-dependent tests are **mocked**, not real inference.
 
-**No deployment has been performed and no public URL exists.** Every live check
-was against loopback, and nothing here is a hosting claim.
+**The public deployment exists: <https://horizon-prototype.vercel.app>.** Its home
+page, health endpoint, course list, scope endpoint and player were verified on that
+origin on 2026-10-18 (EVALUATION.md Part 10). What was NOT exercised there is an
+answered question and an opened PDF citation, because the day's token ceiling was
+spent first; both are recorded as **not run**, not as passing.
 
 Every case, its evidence kind, its actual result and everything that was **not**
 run is recorded in [docs/EVALUATION.md](docs/EVALUATION.md).

@@ -24,6 +24,24 @@ import { LESSON_TRANSCRIPT_SOURCE } from "@/lib/lesson/transcript";
 import { describeEligibilityRule, resolveLessonPosition } from "@/lib/lesson/playhead";
 
 /**
+ * One row of `GET /api/v1/courses/:courseId/resources`.
+ * Counts and labels only: the endpoint never returns future text or a future
+ * unlock time, so this type cannot be used to build a syllabus oracle.
+ */
+interface CourseResource {
+  id: string;
+  kind: "video" | "transcript" | "pdf" | "ppt" | "notes" | "code";
+  title: string;
+  coverage: number | null;
+  parser: string | null;
+  policy: "COURSE_WIDE" | "TIMELINE_BOUND" | "MIXED";
+  blocks: number;
+  eligibleNow: number;
+  pendingReview: number;
+  rejected: number;
+}
+
+/**
  * The learner interface.
  *
  * TWO LESSONS, NEVER BLURRED
@@ -159,6 +177,11 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
 
   const [scope, setScope] = useState<ScopeSummary | null>(null);
   /**
+   * The course's materials, with counts only — never a future page's text or its
+   * unlock time. Labelled by the server, so the interface cannot invent a policy.
+   */
+  const [materials, setMaterials] = useState<CourseResource[] | null>(null);
+  /**
    * Which scope request has SETTLED.
    *
    * "Refreshing…" is derived from this rather than set with a synchronous
@@ -245,6 +268,27 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
 
     return () => controller.abort();
   }, [courseId, playhead, refreshToken, scopeRequestKey]);
+
+  // Materials refresh with the position, because "eligible now" is a count at
+  // this playhead.
+  useEffect(() => {
+    if (!courseId) return;
+    const controller = new AbortController();
+    fetch(
+      `/api/v1/courses/${encodeURIComponent(courseId)}/resources?playheadSeconds=${playhead}`,
+      { cache: "no-store", signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as { resources: CourseResource[] };
+        if (controller.signal.aborted) return;
+        setMaterials(payload.resources);
+      })
+      .catch(() => {
+        /* the materials list is informational; a failure must not block asking */
+      });
+    return () => controller.abort();
+  }, [courseId, playhead, refreshToken]);
 
   // The status panel reads the SAME endpoint an operator would, so it cannot
   // disagree with it.
@@ -715,6 +759,57 @@ export default function LearnerWorkbench(props: LearnerWorkbenchProps) {
                 {scope?.policySummary ??
                   `Lesson through ${formatClock(playhead)} · approved course-wide references enabled`}
               </p>
+
+              {/* Materials with their policy spelled out. A judge should be able to
+                  see that the study guide is permitted at every playhead while the
+                  slides unlock with the lesson, without opening a citation. */}
+              {materials && materials.length > 0 && (
+                <details className="mt-3 border-t border-slate-200 pt-2">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                    Course materials · {materials.length} source
+                    {materials.length === 1 ? "" : "s"}
+                  </summary>
+                  <ul className="mt-2 space-y-2 text-xs text-slate-700">
+                    {materials.map((resource) => (
+                      <li key={resource.id}>
+                        <span className="font-semibold text-slate-900">{resource.title}</span>{" "}
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono uppercase text-slate-700">
+                          {resource.kind}
+                        </span>
+                        <span
+                          className={`ml-1 rounded px-1.5 py-0.5 font-semibold ${
+                            resource.policy === "COURSE_WIDE"
+                              ? "bg-emerald-50 text-emerald-900"
+                              : "bg-amber-50 text-amber-900"
+                          }`}
+                        >
+                          {resource.policy === "COURSE_WIDE"
+                            ? "approved reference · every position"
+                            : resource.policy === "MIXED"
+                              ? "mixed policy"
+                              : "time-gated with the lesson"}
+                        </span>
+                        <div className="mt-0.5 font-mono text-[11px] text-slate-600">
+                          {resource.blocks} block{resource.blocks === 1 ? "" : "s"} ·{" "}
+                          {resource.eligibleNow} eligible now
+                          {resource.pendingReview > 0
+                            ? ` · ${resource.pendingReview} awaiting review`
+                            : ""}
+                          {resource.rejected > 0 ? ` · ${resource.rejected} rejected` : ""}
+                          {resource.coverage !== null
+                            ? ` · text on ${Math.round(resource.coverage * 100)}% of pages`
+                            : ""}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[11px] text-slate-600">
+                    Approved reference material is permitted at every playhead. Time-gated
+                    sources unlock only as the recording reaches them, and nothing here
+                    shows text from a part you have not watched.
+                  </p>
+                </details>
+              )}
             </div>
           </section>
 

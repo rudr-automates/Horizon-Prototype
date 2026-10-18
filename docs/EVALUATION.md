@@ -1441,3 +1441,162 @@ stops where the browser stopped it.
   sustained in a normal tab; in a webview Chromium was not compositing, media is
   suspended roughly a second after a play is accepted. That is a property of that
   browser state, and it is reported rather than worked around.
+
+# Part 10 — 2026-10-18: deployment, claim shape, and document resources
+
+Every number below was produced on this date. Where a check could not run, it says
+so and gives the reason; nothing in this part is projected or extrapolated.
+
+## P10-1. The deployed origin
+
+`https://horizon-prototype.vercel.app` — built by the Vercel CLI from this
+repository's `main` at `f9e4b7a`, with the production environment variables set from
+the operator's own `.env.local` over stdin (no value printed, no value committed).
+Deployment protection was switched off explicitly; before that, every path returned
+Vercel's SSO page to an anonymous visitor, which is not a deployment a judge can open.
+
+| Check | Observed |
+|---|---|
+| `GET /` | `200`, 20,259 bytes, `text/html` |
+| `GET /api/v1/health` | `ok: true`; `spendGuard: "permitted"`; `querySucceeded: true`; `schemaObjects: "verified"`; `durableLedger: "usable"`; `configurationProblems: []`; `evidenceSource: "supabase"` |
+| `GET /api/v1/courses` | both courses, served from Supabase |
+| `GET /api/v1/courses/:id/scope` | `10` at 00:03, `20` at 10:00, `66` at 50:00 |
+| `GET /api/v1/lesson/video` | `404` — expected: the 235 MiB file is not uploaded |
+| Player on the deployed page | an `iframe` pointing at `youtube.com/embed/ZaPbP9DwBOE` with `origin=https://horizon-prototype.vercel.app`; no `<video>` element; the page says it is playing from the original source |
+| Console | 8 warnings, all `Unrecognized feature: 'web-share'` from the YouTube iframe; no application error |
+| Screenshots | captured of the deployed page (player and runtime panel) — the webview composited normally this time, unlike Part 09's attempt |
+
+## P10-2. A supported question was being refused, and why
+
+The first production canary on this date reported `1 failed, 2 not run`:
+
+- turn 1 at 05:00, "What topics does the instructor list at the very start of this
+  lesson?", returned `INSUFFICIENT_EVIDENCE` with 4 eligible blocks;
+- turns 3 and 4 were `PROVIDER_RATE_LIMITED` (Groq's free-tier tokens-per-minute
+  ceiling, hit by running four turns back to back).
+
+A diagnostic script called the generator and verifier directly with those same four
+blocks and printed what came back: **fourteen one-word claims** ("Prompt engineering",
+"Context", "Windows", …), each carrying the same verbatim list quotation. Tier-1
+accepted all fourteen; the verifier rejected the turn as a whole. The transcript did
+support an answer; the answer shape did not.
+
+**Change.** The generator instruction now requires a complete, self-contained sentence
+per claim, at most five claims, and a contiguous verbatim quotation with no
+punctuation repair; the verifier instruction states that a claim restating an item
+from a list in the evidence IS supported. The pipeline also bounds each block to
+1,500 characters in the prompt and verifies at most five claims, dropping overflow
+before the verification call.
+
+**Measured on the same question and the same four blocks, before → after:**
+
+| Figure | Before | After |
+|---|---|---|
+| Claims returned | 14 | 2 |
+| Generation prompt tokens | (not captured for that run) | 1,379 |
+| Verification prompt tokens | 4,074 | 926 |
+| Verdicts | all rejected | 2 × SUPPORTED |
+| Turn outcome | `INSUFFICIENT_EVIDENCE` | `ANSWERED`, 2 claims, 2 citations |
+
+The next canary run (`local-after-prompt-fix`) then reported **16 passed, 0 failed, 0
+not run** across 05:00 and 20:00 — the early question answerable with two verbatim,
+clock-checked citations, and the late fact still absent from the eligible set and
+from the response body at 20:00. It stopped before turn 3 itself, printing that 4,948
+tokens remained and that was not enough for two more metered calls.
+
+## P10-3. Document resources, ingested live
+
+`pnpm build:materials` compiled two documents from the **stored** transcript — 56
+blocks, 8 segments, no model call — into `.freebuff/materials/`. Both state on their
+face that they are team-authored from the automatic captions and are not the
+instructor's material, and both are gitignored because the text is a third-party
+caption track.
+
+| Document | Parse result | Ingest result |
+|---|---|---|
+| `lesson-notes.pdf` (8,477 bytes) | 3 pages, 3 with text, coverage 1.0, `unpdf-pdfjs-v1` | 10 blocks, `COURSE_WIDE` / `HUMAN_APPROVED` / lint `PASSED`, 768-dim, 1 embedding request |
+| `lesson-slides.pptx` (111,759 bytes) | 9 slides, 9 with text, coverage 1.0, `pptx-ooxml-v1` | 9 blocks, `TIMELINE_BOUND`, 7 `AUTO_APPROVED` + 2 `PENDING`, 1 `FLAGGED` (it quotes the late fact, but it is time-gated), 1 embedding request |
+
+The study guide was approved course-wide only because the lint found **none** of the
+registered late-only markers in it — confirmed by re-parsing the stored PDF and
+searching for `compliance score` and `75%`, both `false`. The generated excerpts
+sample the opening and middle line of each segment, and the segment containing the
+threshold is not among them. That is a property of this document, not of PDFs in
+general; a document that did contain the fact would be refused.
+
+What the parse does NOT claim: a page with no text layer is reported as visual-only
+and excluded from the block count, so `extraction_coverage` is 1.0 here because every
+page had text — not because OCR ran.
+
+## P10-4. The alignment algorithm had two real defects, found by its own output
+
+1. **A zero score reported a match.** A chunk about Kubernetes ingress, which the
+   recording never mentions, aligned to transcript window 0 with score 0 and got that
+   window's 60-second unlock time. Fixed: a zero score is no match, `bestIndex` is
+   `-1` and the unlock is `null`.
+2. **The runner-up margin went negative.** Slides were scored against one 60-second
+   block, so a slide summarising seven minutes could never score well; and the winner
+   was chosen by best single block rather than best stretch, so a "winner" could be
+   beaten by a stretch of the recording outside it — a negative margin, which is
+   incoherent. Fixed: alignment grows a contiguous run from its seed, and the winner
+   is the best run over all seeds.
+
+After the fix, the deck went from 1 auto-approved / 8 pending to **7 auto-approved /
+2 pending**. The two that still needed a human were the title/provenance slide
+(score 0.07) and a content slide scoring 0.90 with a 0.00 margin — the multi-topic
+ambiguity the blueprint says a human should see.
+
+## P10-5. The review workflow, exercised live
+
+```
+pnpm review:alignments --reject 4eb1ccaf… --reason "title and provenance slide: metadata, not lesson content"
+  → Rejected. It is no longer eligible and cannot be cited.
+pnpm review:alignments --approve 33f728f0… --unlock 14:18
+  → review_state=HUMAN_APPROVED, unlock=14:18. It becomes evidence at or after 14:18 only.
+```
+
+`--unlock` is required for an approval: approving without a time would leave the block
+approved and still ineligible, which is a no-op dressed as a decision. The scope count
+moved with both decisions (`20` at 10:00 after the approval, up from 19).
+
+**Limit, stated plainly:** this schema has no `alignment_events` table, so there is no
+durable reviewer identity, timestamp or approval history. A rejection reason is
+appended to `blocks.alignment_method` with a `rejected:` prefix, and `updated_at` moves
+on the row. Nothing here claims an audit trail it cannot keep.
+
+## P10-6. Post-ingest canary
+
+`pnpm canary:lesson --positions 300 --max-turns 1` reported **8 passed, 0 failed, 1 not
+run**, including the new `references-do-not-leak` check (10 `COURSE_WIDE` blocks in the
+course, 0 eligible and containing the late fact) and an eligible-set count of 15 that
+matched the independent oracle over 75 stored blocks. The run's single turn returned
+`TEMPORARILY_UNAVAILABLE` / `BUDGET_EXHAUSTED`, so its answering check is **NOT RUN**:
+the day's 20,000-token ceiling was already spent (15,052 recorded, and the remainder
+is smaller than a generation reservation). This is the guard working; it is not
+evidence that the answering path works with documents in the corpus, and that turn
+must be repeated on a fresh UTC day.
+
+## P10-7. Spend, honestly
+
+The durable ledger recorded **15,052 generation tokens and 10 of 10 embedding
+requests** for 2026-10-18 by the end of this work. It does not record the two
+diagnostic calls in P10-2, because those scripts called the generator and verifier
+directly rather than through the pipeline, and only the pipeline reserves and settles.
+Their real cost was roughly 11,500 tokens across four calls: generation 4,556 and
+verification 4,074 in the first diagnostic, then 1,379 + 341 + 926 + 113 in the
+second. So true provider usage on this date is about 26,500 tokens against a recorded
+15,052 and a 20,000 ceiling. Two consequences follow, and both are recorded as
+findings rather than footnotes: a diagnostic must go through the metered path, and
+the spend guard as built protects the pipeline, not the provider account.
+
+## P10-8. Still not established
+
+- **A post-ingest answered turn.** Blocked by the day's budget (P10-6).
+- **The late-fact turn on a deployed origin.** The pre-ingest production canary could
+  not reach it either (rate limit), and later runs had no budget.
+- **PDF/PPT citation rendering in the browser.** The label logic and the absence of a
+  seek button for a block with no clock are unit tested, and the API returns those
+  citations, but no screenshot of a rendered PDF citation exists.
+- **Mobile layout after these changes.** Verified in earlier parts at 390px; not
+  re-checked after the citation-panel wording change.
+- **Summary, quiz and mock interview.** Not built.

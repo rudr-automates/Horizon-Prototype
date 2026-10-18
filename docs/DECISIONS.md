@@ -921,3 +921,117 @@ the defect from the outside.
 player to the passage. A browser that still refuses to start playback is reported
 under the player rather than silently showing a still frame. Measured live in
 EVALUATION.md Part 09 (P9-8).
+## D-029 — A claim is a sentence, and the payload is bounded
+
+A live turn at 05:00 was refused although the transcript supported it. The generator
+had returned fourteen one-word claims ("Prompt engineering", "Context", "Windows", …),
+each with the same verbatim list quotation. Tier-1 accepted them all, the verifier
+rejected the turn, and the learner saw a refusal for material the recording plainly
+covers.
+
+**Decision:** the claim contract now says what a claim IS — one complete, self-contained
+sentence that answers part of the question, at most five of them — and the verifier is
+told that restating an item from a list in the evidence counts as support. Separately,
+the prompt was bounded: 1,500 characters per block (Tier-1 still checks quotations
+against the FULL stored block, so truncation cannot weaken it) and at most five claims
+verified per turn. Overflow beyond five is dropped before verification, and dropping it
+is deliberately NOT reported as a partial answer: the cap is a spend bound, and making
+`ANSWERED_PARTIAL` mean both "the evidence only supports part" and "the model was
+verbose" would empty the state of meaning.
+
+**Consequence:** the same question, same four blocks: 2 claims instead of 14, 1,379 +
+926 prompt tokens instead of roughly 3,200 + 4,074, and a cited answer instead of a
+refusal. Measured in EVALUATION.md P10-2.
+
+## D-030 — Documents are ingested in one of two modes, and the lint can refuse
+
+A PDF or deck added to a course has to be either explicitly permitted reference
+material or evidence tied to a moment in the recording, and those are different
+promises. `--mode reference` writes `COURSE_WIDE` + `HUMAN_APPROVED` (the only
+combination the predicate accepts at every playhead); `--mode aligned` writes
+`TIMELINE_BOUND`, auto-approved only above a confidence floor and a margin over the
+best non-adjacent stretch, otherwise `PENDING` with a null unlock time — which the
+predicate makes ineligible, so a weak guess can never become evidence by itself.
+
+**Decision:** the reference path runs the blueprint's course-wide lint and REFUSES to
+write an approved document that contains a registered late-only fact or aligns to the
+last fifth of the recording. Overriding requires `--acknowledge "<reason>"`, which
+writes `ACKNOWLEDGED` rather than `PASSED`, so the row records that a human took the
+risk instead of claiming the lint found nothing.
+
+**Consequence:** the study guide was approved only after the lint found none of the
+late facts in it; the deck's slide that does quote the threshold stayed `TIMELINE_BOUND`
+and therefore unlocks only where the recording reaches it. A document that trips the
+lint is not silently approved — the command fails and writes nothing.
+
+## D-031 — Alignment looks for a stretch, and a zero score is no match
+
+Two defects, both found by reading the tool's own output rather than by a failing
+assertion:
+
+1. a chunk about Kubernetes ingress, absent from the recording, aligned to window 0
+   with score 0 and inherited that window's 60-second unlock — a fabricated timestamp;
+2. a comparison slide summarising seven minutes scored 0.90 against one 60-second
+   transcript block yet reported a margin of −0.25, which is incoherent: it means a
+   stretch of the recording outside the "winner" covered the slide better.
+
+**Decision:** a zero score returns no match (`bestIndex: -1`, `unlockSeconds: null`),
+and alignment grows the shortest contiguous RUN of transcript blocks that covers the
+chunk, choosing the best run over all seeds. The run only extends on a gain of at least
+10% of the chunk's content words (minimum two), because every extra block moves the
+unlock later and would withhold material the learner has already reached. `unlockSeconds`
+is the END of the run: a slide that summarises a section becomes available when the
+last of that section has been watched.
+
+**Consequence:** the deck moved from 1 auto-approved / 8 pending to 7 / 2, and the two
+that remained were the title slide (0.07) and the genuinely multi-topic slide
+(0.90 with a 0.00 margin) — the cases the blueprint says a human should decide.
+
+## D-032 — No upload control, because there is no authentication
+
+The blueprint's instructor journey starts with "upload/register course resources", and
+this build has no auth, no per-user ownership and no private object storage. An upload
+endpoint in that state is either an unauthenticated write into a shared database or a
+control that reports success without persisting anything.
+
+**Decision:** resources are registered by an operator command (`pnpm ingest:resource`)
+that validates the file by magic bytes and size, caps pages, slides, ZIP entries and
+decompressed size, refuses a container that is not a presentation, embeds in bounded
+batches against the durable request cap, and reads every written row back. The
+`storage_key` column records the file's private local path; nothing is served over
+HTTP.
+
+**Consequence:** the demo has real PDF/PPT evidence with real provenance and no
+unauthenticated write path. A browser upload surface waits for authentication, which is
+listed as missing rather than approximated.
+
+## D-033 — The deployment is public deliberately, and the recording is absent by design
+
+The Vercel project had deployment protection on, so every URL — including the API —
+returned Vercel's SSO page to an anonymous visitor. A judge cannot evaluate that, and a
+private preview is not "deployed" in any useful sense.
+
+**Decision:** protection is switched off for this project, production environment
+variables are pushed from the operator's `.env.local` over stdin (never printed, never
+committed), and the 235 MiB recording is excluded from the upload by `.vercelignore`.
+The host therefore plays the original YouTube embed, and `GET /api/v1/lesson/video`
+answers `404` there — which is the documented fallback, not a defect to "fix" by
+committing third-party video.
+
+**Consequence:** verified on the deployed origin: home `200`, health `ok: true` with a
+real authenticated read, evidence from Supabase, scope 10/20/66, the embed present with
+the correct video id and origin, and no application error in the console.
+
+## D-034 — A diagnostic that bypasses the ledger is a guard bypass
+
+The first diagnostic called the generator and verifier directly to see the raw claims,
+which was the right instrument and the wrong path: it spent roughly 11,500 tokens that
+the durable ledger never saw, because only the pipeline reserves and reconciles. The
+recorded 15,052 for the day understates real usage of about 26,500.
+
+**Decision:** recorded in EVALUATION.md P10-7 rather than quietly dropped, and future
+diagnostics must run through the metered path (or be added as a metered script) so the
+number an operator reads is the number the provider charged.
+
+**Consequence:** the ledger is still the authority for the pipeline's behaviour, but it
+is not an account-level meter, and it is now documented as such.

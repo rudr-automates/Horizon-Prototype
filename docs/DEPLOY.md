@@ -1,17 +1,33 @@
 # Deploying Horizon
 
-**Status: NOT DEPLOYED. There is no public URL.** No host was configured in any
-part of this work, so nothing here has been executed. This document is the
-prepared procedure, not a report of a deployment.
+**Status: DEPLOYED on 2026-10-18 — <https://horizon-prototype.vercel.app>.**
 
-The evidence a deployed instance would serve is already in the database this
-procedure points at, so a host needs no extra data step: the recording's 56
-transcript blocks live in Supabase (see EVALUATION.md Part 09). What a host does
-NOT have is the 235 MiB recording itself, so it plays the original YouTube embed —
-and that is the one path this procedure still cannot claim, because it has never
-run on a host.
+Deployed from this repository's `main` with the Vercel CLI, on the project
+`irrelevant3/horizon-prototype` (project id `prj_hVJ27iem3nuYUuKUc5BWgnjAqt7z`).
+Deployment protection was switched **off** for the project, because with it on every
+path answered Vercel's SSO page to an anonymous visitor and no judge could open the
+site.
 
-Read the last section before believing a deploy "worked".
+What was verified on that origin, with the values observed:
+
+| Check | Observed on https://horizon-prototype.vercel.app |
+|---|---|
+| Home page | `200`, 20,259 bytes, `text/html` |
+| `GET /api/v1/health` | `ok: true`, `spendGuard: "permitted"`, `querySucceeded: true`, `schemaObjects: "verified"`, `durableLedger: "usable"`, `configurationProblems: []` |
+| Evidence store | `evidenceSource: "supabase"` — the recording's transcript and its two compiled documents |
+| Scope moves with position | `10` at 00:03, `20` at 10:00, `66` at 50:00 |
+| Player | an `iframe` on `youtube.com/embed/ZaPbP9DwBOE` with `origin=https://horizon-prototype.vercel.app`; no `<video>` element; the page states it plays from the original source |
+| `GET /api/v1/lesson/video` | `404` — expected, the 235 MiB file is not uploaded |
+| Console | 8 warnings, all `Unrecognized feature: 'web-share'` from the embed; no application error |
+
+NOT verified there: a answered question (the day's token ceiling was spent before a
+turn could run), and the citation panel opened on a PDF citation. Those are recorded
+as **not run** in EVALUATION.md P10-6 and P10-8, and are the first two things to redo
+on a fresh UTC day.
+
+The host needs no extra data step: the recording's 56 transcript blocks and both
+compiled documents live in the Supabase project this deployment points at. What the
+host does NOT have is the 235 MiB recording, so it plays the original YouTube embed.
 
 ---
 
@@ -70,7 +86,34 @@ explicitly public).
 `vercel env add <NAME> production` is the CLI equivalent; the dashboard path is
 **Project → Settings → Environment Variables**.
 
-## 4. Vercel through the GitHub repository
+## 4a. What was actually run (CLI, no Git integration)
+
+```bash
+npm install -g vercel@64.5.0
+vercel login                     # device flow: approve the printed URL in a browser
+vercel link --yes --project horizon-prototype
+# every name from §3, pushed over stdin so no value is printed or committed:
+node .logs/push-env.mjs          # local script, gitignored; sets 13 production variables
+vercel project protection disable horizon-prototype --sso
+vercel deploy --prod --yes       # builds on Vercel, aliases horizon-prototype.vercel.app
+```
+
+Notes on that run, because each one changed the outcome:
+
+- **No token was used.** The device login was approved in a browser by the account
+  owner, and no credential was pasted into a command, a file or a chat message.
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` was rejected on the first attempt with "This value
+  looks sensitive"; Vercel requires `--type config` for it explicitly. The value is a
+  publishable key, not a secret, and the flag is what records that.
+- `.vercelignore` excludes `*.mp4`, `.freebuff/`, `.logs/`, `.vercel/` and
+  `docs/evidence/`, so the 235 MiB recording cannot enter a deployment artifact even
+  if someone runs `vercel deploy` from this checkout.
+- `vercel link` appends a short-lived `VERCEL_OIDC_TOKEN` to `.env.local`, which is
+  gitignored; it is not needed by the app.
+- No Git integration was connected, so a push does **not** deploy. Run the last
+  command again to publish a new build.
+
+## 4b. Vercel through the GitHub repository (alternative)
 
 1. Sign in at `vercel.com` and choose **Add New… → Project**.
 2. **Import Git Repository** and select `rudr-automates/Horizon-Prototype`.
@@ -140,7 +183,7 @@ Open the URL in a clean browser session and then:
 | Home page | Loads; **Lesson recording (real captions)** is the selected lesson and "Transcribed and indexed from its own captions" is visible |
 | Lesson video | The player renders and its clock advances while playing and follows a seek. On a host the source line names the original YouTube embed, because the recording was not uploaded — that is the expected state, not a defect |
 | Position provenance | The panel reads `Source: the player's own playback clock.` once the player has started. If a host's browser refuses the embed, it must instead read `Source: set by hand, because no player has reported a clock in this session` — never a number presented as playback |
-| Evidence scope moves with the clock | `pnpm canary:lesson --base https://<project>.vercel.app --positions 300,1200,3000` exits 0: 4 / 19 / 49 eligible blocks, each matching the harness's own oracle |
+| Evidence scope moves with the clock | `pnpm canary:lesson --base https://<project>.vercel.app --positions 300,1200,3000` exits 0, each count matching the harness's own oracle. Observed on the deployed origin once documents existed: **10 / 20 / 66** — the 10 course-wide reference blocks are present at every position, and the rest unlock with the recording. (Before the documents were ingested the same origin read 4 / 19 / 49.) |
 | The late fact is unreachable early | In the same run, the 20:00 turn about the `75%` threshold is a refusal whose response body contains neither `compliance score` nor `75%`, while the 50:00 turn is answered and cites `Transcript 44:52–45:53` |
 | An uncovered question refuses | The Kubernetes/gRPC question returns `INSUFFICIENT_EVIDENCE` with 0 claims |
 | `GET /api/v1/health` | HTTP 200; each check reflects reality and nothing is inferred from an env var being set |
@@ -178,6 +221,11 @@ already partly used.
   in fixture mode and says so in `/api/v1/health` (`evidenceSource: "fixture"`),
   and until `0003` is, the answer path refuses every turn. Pointing the deployment
   at the existing project avoids all of this — it has all three.
+- **PDF and PPTX evidence is in the database, but the two documents that carry it were
+  compiled from the recording's own captions, not supplied by the instructor.** They
+  say so on their face and in their resource titles. A fresh project needs
+  `pnpm build:materials` then `pnpm ingest:resource` for each file; a scanned PDF has
+  no text layer and is refused rather than indexed.
 - **The sample lesson is still synthetic, and it ships alongside the real one.**
   Both courses are listed; the interface makes the recording the default and
   labels the sample as synthetic everywhere it appears. A deployment that wants
@@ -202,6 +250,12 @@ the page states the absence plainly instead of failing obscurely.
   requests are made, not what they cost. `estimated_cost_usd` is still NULL.
 
 ## 8. Release gate — do not call this a working AI product until all four hold
+
+0. **A public origin serves the app to an anonymous visitor.** **HOLDS
+   (2026-10-18)** — <https://horizon-prototype.vercel.app>, deployment protection off,
+   home `200`, health `ok: true`, and the YouTube embed present on the page. This is
+   weaker than the four gates below it: it proves the host runs the app and can read
+   the database, not that a question was answered there.
 
 1. Atomic budget admission is implemented **and verified against the real
    database**: `pnpm verify:budget` → `RESULT: PASS`, 4 grants of 12 concurrent
@@ -238,21 +292,30 @@ All four gates hold on the local production build as of 2026-10-15. See
 [EVALUATION.md](EVALUATION.md) Part 07 for the run and its artifacts, including the
 two checks that remain outside the harness's reach.
 
-That is not a hosting claim: **no public URL exists**, and nothing above was
-verified on a deployed origin. One thing must be repeated in the host before a
-deploy can behave as the local run does — `HORIZON_DAILY_TOKEN_BUDGET` and
-`HORIZON_MAX_EMBEDDING_CALLS` resolve to `0`, which is the guard's "permit
-nothing" state, unless they are set. Both **are** set in the local `.env.local` as
-of 2026-10-16 (verified: `spendGuard: "permitted"` and an empty
-`configurationProblems` from `/api/v1/health`), which corrects the observation in
-EVALUATION.md Part 07 — but a host has its own environment, so set both to
-positive values there too (§3) and confirm `spendGuard` reads `"permitted"`
-afterwards rather than assuming.
+Gates 1–4 above are checks of the local production build. The deployed origin was
+verified separately and more narrowly on 2026-10-18 (home, health, courses, scope,
+player, console); a question answered **on the host** is still not among the evidence,
+because the day's token ceiling was spent before that turn could run.
 
-## 9. If access cannot be connected
+One thing must be repeated in any host before a deploy can behave as the local run
+does — `HORIZON_DAILY_TOKEN_BUDGET` and `HORIZON_MAX_EMBEDDING_CALLS` resolve to `0`,
+which is the guard's "permit nothing" state, unless they are set. Both are set on the
+project this document describes (verified: `spendGuard: "permitted"`, empty
+`configurationProblems`, and 15,052 of 20,000 tokens used with 10 of 10 embedding
+requests on 2026-10-18), but a different host has its own environment, so set both
+there too (§3) and confirm `spendGuard` reads `"permitted"` afterwards.
 
-The blocking action is a human one: someone with Vercel account access must
-authorise the GitHub repository connection in the Vercel dashboard (§4) and add
-the environment variables (§3). Until that happens, report **no public URL
-exists**. Do not present a local `next start` as a deployment — it is not
-reachable by a judge.
+## 9. Access, and what a redeploy needs
+
+The account used is the one that owns `irrelevant3/horizon-prototype`; the device
+login is the only human step in publishing. A later build needs nothing from that
+person beyond a valid CLI session:
+
+```bash
+vercel deploy --prod --yes    # after lint, typecheck, test and build pass locally
+```
+
+Do not present a local `next start` as a deployment — it is not reachable by a judge —
+and do not describe the aliased URL as verified for behaviour that was not exercised on
+it. The rows that are still **not run** on the deployed origin are listed at the top of
+this document.
