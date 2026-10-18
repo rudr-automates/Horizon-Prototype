@@ -7,6 +7,11 @@
 *.mov
 *.webm
 
+# Environment files must never be uploaded. `.env.local` holds the operator's real
+# credentials and the Vercel CLI's own injected token lands there too.
+.env
+.env.*
+
 # Local-only artefacts: fetched captions, logs, CLI state, build cache.
 .freebuff/
 .logs/

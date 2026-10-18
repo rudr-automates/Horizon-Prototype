@@ -1,5 +1,7 @@
 import LearningStudio from "@/components/learning-studio";
 import { describeConfigurationProblems } from "@/lib/config";
+import { toPublicHealth } from "@/lib/health/public";
+import { buildHealthReport } from "@/lib/health/report";
 import { createServerContext } from "@/lib/server/context";
 import { resolveServerLessonVideoSource } from "@/lib/lesson/video-file";
 import { lessonTranscriptCourseId } from "@/lib/ingest/lesson-transcript";
@@ -33,6 +35,18 @@ export default async function LearnPage({
   const { config, providers, storeResolution } = createServerContext();
   const store = storeResolution.store;
   const params = await searchParams;
+
+  // The Status surface gets the PUBLIC projection, not the operator report.
+  //
+  // Passing the full report here put the day's spend, the budget, the model ids,
+  // the schema counts and the configuration problems into the page's serialized
+  // props — a page prop is as public as an endpoint. The report is built on the
+  // server, reduced by the same function the public health endpoint uses, and
+  // only that result crosses to the client. A failed report is `null`, and the
+  // panel says it could not be built rather than showing zeros.
+  const health = await buildHealthReport()
+    .then((report) => toPublicHealth(report))
+    .catch(() => null);
 
   /**
    * Two courses, deliberately separate.
@@ -97,6 +111,7 @@ export default async function LearnPage({
       initialLesson={initialLesson}
       initialSection={initialSection}
       initialSeconds={initialSeconds}
+      health={health}
       // Resolved from the filesystem on every request, so the panel states the
       // source this deployment can really play rather than the one we hoped for.
       lessonVideo={resolveServerLessonVideoSource()}
@@ -106,10 +121,10 @@ export default async function LearnPage({
       suggestedQuestions={[DEMO_QUESTIONS.canary, DEMO_QUESTIONS.courseWideControl]}
       runtimeAiConfigured={providers.configured}
       embeddingCredentialPresent={providers.embeddingConfigured}
-      // Reported rather than left to be inferred from a refusal: a wrong
-      // provider name and a credential in the wrong variable both look like an
-      // outage on screen. Contains settings names only, never values.
-      configurationProblems={describeConfigurationProblems(config)}
+      // Reported rather than left to be inferred from a refusal. Only the COUNT
+      // crosses to the client: the setting names stay in the operator report, so
+      // they are not serialized into the page's props.
+      configurationProblemCount={describeConfigurationProblems(config).length}
       evidenceSource={store.mode}
       evidenceReason={storeResolution.reason}
       storeError={storeError}

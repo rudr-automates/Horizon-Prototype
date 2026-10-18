@@ -55,6 +55,8 @@ export async function GET(
         eligibleBlockCount: eligible.length,
         policySummary: `Lesson through ${formatSeconds(boundarySeconds)} · approved course-wide references enabled`,
       }),
+      // The count is a function of the caller's position; it must not be shared.
+      { headers: { "cache-control": "no-store" } },
     );
   } catch {
     return errorResponse("INTERNAL_ERROR", "Could not resolve the scope.", requestId);

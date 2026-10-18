@@ -68,6 +68,22 @@ export class DisabledTurnRecorder implements TurnRecorder {
   }
 }
 
+/**
+ * How many times a turn insert may recompute its sequence after losing a race.
+ *
+ * Two questions asked at the same moment both read "the last sequence is N" and
+ * both try to write N+1. The database's unique constraint rejects one of them;
+ * the loser must re-read and try again rather than drop the learner's turn. Three
+ * attempts is enough for the traffic this app sees and still bounds latency when
+ * something is genuinely wrong (persistence is best-effort by contract).
+ */
+const MAX_SEQUENCE_ATTEMPTS = 3;
+
+/** PostgreSQL's unique_violation, as PostgREST reports it. */
+function isUniqueViolation(error: { code?: string } | null): boolean {
+  return error?.code === "23505";
+}
+
 export class SupabaseTurnRecorder implements TurnRecorder {
   readonly mode = "supabase" as const;
 
@@ -95,38 +111,60 @@ export class SupabaseTurnRecorder implements TurnRecorder {
         };
       }
 
-      const sequence = await this.nextSequence(conversationId);
-      if (sequence === null) {
-        return {
-          persisted: false,
-          mode: "supabase",
-          detail: "The turn sequence could not be resolved, so this turn was not stored.",
-        };
+      // Compute-then-insert, with a bounded retry on the ONE error that means
+      // "another turn took this sequence": the unique constraint on
+      // (conversation_id, sequence). Any other error is reported immediately —
+      // retrying a permissions or connection failure would only add latency.
+      let sawConflict = false;
+
+      for (let attempt = 0; attempt < MAX_SEQUENCE_ATTEMPTS; attempt += 1) {
+        const sequence = await this.nextSequence(conversationId);
+        if (sequence === null) {
+          return {
+            persisted: false,
+            mode: "supabase",
+            detail: "The turn sequence could not be resolved, so this turn was not stored.",
+          };
+        }
+
+        const { error } = await this.client.from("turns").insert({
+          conversation_id: conversationId,
+          sequence,
+          question: turn.question,
+          scope_mode: turn.scopeMode,
+          boundary_seconds: turn.boundarySeconds,
+          evidence_ids: turn.evidenceIds,
+          verified_claims: turn.citations,
+          answer_state: turn.internalAnswerState,
+          reason_code: turn.reason,
+          model_id: turn.modelId,
+          latency_ms: Math.max(0, Math.round(turn.latencyMs)),
+        });
+
+        if (!error) {
+          return { persisted: true, mode: "supabase", detail: "Turn stored." };
+        }
+
+        if (!isUniqueViolation(error)) {
+          return {
+            persisted: false,
+            mode: "supabase",
+            detail: "The turn could not be written.",
+          };
+        }
+
+        sawConflict = true;
       }
 
-      const { error } = await this.client.from("turns").insert({
-        conversation_id: conversationId,
-        sequence,
-        question: turn.question,
-        scope_mode: turn.scopeMode,
-        boundary_seconds: turn.boundarySeconds,
-        evidence_ids: turn.evidenceIds,
-        verified_claims: turn.citations,
-        answer_state: turn.internalAnswerState,
-        reason_code: turn.reason,
-        model_id: turn.modelId,
-        latency_ms: Math.max(0, Math.round(turn.latencyMs)),
-      });
-
-      if (error) {
-        return {
-          persisted: false,
-          mode: "supabase",
-          detail: "The turn could not be written.",
-        };
-      }
-
-      return { persisted: true, mode: "supabase", detail: "Turn stored." };
+      // Reported honestly rather than retried forever: the answer was already
+      // served, and persistence is explicitly best-effort.
+      return {
+        persisted: false,
+        mode: "supabase",
+        detail: sawConflict
+          ? "Another turn took the same sequence number, and the retry budget was exhausted, so this turn was not stored."
+          : "The turn could not be written.",
+      };
     } catch {
       return {
         persisted: false,

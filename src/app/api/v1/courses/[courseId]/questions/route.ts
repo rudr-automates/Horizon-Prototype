@@ -7,6 +7,12 @@ import {
 } from "@/lib/contracts/question";
 import { errorResponse, newRequestId } from "@/lib/http/api";
 import {
+  MAX_JSON_BODY_BYTES,
+  declaredLengthExceeds,
+  readJsonBody,
+} from "@/lib/http/body";
+import { createQuestionRateLimiter, requestBucketKey } from "@/lib/rate-limit";
+import {
   createTurnRecorder,
   toTurnRecord,
   type PersistenceOutcome,
@@ -36,14 +42,70 @@ export async function POST(
   const requestId = newRequestId();
   const { courseId } = await params;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return errorResponse("INVALID_REQUEST", "The request body must be JSON.", requestId);
+  // ---------------------------------------------------------------------
+  // 1. Cheap rejection of a body that declares itself too large.
+  // 2. Per-client admission, BEFORE any parsing or provider work.
+  // 3. Bounded streaming read, which is the limit that actually binds.
+  // 4. Contract validation.
+  //
+  // The order matters: a refused caller never reaches the generator, and an
+  // oversized body is never buffered in full.
+  // ---------------------------------------------------------------------
+  if (declaredLengthExceeds(request.headers.get("content-length"), MAX_JSON_BODY_BYTES)) {
+    return errorResponse(
+      "FILE_TOO_LARGE",
+      `The request body must be at most ${MAX_JSON_BODY_BYTES} bytes.`,
+      requestId,
+    );
   }
 
-  const parsed = questionRequestSchema.safeParse(body);
+  const env = readServerEnv();
+  const limiter = createQuestionRateLimiter(env);
+
+  let admission;
+  try {
+    admission = await limiter.admit(requestBucketKey(request, env));
+  } catch {
+    // Defensive: `admit` already fails closed, but a limiter that throws must not
+    // become an unlimited endpoint.
+    admission = {
+      admitted: false,
+      unavailable: true,
+      retryAfterSeconds: 60,
+      mode: limiter.mode,
+    } as const;
+  }
+
+  if (!admission.admitted) {
+    const headers = { "retry-after": String(Math.max(1, admission.retryAfterSeconds)) };
+
+    return admission.unavailable
+      ? errorResponse(
+          "RATE_LIMIT_UNAVAILABLE",
+          "The assistant is temporarily unavailable, so this question was not processed.",
+          requestId,
+          headers,
+        )
+      : errorResponse(
+          "RATE_LIMITED",
+          "Too many questions from this client. Wait for the retry window and try again.",
+          requestId,
+          headers,
+        );
+  }
+
+  const body = await readJsonBody(request, MAX_JSON_BODY_BYTES);
+  if (!body.ok) {
+    return body.reason === "too_large"
+      ? errorResponse(
+          "FILE_TOO_LARGE",
+          `The request body must be at most ${MAX_JSON_BODY_BYTES} bytes.`,
+          requestId,
+        )
+      : errorResponse("INVALID_REQUEST", "The request body must be a JSON object.", requestId);
+  }
+
+  const parsed = questionRequestSchema.safeParse(body.value);
   if (!parsed.success) {
     return errorResponse(
       "INVALID_REQUEST",
@@ -134,7 +196,11 @@ export async function POST(
       guard: outcome.guard,
     };
 
-    return NextResponse.json(questionResponseSchema.parse(response));
+    return NextResponse.json(questionResponseSchema.parse(response), {
+      // A turn is specific to a position, a question and the budget state at the
+      // moment it was answered. It must never be served from a shared cache.
+      headers: { "cache-control": "no-store" },
+    });
   } catch {
     return errorResponse(
       "INTERNAL_ERROR",

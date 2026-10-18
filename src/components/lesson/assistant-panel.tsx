@@ -72,8 +72,6 @@ export function AssistantPanel({
   onShowInTranscript,
   aiConfigured,
   embeddingConfigured,
-  spendBlocked,
-  onOpenStatus,
 }: {
   question: string;
   onQuestionChange: (next: string) => void;
@@ -90,8 +88,6 @@ export function AssistantPanel({
   onShowInTranscript: (evidenceId: string) => void;
   aiConfigured: boolean;
   embeddingConfigured: boolean;
-  spendBlocked: boolean;
-  onOpenStatus: () => void;
 }) {
   const [openCitation, setOpenCitation] = useState<number | null>(null);
   const inputId = useId();
@@ -124,15 +120,6 @@ export function AssistantPanel({
             A question cannot be placed in the same vector space as the stored
             evidence, so the turn will be refused rather than searched with a stand-in
             vector.
-          </InlineNotice>
-        )}
-        {spendBlocked && (
-          <InlineNotice tone="warn" icon="warning" title="The spend guard is closed">
-            The next provider call would be refused. The rest of the studio still
-            works.{" "}
-            <button type="button" onClick={onOpenStatus} className="font-semibold underline">
-              See status
-            </button>
           </InlineNotice>
         )}
 

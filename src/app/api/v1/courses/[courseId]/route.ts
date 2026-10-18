@@ -20,7 +20,9 @@ export async function GET(
     if (!course) {
       return errorResponse("NOT_FOUND", "That course was not found.", requestId);
     }
-    return NextResponse.json(courseSummarySchema.parse(course));
+    return NextResponse.json(courseSummarySchema.parse(course), {
+      headers: { "cache-control": "no-store" },
+    });
   } catch {
     return errorResponse("INTERNAL_ERROR", "Could not load the course.", requestId);
   }

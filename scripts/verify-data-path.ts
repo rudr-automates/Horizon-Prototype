@@ -122,9 +122,11 @@ async function embeddingRowsToday(client: ServiceRoleClient | null): Promise<num
 async function probeJson(
   base: string,
   path: string,
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; body: unknown } | null> {
   try {
     const response = await fetch(`${base}${path}`, {
+      headers,
       signal: AbortSignal.timeout(10_000),
     });
     return { status: response.status, body: await response.json() };
@@ -392,13 +394,34 @@ async function main(): Promise<void> {
       body.runtime?.evidenceSource === "supabase" && body.runtime?.demoContent === false,
       `evidenceSource ${body.runtime?.evidenceSource}, demoContent ${body.runtime?.demoContent}`,
     );
-    // Reported, not asserted against a remembered state: the pair is printed
-    // exactly as the server answered it. `permitted`/`usable` and
-    // `blocked`/`unreadable` are both legitimate, and which one appears is a fact
-    // about the deployment, not something this script should presume.
-    console.log(
-      `        spendGuard ${body.runtime?.spendGuard}, durableLedger ${body.checks?.database?.durableLedger}`,
-    );
+
+    // The detailed report is no longer public. Read it through the operator
+    // route when a token is available; otherwise say plainly that the figures
+    // are not exposed rather than printing `undefined` as if it were a value.
+    const diagnosticsToken = (process.env.HORIZON_DIAGNOSTICS_TOKEN ?? "").trim();
+    const diagnostics = diagnosticsToken
+      ? await probeJson(base, "/api/v1/health/diagnostics", {
+          authorization: `Bearer ${diagnosticsToken}`,
+        })
+      : null;
+
+    if (diagnostics?.status === 200) {
+      const detail = diagnostics.body as {
+        runtime?: { spendGuard?: string };
+        checks?: { database?: { durableLedger?: string } };
+      };
+      // Reported, not asserted against a remembered state: `permitted`/`usable`
+      // and `blocked`/`unreadable` are both legitimate, and which one appears is
+      // a fact about the deployment rather than something to presume.
+      console.log(
+        `        spendGuard ${detail.runtime?.spendGuard}, durableLedger ${detail.checks?.database?.durableLedger}`,
+      );
+    } else {
+      console.log(
+        "        spendGuard and durableLedger are operator diagnostics: set HORIZON_DIAGNOSTICS_TOKEN " +
+          "to read them from /api/v1/health/diagnostics. The public payload intentionally omits them.",
+      );
+    }
   }
 
   const coursesProbe = await probeJson(base, "/api/v1/courses");

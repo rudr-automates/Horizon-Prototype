@@ -27,6 +27,8 @@ export function makeEnv(overrides: Partial<ServerEnv> = {}): ServerEnv {
     maxEmbeddingCalls: 0,
     llmThinkingBudget: null,
     requestTimeoutMs: 30_000,
+    rateLimitSalt: "",
+    diagnosticsToken: "",
     ...overrides,
   };
 }

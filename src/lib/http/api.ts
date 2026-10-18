@@ -11,6 +11,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   FILE_TOO_LARGE: 413,
   UNSUPPORTED_TYPE: 415,
   RATE_LIMITED: 429,
+  RATE_LIMIT_UNAVAILABLE: 503,
   PROVIDER_UNAVAILABLE: 503,
   BUDGET_EXHAUSTED: 429,
   INTERNAL_ERROR: 500,
@@ -38,7 +39,12 @@ export function errorResponse(
   code: ErrorCode,
   message: string,
   requestId: string,
+  headers: Record<string, string> = {},
 ): NextResponse<ErrorEnvelope> {
   const body: ErrorEnvelope = { error: { code, message, requestId } };
-  return NextResponse.json(body, { status: STATUS_BY_CODE[code] });
+  return NextResponse.json(body, {
+    status: STATUS_BY_CODE[code],
+    // Every error is a per-request fact; none of them may be cached.
+    headers: { "cache-control": "no-store", ...headers },
+  });
 }
