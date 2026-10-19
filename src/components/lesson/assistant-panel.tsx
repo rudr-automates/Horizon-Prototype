@@ -18,6 +18,7 @@ import { Icon, type IconName } from "@/components/ui/icons";
 import { Button, Panel, Pill } from "@/components/ui/primitives";
 import type { Citation, QuestionResponse } from "@/lib/contracts/question";
 import { formatPlaybackClock } from "@/lib/lesson/video";
+import { LEARNING_ACTION_PROMPTS } from "@/lib/learning/actions";
 import {
   ANSWER_STATE_LABEL,
   ANSWER_STATE_TONE,
@@ -75,7 +76,7 @@ export function AssistantPanel({
 }: {
   question: string;
   onQuestionChange: (next: string) => void;
-  onAsk: () => void;
+  onAsk: (question?: string) => void;
   pending: boolean;
   result: QuestionResponse | null;
   requestError: string | null;
@@ -154,6 +155,22 @@ export function AssistantPanel({
           />
 
           <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => void onAsk(LEARNING_ACTION_PROMPTS.summary)}
+              className="rounded-full border border-brand-line bg-brand-soft px-2.5 py-1 text-[11px] font-semibold text-brand-strong transition-colors hover:bg-surface-muted disabled:opacity-50"
+            >
+              Summarize so far
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => void onAsk(LEARNING_ACTION_PROMPTS.explainSimply)}
+              className="rounded-full border border-line bg-surface-muted px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition-colors hover:border-brand-line hover:text-brand-strong disabled:opacity-50"
+            >
+              Explain simply
+            </button>
             {suggestions.slice(0, 3).map((suggestion) => (
               <button
                 key={suggestion}

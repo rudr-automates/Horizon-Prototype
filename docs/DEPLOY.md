@@ -2,6 +2,17 @@
 
 **Status: DEPLOYED on 2026-10-18 — <https://horizon-prototype.vercel.app>.**
 
+**Current release checkpoint (2026-10-19):** the production alias serves Ready
+commit `591552a` from `main`. The candidate `a66085d` on
+`codex/production-acceptance-fixes-2026-10-19` has a Ready Vercel preview at
+`horizon-prototype-puduxarmy-irrelevant3.vercel.app`; it is built from the
+expected GitHub repository. The preview has no production database or AI
+configuration and correctly reports the labelled fixture. Its anonymous
+`/learn?lesson=recording&start=300` response renders the sign-in page and
+preserves the requested route and resume position. Production Auth email
+confirmation, signed-in restore and two-account isolation remain unverified.
+The preview is not the production release.
+
 Deployed from this repository's `main` with the Vercel CLI, on the project
 `irrelevant3/horizon-prototype` (project id `prj_hVJ27iem3nuYUuKUc5BWgnjAqt7z`).
 Deployment protection was switched **off** for the project, because with it on every
@@ -17,9 +28,12 @@ current state of both routes was verified after the redesign in
 responses, health values, scope counts and the ten measured screenshots. §6 below
 lists both routes as separate checks.
 
-**Last deployed:** 2026-10-18, `main` at `96759b7` — `/` 200 (35.6 KB), `/learn` 200,
-`/api/v1/health` `ok` with `evidenceSource: "supabase"` and the ledger still at
-15,052 tokens (no provider call was made by this revision).
+**Last production deployment observed:** `main` commit `591552a` is Ready at
+`horizon-prototype-mavtwfce1-irrelevant3.vercel.app`, aliased to the production
+domain. Its public health response reports `ok`, a successful authenticated
+database read, and `evidenceSource: "supabase"`; this safe projection does not
+claim model reachability. The prior route and scope observations below are dated
+historical checks, not fresh acceptance evidence for the candidate.
 
 | Check | Observed on https://horizon-prototype.vercel.app |
 |---|---|
@@ -141,7 +155,8 @@ Notes on that run, because each one changed the outcome:
 5. **Deploy**. Vercel will produce a URL of the form
    `https://<project>.vercel.app`.
 6. Add the resulting domain to the Supabase project's allowed redirect URLs if
-   and when Supabase Auth is introduced. Not required today.
+   for the Supabase Auth confirmation callback. PR #7 adds cookie-backed Auth;
+   confirm the production redirect allowlist before promoting it.
 
 Environment variables are read at runtime, so changing one requires a
 **redeploy** to take effect.
@@ -259,8 +274,10 @@ the page states the absence plainly instead of failing obscurely.
   `.gitignore` excludes it. Serving it from object storage instead of the embed
   would be a deliberate change, and would need the redistribution question
   answered first.
-- **No approximate vector index**, no auth, no rate limiting beyond the spend
-  guard and request-size validation.
+- **No approximate vector index.** Cookie-backed Auth and owner-scoped learner
+  routes are in the PR #7 candidate; the learner tables from migration 0005 are
+  already applied to Supabase. Request admission, size limits and the spend guard
+  are implemented on the current production line.
 - **Embedding COST is unmeasured.** The durable cap bounds how many embedding
   requests are made, not what they cost. `estimated_cost_usd` is still NULL.
 

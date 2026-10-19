@@ -3,12 +3,11 @@
 /**
  * The application shell.
  *
- * A glass rail on desktop, a glass header with a six-item strip on mobile. Every
+ * A glass rail on desktop, a glass header with a seven-item strip on mobile. Every
  * destination here is a surface that exists: there is no disabled "Settings", no
  * placeholder "Course catalog" and no instructor console, because a nav item that
- * leads nowhere teaches the wrong thing about what the product can do. Home is the
- * sixth item and the brand mark, so the studio always has a way back to the
- * lessons index.
+ * leads nowhere teaches the wrong thing about what the product can do. Home and
+ * the account link provide clear exits to the lesson index and learner dashboard.
  *
  * The lesson identity lives in the rail because the whole product is
  * position-relative: "which lesson am I asking about" is not a detail to be
@@ -203,6 +202,12 @@ export function AppShell({
                 </li>
               );
             })}
+            <li>
+              <Link href="/account" className="group flex w-full items-center gap-3 rounded-control px-3 py-2 text-ink-soft transition-colors duration-150 hover:bg-neutral-soft hover:text-ink">
+                <Icon name="user" size={17} className="text-ink-faint group-hover:text-ink-soft" />
+                <span className="text-sm font-semibold leading-5">Your account</span>
+              </Link>
+            </li>
           </ul>
         </nav>
 
@@ -297,10 +302,10 @@ export function AppShell({
               {statusShortLabel}
             </Pill>
           </div>
-          {/* Six destinations, six equal columns: no horizontal scroll, and Home
+          {/* Seven destinations, seven equal columns: no horizontal scroll, and Home
               is never hidden off the edge of a phone. */}
           <nav aria-label="Sections" className="px-2 pb-2">
-            <ul className="grid grid-cols-6 gap-0.5">
+            <ul className="grid grid-cols-7 gap-0.5">
               <li className="min-w-0">
                 <Link
                   href="/"
@@ -330,6 +335,12 @@ export function AppShell({
                   </li>
                 );
               })}
+              <li className="min-w-0">
+                <Link href="/account" className="flex w-full flex-col items-center gap-0.5 rounded-control px-0.5 py-1.5 text-[10px] font-semibold text-ink-soft transition-colors duration-150 hover:bg-neutral-soft" aria-label="Your account">
+                  <Icon name="user" size={15} />
+                  <span className="truncate">Account</span>
+                </Link>
+              </li>
             </ul>
           </nav>
         </header>
@@ -355,6 +366,9 @@ export function AppShell({
               className="rounded-control border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition-colors duration-150 hover:border-line-strong hover:text-ink"
             >
               All lessons
+            </Link>
+            <Link href="/account" className="rounded-control border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition-colors duration-150 hover:border-line-strong hover:text-ink">
+              Your account
             </Link>
           </div>
         </div>

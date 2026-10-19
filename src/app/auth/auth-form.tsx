@@ -7,12 +7,14 @@ export function AuthForm({
   submitLabel,
   message,
   footer,
+  nextPath,
 }: {
   title: string;
   action: (formData: FormData) => void | Promise<void>;
   submitLabel: string;
   message?: string;
   footer: ReactNode;
+  nextPath?: string;
 }) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl items-center px-5 py-12">
@@ -21,6 +23,7 @@ export function AuthForm({
         <h1 className="mt-6 text-3xl font-semibold text-ink">{title}</h1>
         {message ? <p role="status" className="mt-4 rounded-lg border border-warn-line bg-warn-soft p-3 text-sm text-ink">{message}</p> : null}
         <form action={action} className="mt-7 grid gap-5">
+          <input type="hidden" name="next" value={nextPath ?? "/account"} />
           <label className="grid gap-2 text-sm text-ink-soft" htmlFor="email">
             Email
             <input id="email" name="email" type="email" autoComplete="email" required maxLength={254} className="rounded-lg border border-line-strong bg-canvas px-3 py-3 text-ink" />

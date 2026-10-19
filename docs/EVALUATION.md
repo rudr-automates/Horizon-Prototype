@@ -2181,3 +2181,170 @@ On the committed release tree, the following passed before merge:
 No production migration, test-account setup, or learner-data write was part of
 this release acceptance.
 
+# Part 19 — Full user-journey acceptance and local corrections (2026-10-19)
+
+## Production baseline observed
+
+The target alias `https://horizon-prototype.vercel.app` resolves to the Ready
+production deployment `horizon-prototype-mavtwfce1-irrelevant3.vercel.app`.
+Vercel build logs identify GitHub `rudr-automates/Horizon-Prototype`, branch
+`main`, commit `591552a`. Public health at 12:56 UTC returned `status: ok`, an
+authenticated Supabase read, a responsive admission limiter, `evidenceSource:
+supabase`, and `demoContent: false`. The runtime health projection deliberately
+does not claim model reachability or expose the spend budget.
+
+The public landing page's **Open the studio** link works by mouse and keyboard
+and navigates to `/learn`. At 1440×900, 768×900, 390×844 and 360×800, both the
+landing page and lesson workspace had no horizontal document overflow. The
+lesson route showed the real YouTube embed and 10 eligible blocks at 00:00.
+Materials briefly displayed a zero-source count during its initial request, then
+loaded all three database sources (caption transcript, compiled study guide, and
+compiled slides) after the response settled; the correction branch changes the
+count to a loading label until that read completes. The sign-up form has associated
+email/password labels, required fields, a 254-character email limit and a
+12-character minimum password. The production account route redirects an
+unauthenticated visitor to sign-in. The production lesson route does **not** yet
+redirect anonymous visitors, which conflicts with this acceptance request.
+
+The browser's in-app profile already contained progress from earlier use. It was
+not a clean storage profile, and its local data was preserved. No note contents
+were inspected. The browser console had zero warning/error entries on the
+sign-up route; failed-resource instrumentation was unavailable in this browser
+interface, so no network-clean claim is made.
+
+## Read-only Supabase and spend evidence
+
+Supabase MCP re-confirmed migration `20261019114602 / learner_accounts` and all
+four learner tables. Each has RLS enabled; policy counts are 3 for profiles and
+4 each for progress, bookmarks and notes. Those four tables had zero rows at
+inspection. The only data query in this pass aggregated today's usage ledger:
+15,608 charged tokens and zero active reservations. The operational budget
+amount is not published in the learner-safe health response, so remaining
+capacity was not independently established. The earlier 50:05 request on this
+UTC day was refused by the daily spend guard. Today's ledger records Groq
+`openai/gpt-oss-20b` generation/verification and Gemini `gemini-embedding-001`
+embedding operations, last recorded at 12:24–12:25 UTC; those are prior live
+calls, not calls from this acceptance pass. No model call, account creation,
+learner-data write or migration was made in this pass.
+
+## Corrections on `codex/production-acceptance-fixes-2026-10-19`
+
+1. `/learn` now checks the cookie-backed user before loading learner surfaces;
+   anonymous visitors are sent to sign-in with the requested lesson, section and
+   resume position preserved. Sign-in and sign-up validate same-origin return
+   paths; email-confirmed registrations land on `/account` so the learner first
+   arrives at the dashboard. `/account` is now a compact learner
+   dashboard with owner-scoped course-progress, bookmark and note counts and
+   direct links into the studio. The studio shell and signed-in landing page
+   expose the account route.
+2. Bookmark and note actions previously POSTed directly and were then included
+   in the debounced local-vs-remote delta, duplicating each account write. Remote
+   writes now use one delta-to-batches path; a regression test confirms one
+   bounded payload per new bookmark and note.
+3. The Materials header now says “Loading sources…” until the source list arrives
+   instead of temporarily reporting `0 sources` and `0 approved reference`.
+
+Local production-build HTTP verification returned `/` and `/auth/signin` as
+200, and `/learn?lesson=recording` as 307 to
+`/auth/signin?next=%2Flearn%3Flesson%3Drecording`. The sign-up link retains that
+return destination. The deployed app has not received these corrections.
+
+## Local verification and remaining end-to-end gaps
+
+On the correction branch: lint passed; typecheck passed; all 447 tests across 36 files passed; and `corepack pnpm build` passed. The local production server was
+started for the HTTP redirect check. Production Auth settings, email delivery,
+registration, confirmation, signed-in session restoration, owner-data reload,
+cross-account isolation, and sign-out still need a real account and a mailbox
+the team can access. None of those steps is claimed as verified. The correction branch was pushed as commit `4cf0bca` and is under draft PR #7; it has not been merged or deployed. The public site still serves `591552a`.
+
+## Part 20 — Master directive implementation checkpoint (2026-10-19)
+
+### Re-verified integration state
+
+- GitHub connector reports repository `rudr-automates/Horizon-Prototype`,
+  default branch `main`, and PR #7 still open as a draft. The PR head was
+  `ea86b31` at inspection. Production remains the Ready Vercel deployment
+  `horizon-prototype-mavtwfce1-irrelevant3.vercel.app`, aliased to
+  `https://horizon-prototype.vercel.app`, serving `main` commit `591552a`.
+- Supabase read-only inspection re-confirmed migration
+  `20261019114602 / learner_accounts`, four learner tables with RLS, and zero
+  rows in those four tables. The corpus and operational tables remain populated.
+  No learner data, schema, provider or production settings were changed.
+
+### Dashboard and evidence-gated learner actions
+
+- `/account` now builds its course catalogue from the configured evidence store,
+  reads progress using the authenticated user's ID, validates progress rows
+  before using them, and offers the latest owner-progress lesson as a resume
+  destination. The card distinguishes furthest reached position from measured
+  watched time. A catalogue failure does not suppress otherwise readable saved
+  learning counts.
+- The assistant now offers **Summarize so far** and **Explain simply**. Both
+  submit ordinary requests to the existing question route at the current player
+  position, so they inherit its retrieval, time eligibility, citations, claim
+  verification, spend guard and refusal behavior. Their evidence coverage is
+  bounded by the normal retrieved payload; this is not an exhaustive summary of
+  every covered block. Quiz generation, adaptive interview, GraphRAG, and an
+  instructor review console remain unimplemented.
+- Added tests for dashboard catalogue/resume calculations and evidence-gated
+  action prompts/control presence. Full local validation passed: lint, typecheck,
+  450 tests across 38 files, production build, and `git diff --check`.
+- In a browser on the rebuilt local production bundle, `/learn?lesson=recording&start=300`
+  redirected to sign-in while preserving both query values in `next`; the create
+  account link preserved the same destination. The local home and sign-in routes
+  returned 200. No account credentials were submitted.
+
+No production account, email, provider request, database write, migration,
+deployment or merge occurred in this checkpoint. Production behavior remains
+unchanged from `591552a`; the new code is local validation evidence until it is
+committed, pushed and previewed through PR #7.
+
+# Part 21 — Final release candidate checks (2026-10-19)
+
+## Candidate and production identity
+
+The current local candidate is `a66085d76ec39c49ef3e28a00af93fd08b97cf21`
+on `codex/production-acceptance-fixes-2026-10-19`; its local tracked worktree
+was clean before this documentation alignment. Vercel lists a Ready preview
+`horizon-prototype-puduxarmy-irrelevant3.vercel.app` with Git metadata for
+`rudr-automates/Horizon-Prototype`, the candidate branch and that exact commit.
+The preview is configured without production database or generation credentials:
+its health endpoint reports `degraded`, `evidenceSource: fixture`, and
+`demoContent: true`. This validates preview runtime configuration and route
+rendering; it is not evidence of production database or AI behavior.
+
+The Vercel production deployment remains Ready at
+`horizon-prototype-mavtwfce1-irrelevant3.vercel.app`, aliased to
+`https://horizon-prototype.vercel.app`, from `main` commit `591552a`. The public
+health response returned `ok`, `evidenceSource: supabase`, `demoContent: false`,
+and a successful authenticated database read. The production course catalogue
+returned HTTP 200 with the database evidence store. No question was submitted.
+
+## Bounded route checks
+
+Vercel's authenticated deployment fetch returned HTTP 200 for the candidate
+landing page, sign-in page, sign-up page and the anonymous
+`/learn?lesson=recording&start=300` request. The landing HTML contains the
+primary **Open the studio** link to `/learn`. For the protected candidate route,
+Vercel reported the rendered route as `/auth/signin`; the HTML carries the
+original lesson and `start=300` in the sign-in form's `next` value and in its
+sign-up link. These are server-rendered route checks, not account-registration
+or authenticated-session tests.
+
+On production, the landing page, sign-in, sign-up and lesson route all returned
+HTTP 200. The production lesson matched `/learn`, showing the current production
+revision does not yet include the candidate's anonymous route gate. This is a
+known difference until the candidate is merged and deployed. The production
+catalogue returned its Supabase-backed data. The in-app browser surface was
+disabled, so no fresh viewport, click-through or overflow check was possible;
+historical responsive/browser evidence remains dated in earlier evaluation
+parts. No credentials, learner data, or model-provider calls were used.
+
+## Local final checks
+
+Observed on this candidate: lint passed; typecheck passed; all 450 tests across
+38 files passed; `next build` completed successfully with the current App Router
+routes; and `git diff --check` completed without reported whitespace errors.
+These checks do not establish Supabase Auth email delivery, account confirmation,
+session restoration or isolation between two real users.
+

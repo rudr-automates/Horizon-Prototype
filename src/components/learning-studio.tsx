@@ -16,9 +16,10 @@
  *     Status     provider, database, ledger and configuration facts
  *
  * WHAT IT DOES NOT DO
- *   No new answer path, no sampling change, no fabricated result, and no
- *   "Summarize so far" or "Quiz me" button: those actions are not implemented, so
- *   they are not on screen pretending to be. Diagnostics moved rather than
+ *   No new answer path, no sampling change, no fabricated result. The summary
+ *   action is a normal question through the same eligibility and verification
+ *   pipeline; quizzes remain absent until they have a verified answer-key flow.
+ *   Diagnostics moved rather than
  *   multiplied — the status view renders the same public health projection the
  *   health endpoint returns, and the detailed operator report is not part of
  *   this page at all.
@@ -395,8 +396,10 @@ export default function LearningStudio(props: LearningStudioProps) {
     window.history.replaceState(null, "", `${url.pathname}${url.search}`);
   }
 
-  async function ask(): Promise<void> {
-    if (courseId === "" || question.trim().length < 3) return;
+  async function ask(requestedQuestion = question): Promise<void> {
+    const activeQuestion = requestedQuestion.trim();
+    if (courseId === "" || activeQuestion.length < 3) return;
+    setQuestion(activeQuestion);
     setPending(true);
     setRequestError(null);
     setAskedAt(playhead);
@@ -408,7 +411,7 @@ export default function LearningStudio(props: LearningStudioProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            question: question.trim(),
+            question: activeQuestion,
             playheadSeconds: playhead,
           }),
         },

@@ -166,9 +166,15 @@ export function MaterialsPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Pill tone="outline">{resources?.length ?? 0} sources</Pill>
-          <Pill tone="ok">{alwaysAvailable} approved reference</Pill>
-          {pendingReview > 0 && <Pill tone="warn">{pendingReview} awaiting review</Pill>}
+          {loading ? (
+            <Pill tone="outline">Loading sources…</Pill>
+          ) : (
+            <>
+              <Pill tone="outline">{resources?.length ?? 0} sources</Pill>
+              <Pill tone="ok">{alwaysAvailable} approved reference</Pill>
+              {pendingReview > 0 && <Pill tone="warn">{pendingReview} awaiting review</Pill>}
+            </>
+          )}
           <Pill tone="neutral">position {formatPlaybackClock(playhead)}</Pill>
         </div>
       </header>

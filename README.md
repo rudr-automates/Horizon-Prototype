@@ -5,14 +5,21 @@ recorded lesson, asks a question, and receives an answer supported only by
 content that is **permitted at their current position** — with citations — or an
 honest refusal.
 
-> **Repository state:** the **learning-assistant revision**, deployed.
+> **Release status (2026-10-19):** Horizon's learning-assistant release is live at
+> <https://horizon-prototype.vercel.app>. PR #7 contains the current learner
+> account and protected-Studio candidate on
+> `codex/production-acceptance-fixes-2026-10-19` (`a66085d`). Its Vercel preview
+> is Ready; the production alias still serves `main` at `591552a` while final
+> release checks and PR review are completed.
 >
 > **There is a public URL: <https://horizon-prototype.vercel.app>.** The home
-> page, health endpoint, course list and scope endpoint were checked on that
-> origin on 2026-10-18: HTTP 200, an authenticated database read, and the scope
-> count moving 10 → 20 → 66 as the playhead advances. The recording itself is not
-> uploaded there, so the player is the original YouTube embed — verified present
-> on the deployed page with the right video id. See [docs/DEPLOY.md](docs/DEPLOY.md).
+> Production's landing page, health endpoint, course list and scope endpoint were
+> checked on that origin on 2026-10-18: HTTP 200, an authenticated database read,
+> and the scope count moving 10 → 20 → 66 as the playhead advances. The recording
+> itself is not uploaded there, so the player is the original YouTube embed —
+> verified present on the deployed page with the right video id. See
+> [docs/DEPLOY.md](docs/DEPLOY.md) and the dated evidence in
+> [docs/EVALUATION.md](docs/EVALUATION.md).
 >
 > **The evidence is the recording's own.** YouTube's automatic English captions
 > were ingested verbatim into **56 timestamped blocks** in a course of their own,
@@ -53,18 +60,21 @@ honest refusal.
 > `color-scheme: dark` is stated so the browser never re-maps the palette it was
 > not asked to.
 >
-> What this revision does NOT claim: authenticated accounts and owner-scoped
-> learner storage are implemented locally, and migration 0005 is applied to
-> Supabase, but the signed-in browser round trip and two-user isolation have not
-> yet been verified. There is no file-upload
-> UI (documents are ingested by an operator command), no OCR for scanned pages,
-> no summary/quiz actions, no mock interview and no instructor-review interface
-> yet. Those are listed as open in the status matrix below and in
-> [docs/EVALUATION.md](docs/EVALUATION.md) Part 10.
+> The candidate implements cookie-backed sign-up/sign-in, protected learner routes,
+> an account dashboard and owner-scoped synchronization. The required Supabase
+> learner schema is applied. Real email confirmation, signed-in restoration and
+> two-account isolation remain unverified, so those end-to-end behaviors are not
+> presented as tested. “Summarize so far” and “Explain simply” use the standard
+> evidence-gated answer path; their coverage is bounded by the retrieved evidence.
 
 ---
 
-## What actually works right now
+## Capabilities and recorded evidence
+
+Implementation and test notes below include dated production observations from
+earlier revisions. For the current candidate and live release status, see
+[docs/EVALUATION.md](docs/EVALUATION.md) Part 21; historical checks are not
+claims that each behavior was re-run on this candidate.
 
 | Capability | Status |
 |---|---|
@@ -109,14 +119,10 @@ honest refusal.
 | PDF and PPTX ingestion (`pnpm ingest:resource`) | ✅ **executed live** — a 3-page study guide and a 9-slide deck, both compiled from the recording's captions, parsed with page/slide provenance, embedded in 1 request each at 768 dimensions, and read back from the database. Scanned pages are reported as visual-only and are NOT counted as extracted |
 | Course-wide review lint | ✅ **executed live** — the ingest refuses to approve a document course-wide if it contains a registered late-only fact or aligns to the last fifth of the recording, and requires an explicit `--acknowledge` to override. The approved study guide carries none of the late facts, and the canary checks that from the rows |
 | Alignment review (`pnpm review:alignments`) | ✅ **executed live** — weak or ambiguous alignments are written `PENDING` with no unlock time and are therefore ineligible. Of the deck's 9 blocks, 7 auto-approved, one was approved by hand at its own segment clock (14:18) and one rejected as a provenance slide. No reviewer identity or audit table exists in this schema; a rejection reason is appended to `blocks.alignment_method` |
-| Ingestion of code files, and OCR | ❌ deferred — PDF and PPTX text layers are ingested (above); a PDF with no text layer is refused rather than silently treated as indexed |
-| Summary-so-far and quiz-on-covered-content | ❌ not built — they are in the blueprint's learner journey and remain the largest missing learning action. No control for either is rendered |
-| Adaptive mock interview | ❌ not built — deferred, not claimed |
-| Learner authentication | ✅ email/password sign-up, sign-in, email confirmation and protected account route; local implementation, production Auth settings not yet verified |
-| Instructor alignment review interface | ❌ not built — review runs through `pnpm review:alignments`; there is no reviewer role or protected review surface |
-| Cross-device notes, bookmarks and progress | ⏳ implemented locally through the owner-scoped API; migration 0005 is applied, but real-account browser sync and two-user isolation are unverified |
-| Raster PDF rendering and OCR | ❌ not built — the viewer shows the permitted text layer; a scanned page with no text layer is refused at ingest |
-| Learner data ownership and persistent profiles | ⏳ migration 0005 is applied with owner-scoped RLS; account profile and session-bound data APIs are implemented locally. Real-account isolation verification remains |
+| Summary and simple explanation | ✅ implemented on the PR #7 candidate — both submit through the normal eligible-evidence retrieval and citation-verification path; coverage is bounded by retrieved evidence, not a full-lesson guarantee |
+| Learner authentication | 🟡 email/password sign-up, sign-in, callback and protected learner routes are implemented on the PR #7 candidate; production Auth settings and real confirmation remain unverified |
+| Cross-device notes, bookmarks and progress | 🟡 owner-scoped API and browser sync are implemented on the PR #7 candidate; migration 0005 is applied, while real-account restore and two-user isolation remain unverified |
+| Learner data ownership and persistent profiles | 🟡 migration 0005 is applied with owner-scoped RLS; account profile and session-bound data APIs are implemented on the PR #7 candidate. Real-account isolation verification remains |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
 evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALUATION.md).
@@ -186,6 +192,13 @@ all say which lesson is in play.
 | `GET /api/v1/courses/:courseId/resources?playheadSeconds=` | sources with policy and permitted counts, never text |
 | `GET /api/v1/courses/:courseId/resources/:resourceId?playheadSeconds=` | one source's permitted blocks, for the viewer |
 | `POST /api/v1/courses/:courseId/questions` | the full answer path |
+| `GET /api/v1/me/learning` | session-bound learner profile, progress, bookmarks and notes |
+| `POST /api/v1/me/learning` | validated, owner-scoped learner-data synchronization |
+
+The `/account` dashboard and `/learn` studio require a signed-in session in the
+PR #7 release candidate. Sign-up/sign-in are at `/auth/signup` and
+`/auth/signin`; see [docs/DEPLOY.md](docs/DEPLOY.md) for the current production
+and candidate deployment state.
 
 `POST /questions` returns HTTP 200 with `answerState`
 `TEMPORARILY_UNAVAILABLE` when a provider is unavailable, because that is a
@@ -224,6 +237,10 @@ cp .env.example .env.local   # then fill in real values (never commit them)
 | `pnpm ingest:resource --file <path> --mode reference\|aligned` | Parse, chunk, embed and write a PDF or PPTX as a course resource. `reference` is `COURSE_WIDE` and human-approved, and is refused if the lint objects unless `--acknowledge "reason"` is given; `aligned` is `TIMELINE_BOUND`, auto-approved only above the confidence and margin floors, otherwise `PENDING`. `--dry-run` makes no embedding request |
 | `pnpm review:alignments` | List `PENDING` document blocks with their scores; `--approve <id> --unlock <mm:ss>` or `--reject <id> --reason "…"` |
 | `pnpm canary:lesson` | Interrogate the real lesson: reads the stored transcript, builds its own expected-eligible oracle, and checks the scope count, the temporal invariant, citation eligibility, verbatim quotations, citation clocks and an unsupported question. `--positions`, `--max-turns`, `--label` |
+
+The PR #7 candidate last passed lint, typecheck, **450 tests across 38 files**,
+and a production build on 2026-10-19. Those are local checks of that candidate;
+they do not verify real-account confirmation, restore or two-account isolation.
 
 ```bash
 # 1. fetch the recording's OWN automatic English captions (never write one by hand)
