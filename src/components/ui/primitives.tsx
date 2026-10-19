@@ -100,16 +100,19 @@ const PILL_TONES: Record<PillTone, string> = {
 };
 
 export function Pill({
+  id,
   tone = "neutral",
   children,
   className = "",
 }: {
+  id?: string;
   tone?: PillTone;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <span
+      id={id}
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-5 ${PILL_TONES[tone]} ${className}`}
     >
       {children}

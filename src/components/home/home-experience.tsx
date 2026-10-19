@@ -19,10 +19,8 @@
  *   in instead of promising the feature.
  *
  * WHY PROGRESS IS READ HERE AND NOT FETCHED
- *   Bookmarks, notes and watched progress live in this browser's `localStorage`
- *   (Horizon has no accounts), so the continue card is the only honest source for
- *   "where were you". A server-rendered figure would be a different number with no
- *   way to reconcile it.
+ *   Browser storage remains the immediate copy for bookmarks, notes and progress;
+ *   signed-in learners also use the owner-scoped account data path.
  */
 import Link from "next/link";
 import { Icon, type IconName } from "@/components/ui/icons";
@@ -153,9 +151,9 @@ export function HomeExperience(props: HomeExperienceProps) {
       icon: "bookmark",
       title: "Bookmarks and notes",
       body:
-        "Save a moment or write a note against the position it belongs to. Both live in this browser and the panels say so on every screen.",
+        "Save a moment or write a note against the position it belongs to. The browser keeps an offline copy, and signed-in changes sync to your account.",
       availability: "available",
-      availabilityNote: "stored in this browser only",
+      availabilityNote: "account sync when signed in",
     },
     {
       icon: "progress",
@@ -223,6 +221,11 @@ export function HomeExperience(props: HomeExperienceProps) {
               <a href="#capabilities" className={QUIET_ACTION}>
                 Capabilities
               </a>
+            </span>
+            <span className="hidden sm:inline-flex">
+              <Link href="/auth/signin" className={`${QUIET_ACTION} shrink-0`}>
+                Sign in
+              </Link>
             </span>
             <Link href="/learn" className={`${PRIMARY_ACTION} ml-1 shrink-0 px-3.5 py-2`}>
               Open the studio
@@ -295,9 +298,9 @@ export function HomeExperience(props: HomeExperienceProps) {
                   </dd>
                 </div>
                 <div>
-                  <dt className="font-semibold text-ink">No account needed</dt>
+                  <dt className="font-semibold text-ink">Account sync available</dt>
                   <dd className="mt-0.5 leading-5">
-                    Your notes and progress stay in this browser.
+                    Sign in to save notes, bookmarks and progress to your account.
                   </dd>
                 </div>
               </dl>
@@ -627,10 +630,10 @@ export function HomeExperience(props: HomeExperienceProps) {
             </h2>
             <div className="mt-6 grid gap-5 text-sm leading-6 text-ink-soft sm:grid-cols-3">
               <div>
-                <p className="font-semibold text-ink">No accounts, no sync</p>
+                <p className="font-semibold text-ink">Sync needs an account</p>
                 <p className="mt-1">
-                  Bookmarks, notes and progress are stored by this browser. Clearing site
-                  data removes them, and another device starts empty.
+                  Guest data stays in this browser. Signed-in data uses the account API;
+                  its real-account browser round trip has not yet been verified for this build.
                 </p>
               </div>
               <div>

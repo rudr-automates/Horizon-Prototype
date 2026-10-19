@@ -26,6 +26,8 @@ const EMPTY = emptyPersonalState();
 let initialized = false;
 let cache: PersonalState = EMPTY;
 let writeError: string | null = null;
+let syncError: string | null = null;
+let activeStorageKey = PERSONAL_STATE_KEY;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -35,7 +37,7 @@ function notify(): void {
 function readFromStorage(): void {
   let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(PERSONAL_STATE_KEY);
+    raw = window.localStorage.getItem(activeStorageKey);
   } catch {
     writeError = "This browser is blocking local storage, so nothing can be saved.";
     cache = EMPTY;
@@ -61,7 +63,7 @@ export function getServerPersonalSnapshot(): PersonalState {
 }
 
 export function getPersonalWriteError(): string | null {
-  return writeError;
+  return writeError ?? syncError;
 }
 
 export function getServerWriteError(): null {
@@ -74,7 +76,7 @@ export function subscribePersonal(listener: () => void): () => void {
   // Another tab changing the same key is a real external update. It must refresh
   // this tab, or a learner would see two different notebooks in two windows.
   const onStorage = (event: StorageEvent): void => {
-    if (event.key !== null && event.key !== PERSONAL_STATE_KEY) return;
+    if (event.key !== null && event.key !== activeStorageKey) return;
     writeError = null;
     initialized = true;
     readFromStorage();
@@ -104,7 +106,7 @@ export function updatePersonal(
 
   cache = next;
   try {
-    window.localStorage.setItem(PERSONAL_STATE_KEY, JSON.stringify(next));
+    window.localStorage.setItem(activeStorageKey, JSON.stringify(next));
     writeError = null;
   } catch {
     writeError =
@@ -112,4 +114,22 @@ export function updatePersonal(
   }
   notify();
   return writeError;
+}
+
+/** Keep account data in an identity-specific browser namespace. */
+export function setPersonalNamespace(userId: string | null): void {
+  const nextKey = userId ? `${PERSONAL_STATE_KEY}.user.${userId}` : PERSONAL_STATE_KEY;
+  if (nextKey === activeStorageKey) return;
+  activeStorageKey = nextKey;
+  initialized = false;
+  cache = EMPTY;
+  writeError = null;
+  syncError = null;
+  getPersonalSnapshot();
+  notify();
+}
+
+export function setPersonalSyncError(message: string | null): void {
+  syncError = message;
+  notify();
 }

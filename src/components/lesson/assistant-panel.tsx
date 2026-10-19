@@ -102,7 +102,7 @@ export function AssistantPanel({
           </p>
           <h2 className="text-[15px] font-semibold leading-6 text-ink">Ask this lesson</h2>
         </div>
-        <Pill tone="brand" className="shrink-0">
+        <Pill id="question-evidence-scope" tone="brand" className="shrink-0">
           <Icon name="clock" size={11} />
           through {formatPlaybackClock(playhead)}
         </Pill>
@@ -136,6 +136,7 @@ export function AssistantPanel({
           </label>
           <textarea
             id={inputId}
+            aria-describedby="question-evidence-scope"
             value={question}
             onChange={(event) => onQuestionChange(event.target.value)}
             onKeyDown={(event) => {
@@ -370,7 +371,7 @@ function CitationCard({
         </button>
       </div>
 
-      <blockquote className="mt-2 rounded-control border-l-2 border-brand bg-surface px-2.5 py-2 text-[12px] leading-5 text-ink">
+      <blockquote className="mt-2 rounded-control border border-line bg-surface px-2.5 py-2 text-[12px] leading-5 text-ink">
         “{citation.quote}”
       </blockquote>
 

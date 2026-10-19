@@ -193,7 +193,9 @@ input[type="range"] {
   @media (max-width: 767px) {
     .glass,
     .glass-strong {
-      background-color: var(--color-glass-strong);
+      /* Keep the fixed mobile navigation opaque enough that scrolling lesson
+         text cannot compete with the controls underneath it. */
+      background-color: rgb(8 14 26 / 0.99);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
     }

@@ -2,11 +2,10 @@
 
 **Read this as a log of what was actually run, not as a quality claim.**
 
-This document spans several revisions. **Part 06, at the END of this file, is the
-current record** — each part is appended after the one it supersedes, so the
-newest record is the last one. Parts 05 and earlier are retained unchanged as
-history: their results still stand for the revision they describe and are not
-claimed for the current code.
+This document spans several revisions. **The newest appended part is the current
+record** — each part is appended after the one it supersedes. Earlier parts are
+retained as history: their results still stand for the revision they describe
+and are not claimed for the current code.
 
 Three kinds of evidence appear below, and they are never mixed:
 
@@ -1953,4 +1952,152 @@ query as a universal accuracy benchmark.
 6. **Provider-cost and low-powered-device performance remain unmeasured.**
    The durable budget and embedding-request count are enforced, but embedding
    monetary cost is not measured and no device-level frame-time benchmark was run.
+
+
+---
+
+# Part 14 — 2026-10-19: PS1 handoff, design system and accessible scope
+
+## P14-1 — Competition selection and documents
+
+- The user confirmed PS1 (learning assistant) as the competition goal. PS2 describes a different Build & Validation Agent and was not used to redefine Horizon.
+- Added `docs/COMPETITION_CRITERIA_MATRIX.md`, mapping all seven weighted PS1 rubric categories and required deliverables to implementation/evidence and a candid status.
+- Added `docs/ARCHITECTURE.md` (Mermaid request/data-flow diagram), `docs/DEMO_RUNBOOK.md`, `PRODUCT.md`, `DESIGN.md`, and the UI/UX Pro Max system plus lesson workspace override under `design-system/horizon/`.
+- The optional mock-interview extension remains identified as deferred; no claim that it exists is made.
+
+## P14-2 — Design skill process and code changes
+
+The three requested skills were installed project-locally and their instructions were used. The UI/UX generator's first pass produced a language-learning landing-page pattern, testimonials, a child-oriented style and a light palette; these did not match Horizon and were replaced with a system based on the actual tokens and evidence workflow. Taste Skill's app-screen options were a light ledger and an editorial greeting. The ledger's data-first restraint informed the review, while its no-brand-color/light treatment was rejected to preserve the established Midnight Aurora identity and the recorded-lesson use context.
+
+Impeccable's detector found a thick colored side border on the citation quotation. The quote now has a thin neutral border. The assistant question field is also associated with the live “through mm:ss” evidence-boundary label using `aria-describedby`. `Pill` gained a small optional `id` prop to support that association.
+
+Skill installation added vendored helper scripts that the repo's ESLint rules do not target. `eslint.config.mjs` now excludes the project-local skill/tool folders while keeping application source in scope. This was needed for the repository-wide lint command to remain meaningful after the requested project-local installs. Impeccable also added `.codex/hooks.json` for edit and stop events. It is not active in this session; approve it with Codex `/hooks` and reload the project session to enable automatic scans.
+
+## P14-3 — Validation run in this revision
+
+| Check | Result |
+|---|---|
+| `git diff --check` | Passed again after the final documentation additions. |
+| `corepack pnpm lint` | Passed after excluding vendored skill helper scripts. |
+| `corepack pnpm typecheck` | Passed. |
+| `corepack pnpm test` | **440 tests passed in 33 files.** |
+| `corepack pnpm build` | Passed; Next.js emitted `/`, `/learn`, and the expected API routes. |
+| Impeccable `detect --json` | One finding on the citation quote was returned and fixed. The one-pass detector was not rerun after that fix, per its bounded review guidance. |
+| Browser visual inspection | Not run fresh. CUA reported no browsers, and Chrome/Edge/Chromium were not found at the standard install locations. Existing responsive captures are historical evidence, not a screenshot review of this revision. |
+| Local HTTP render | Attempted on the production build. Next.js loaded `.env.local` after empty process values and made read-only database health/catalog probes; logs showed the same database probe timeout previously recorded. No question was posted, no provider request was made, and no write occurred. The local HTTP command timed out before returning a render result. |
+
+## P14-4 — Supabase and GitHub inspection
+
+- The connected Supabase integration was pointed at the expected Horizon project. Read-only inspection confirmed the learning tables and request-rate-limit objects. No SQL migration, database write, or privilege change was performed.
+- RLS is enabled on all seven inspected tables, with no browser-facing policies. The six mutable-search-path advisor findings are on `SECURITY INVOKER` eligibility/search functions; no data exposure was established. Four unindexed foreign keys and an unused rate-limit index were low-volume advisor findings. No production mutation is warranted by this review.
+- GitHub inspection matched `rudr-automates/Horizon-Prototype` and the active local base commit. No issue, branch, PR or repository content was changed remotely.
+
+## P14-5 — Release and verification boundaries
+
+No live model or embedding call, production deployment, database mutation, GitHub push, merge or branch update occurred in this phase. The live answer/temporal cases referenced in Part 13 are prior dated evidence; they were not re-executed. The current revision's UI changes were validated by static analysis, typecheck, the full unit suite and production build, not by a fresh browser render.
+# Part 15 — Auth foundation and integration review (2026-10-19)
+
+This part records local implementation and connected-service inspection for the
+PS1 learning-assistant scope. It does not replace earlier dated evidence.
+
+## Auth foundation
+
+Added cookie-backed Supabase Auth using `@supabase/ssr`: email/password sign-up,
+sign-in, confirmation callback, sign-out, token refresh in Next.js 16 `proxy.ts`,
+and a protected account page. Identity is checked server-side with Supabase Auth;
+the proxy refresh is not treated as authorization. Auth errors returned to the
+learner are generic. `NEXT_PUBLIC_SITE_URL` can set the canonical email callback
+origin; the production Horizon URL is the fallback.
+
+The account page explicitly states that personal learning data remains in the
+current browser. No auth account, database row, or provider request was created
+for verification in this implementation turn. A prepared migration at
+`supabase/migrations/0005_learner_accounts.sql` adds owner-scoped tables with
+`auth.uid() = user_id` policies and denies `anon`; it is **not applied**. Before
+approval, confirm the project Data API exposure and Auth email redirect settings.
+
+## Connected services
+
+- GitHub connector access verified for `rudr-automates/Horizon-Prototype`; local
+  focused branch started from the same commit as `origin/main`.
+- Supabase connector access verified for `Horizon-Prototype`
+  (`hirbfuhnpwkiswvihcwb`). The current database was read-only inspected: seven
+  public app tables, RLS enabled with no policies, 0004 admission objects
+  present, and an empty migration-history API consistent with manual SQL Editor
+  application. This evidence does not authorize a schema write.
+- Public `GET https://horizon-prototype.vercel.app/api/v1/health` returned
+  `status: ok`, Supabase corpus source, and `demoContent: false`. Vercel MCP OAuth
+  login completed, but `codex mcp list` still reports `Auth: Unknown` and no
+  Vercel project tools are registered in the active session. Its authenticated
+  project/environment/deployment inspection remains pending. Health does not by
+  itself prove the runtime URL points to the intended Supabase project.
+
+No user data was sampled, no database write or migration was run, no AI provider
+was called, and no deployment or Git push was performed in that implementation
+phase.
+
+# Part 16 — Learner persistence integration (2026-10-19)
+
+## Migration 0005
+
+The user approved the exact migration after review of its additive scope and
+rollback. `0005_learner_accounts.sql` was applied to Horizon project
+`hirbfuhnpwkiswvihcwb` through the authenticated Supabase migration tool, then
+the live schema was re-read. Four new tables were present with RLS enabled, 15
+owner policies using `auth.uid() = user_id`, expected course/user foreign keys
+and indexes. No anonymous grants were observed. All four tables had zero rows
+immediately after application. The migration API recorded version
+`20261019114602`, name `learner_accounts`. No preexisting table or row changed.
+The rollback drops only the four new tables and is safe only before learner data
+is written.
+
+The advisor emitted `auth_rls_initplan` performance warnings for the policies'
+`auth.uid()` expression. It did not identify an ownership exposure; any policy
+optimization needs a separate migration and review.
+
+## Local implementation and validation
+
+The account API and browser hook are implemented. GET confirms the session with
+`auth.getUser()`, applies explicit `user_id` filters, validates the result before
+local merge, and returns the owner id for identity checking. POST uses bounded
+strict payloads and a session-bound Supabase client, so RLS remains the final
+ownership check. Browser data is namespaced per Auth user; bookmark/note
+mutations are sent to the API and playback progress is batched/debounced with
+range merging. Guest data is not silently copied into an account.
+
+`corepack pnpm lint`, `typecheck`, `test` (442 tests / 34 files), `build`, and
+`git diff --check` passed. These are local checks. The in-app browser inspected
+the lesson workspace and home/catalogue at its available 616 px viewport. Moving
+the player to 25:00 updated the evidence scope to 37 eligible blocks and the
+assistant boundary to 25:00. A sticky mobile header opacity issue was fixed and
+rechecked by screenshot. No real Auth account was created, so email
+delivery/callback, signed-in browser persistence, remote reload restoration, and
+two-user isolation remain **not verified**. No AI provider call, Git push, or deployment occurred. Vercel MCP is not usable in
+this session; production project linkage and runtime Supabase ref remain
+unverified. Older health evidence is historical and does not verify this local
+revision.
+
+# Part 17 — Vercel release baseline (2026-10-19)
+
+Vercel CLI authenticated as `rudr-automates`. Project inspection confirmed
+`irrelevant3/horizon-prototype` (project ID
+`prj_hVJ27iem3nuYUuKUc5BWgnjAqt7z`), Node 24, Next.js, and the expected root
+directory. Vercel's production build log for the configured domain confirms the
+GitHub source `rudr-automates/Horizon-Prototype`, branch `main`, commit
+`393c86c`; that commit matches the current local branch base. The production
+deployment is Ready and aliases `https://horizon-prototype.vercel.app`.
+
+Read-only `vercel env ls production` showed the required Supabase URL and anon
+key variable names and the server-side database/model configuration names. No
+secret value is recorded here. Production `GET /api/v1/health` returned
+`status: ok`; its runtime projection reported Supabase as the evidence source and
+`demoContent: false`. `GET /api/v1/courses` returned two real catalogue rows,
+including the recording lesson and the explicitly labelled synthetic sample.
+This public health contract does not disclose the configured Supabase project
+ref, so exact runtime-ref matching remains unverified.
+
+No release code had yet been committed or deployed at this checkpoint. The
+current local changes still require a fresh validation, commit, branch push, PR,
+and production release followed by public-URL acceptance checks. Vercel MCP is
+unavailable, but authenticated CLI inspection works.
 

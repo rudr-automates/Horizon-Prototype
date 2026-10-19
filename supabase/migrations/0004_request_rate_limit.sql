@@ -2,9 +2,9 @@
 -- Horizon — 0004_request_rate_limit.sql
 -- Per-client admission control for the public question endpoint.
 --
--- STATUS: AUTHORED, NOT APPLIED. This file has not been executed against the
--- shared Supabase project. It must be reviewed and applied by an operator (see
--- docs/apply-migration.md) before the code that calls it is promoted.
+-- STATUS: APPLIED AND VERIFIED THROUGH THE DASHBOARD SQL EDITOR ON 2026-10-19.
+-- The migration-history API is empty for this project; verification is based on
+-- read-only inspection of the live counter table and admission functions.
 --
 -- WHY THIS EXISTS
 --   `POST /api/v1/courses/:courseId/questions` is public and spends provider

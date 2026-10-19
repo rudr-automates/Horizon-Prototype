@@ -1260,3 +1260,20 @@ renders the public projection only, and the detailed report needs the operator
 token. The historical diagnostic bypass described in D-034 is unchanged and is
 not claimed to be reproduced or fixed; no new diagnostic path calls a provider,
 and `GET /health` remains read-only.
+
+## D-044 — Authenticated accounts use owner-scoped learner storage
+
+**Context.** The original browser-only decision in D-037 predates the account
+foundation. PS1 requires learner identity and durable notes, bookmarks, progress
+and a minimal profile.
+
+**Decision.** Use Supabase email/password Auth with `@supabase/ssr` and session
+cookies. Migration `0005_learner_accounts.sql` creates profile, progress,
+bookmark and note tables with `auth.uid() = user_id` RLS. The browser keeps an
+identity-namespaced offline copy and uses the session-bound `/api/v1/me/learning`
+API for remote reads/writes. Guest data is not imported into an account without
+an explicit user action.
+
+**Consequence.** The schema and local API are in place, but end-to-end account
+sync and two-user isolation remain unverified until safe test accounts are
+available. Do not describe the implementation as proven cross-device sync.
