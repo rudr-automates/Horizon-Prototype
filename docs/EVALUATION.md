@@ -1846,3 +1846,111 @@ left as it was found.
   day, as recorded in P11-4.
 - **Frame timing with glass enabled on a low-powered device.** The blur is bound to
   three chrome surfaces and disabled below 768 px, but no device profiling was done.
+
+
+---
+
+# Part 13 — 2026-10-19: production rate-limit rollout and live answer verification
+
+This section records checks run on the deployed origin after the earlier
+interface-only evaluations. It supersedes earlier “not run on the deployed
+origin” notes **only for the specific behaviors measured below**; it does not
+claim that every browser, provider, or deployment scenario has been tested.
+
+## P13-1 — Release state
+
+- Production origin: `https://horizon-prototype.vercel.app`.
+- Main revision: `95a5311` (after the request-admission safety changes and the
+  live-verified starter-question wording).
+- The CI run for the starter-question change completed successfully: dependency
+  installation, lint, typecheck, unit tests, and build all passed. Vercel reported
+  a successful check for the merged revision.
+- `GET /`, `GET /learn?lesson=recording`, and
+  `GET /learn?section=status` returned HTTP 200.
+- `GET /api/v1/health` returned HTTP 200 and `status: "ok"`. Its public
+  checks reported the app reachable, an authenticated Supabase read successful,
+  and request admission reachable. The reported corpus source was `supabase`,
+  with `demoContent: false`.
+- `GET /api/v1/health/diagnostics` without a bearer token returned HTTP 404,
+  as designed. A request with a valid diagnostics bearer token has **not** been
+  separately verified in this run.
+- The production lesson HTML contains the replacement starter question
+  (“According to the opening transcript, which items are listed immediately
+  after ‘Prompt engineering’?”); the old broader wording is absent.
+
+## P13-2 — Migration 0004 on the connected Supabase project
+
+Migration `0004_request_rate_limit.sql` was applied through Supabase SQL Editor.
+Read-only checks then observed:
+
+- `public.request_rate_limits` and
+  `public.horizon_admit_request(text, integer, integer, timestamptz)` exist.
+- Row-level security is enabled on the counter table and it has zero RLS policies.
+- The table grants tested false for `anon` and `authenticated`, true for
+  `service_role`.
+- The admission function is `SECURITY DEFINER`, pins
+  `search_path=public, pg_temp`, and grants execution to `service_role` while
+  refusing execution to `anon` and `authenticated`.
+- A temporary behavioral probe admitted requests one and two, refused request
+  three at a limit of two, observed stored count two, and removed its test row.
+  A follow-up query found zero remaining rows matching the probe prefix.
+- Supabase's migration-history API still has no tracked migration entries; the
+  existing baseline was applied manually through SQL Editor. Do not assume that
+  `supabase db push` is a safe substitute for that established workflow.
+
+## P13-3 — Real production question path
+
+The following requests used the live HTTP endpoint and the connected Supabase
+course corpus. These are observed outcomes, not mock/test-fixture results.
+
+| Test | Playhead | Observed result | Evidence |
+|---|---:|---|---|
+| Original broad starter wording | 05:00 | `INSUFFICIENT_EVIDENCE`, zero claims and citations | Correct refusal, but an unsatisfactory suggested-question experience despite relevant text being present |
+| Replacement opening question | 05:00 | `ANSWERED`, one claim and one citation | Verbatim quote linked to `Transcript 00:00–01:00`; turn persisted to Supabase |
+| Late-only compliance fact | 20:00 | `INSUFFICIENT_EVIDENCE`, zero claims/citations | Neither “compliance score” nor “75%” appeared anywhere in the response |
+| Same late-only fact | 50:00 | `ANSWERED`, one claim and one citation | Verbatim citation labelled `Transcript 44:52–45:53`, matching the stored block's time range |
+| Unsupported Kubernetes/gRPC question | 50:00 | `INSUFFICIENT_EVIDENCE`, zero claims/citations | “Kubernetes”, “ingress”, and “gRPC” did not appear in the response |
+
+The replacement starter wording was chosen because that exact formulation
+returned a cited answer against production before it was placed in the suggested
+question constant. It avoids weakening temporal eligibility, quote matching, or
+semantic verification. The broader wording's refusal remains a useful reminder
+that retrieval quality is phrasing-sensitive; do not present the successful single
+query as a universal accuracy benchmark.
+
+## P13-4 — Request limits and public status disclosure
+
+- A 17,060-byte JSON request to the public question endpoint returned HTTP 413
+  with `FILE_TOO_LARGE` and `cache-control: no-store`; the configured maximum
+  is 16,384 bytes.
+- The full production Status-page HTML was inspected. It contained no spend
+  fields, model identifiers, schema diagnostics, or `HORIZON_` environment
+  variable names.
+- The unauthenticated diagnostics route remained 404. The bearer-token success
+  path remains unverified as noted above.
+
+## P13-5 — Known remaining limitations
+
+1. **Rate-limit retention is manual.** No scheduled job is configured by this
+   repository. An operator should run `pnpm prune:rate-limits` in dry-run mode,
+   inspect the cutoff and candidate count, and only then run
+   `pnpm prune:rate-limits --apply` when appropriate.
+2. **Diagnostics authentication needs one private verification.** Use the
+   configured `HORIZON_DIAGNOSTICS_TOKEN` locally to confirm an authenticated
+   GET returns HTTP 200. Do not put the token in this repository, a screenshot,
+   or chat.
+3. **The first prompt is not a general retrieval benchmark.** One broad form
+   refused while the narrower, content-anchored form succeeded. Additional
+   question paraphrases may still honestly refuse; the intended behavior is to
+   cite evidence or refuse, not to guess.
+4. **Supporting materials' provenance remains limited.** The PDF study guide and
+   slide deck were compiled from the recording's automatic captions by the
+   Horizon team; they are not instructor-supplied handouts. The interface labels
+   that distinction.
+5. **No user accounts or cross-device personal-data sync are implemented.**
+   Notes, bookmarks, and progress are browser-local. This remains an MVP
+   limitation, not a verified account feature.
+6. **Provider-cost and low-powered-device performance remain unmeasured.**
+   The durable budget and embedding-request count are enforced, but embedding
+   monetary cost is not measured and no device-level frame-time benchmark was run.
+
