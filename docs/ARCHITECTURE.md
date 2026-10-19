@@ -27,7 +27,9 @@ flowchart LR
   Answer --> Ledger["Durable usage ledger\nand best-effort turn record"]
   Ledger --> Supabase
 
-  UI --> Local["Browser-local notes,\nbookmarks and progress"]
+  UI --> Local["User-namespaced browser copy"]
+  UI --> AuthAPI["Cookie-authenticated learner API"]
+  AuthAPI --> LearnerDB["Owner-scoped learner tables\nRLS: auth.uid() = user_id"]
 ```
 
 ## Question path
@@ -38,10 +40,11 @@ The pipeline creates a query embedding, searches lexical and vector evidence, ap
 
 ## Data and privacy boundaries
 
-- Supabase access is server-side. The connected project's learning tables have RLS enabled with no browser-facing policies; service-role access stays in server code.
+- Corpus and service-role Supabase access is server-side. Learner API operations use the user's cookie session and owner-scoped RLS; service-role access is not used to prove learner ownership.
 - The answer request's playhead is learner-supplied and is not an authorization boundary. Position-aware behavior prevents accidental future leakage in the product flow; it does not prove watched time or user identity.
 - Public health is a reduced projection. Detailed diagnostics require a bearer token.
-- Notes, bookmarks and progress use browser storage; they are not account-synced.
+- Notes, bookmarks and progress keep a user-namespaced browser copy and synchronize through the authenticated learner API. Account sync is implemented but real signup/restore/two-user isolation remain unverified; do not describe the end-to-end journey as validated.
+- The Summary so far action submits a normal question to the same eligible-evidence retrieval, generation, and claim-verification pipeline. It has no separate cache or retrieval bypass. Quiz generation is not implemented.
 - The synthetic fixture is a deterministic local path and must remain labelled as synthetic.
 
 ## Main implementation locations

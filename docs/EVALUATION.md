@@ -2257,3 +2257,45 @@ registration, confirmation, signed-in session restoration, owner-data reload,
 cross-account isolation, and sign-out still need a real account and a mailbox
 the team can access. None of those steps is claimed as verified. The correction branch was pushed as commit `4cf0bca` and is under draft PR #7; it has not been merged or deployed. The public site still serves `591552a`.
 
+## Part 20 — Master directive implementation checkpoint (2026-10-19)
+
+### Re-verified integration state
+
+- GitHub connector reports repository `rudr-automates/Horizon-Prototype`,
+  default branch `main`, and PR #7 still open as a draft. The PR head was
+  `ea86b31` at inspection. Production remains the Ready Vercel deployment
+  `horizon-prototype-mavtwfce1-irrelevant3.vercel.app`, aliased to
+  `https://horizon-prototype.vercel.app`, serving `main` commit `591552a`.
+- Supabase read-only inspection re-confirmed migration
+  `20261019114602 / learner_accounts`, four learner tables with RLS, and zero
+  rows in those four tables. The corpus and operational tables remain populated.
+  No learner data, schema, provider or production settings were changed.
+
+### Dashboard and evidence-gated learner actions
+
+- `/account` now builds its course catalogue from the configured evidence store,
+  reads progress using the authenticated user's ID, validates progress rows
+  before using them, and offers the latest owner-progress lesson as a resume
+  destination. The card distinguishes furthest reached position from measured
+  watched time. A catalogue failure does not suppress otherwise readable saved
+  learning counts.
+- The assistant now offers **Summarize so far** and **Explain simply**. Both
+  submit ordinary requests to the existing question route at the current player
+  position, so they inherit its retrieval, time eligibility, citations, claim
+  verification, spend guard and refusal behavior. Their evidence coverage is
+  bounded by the normal retrieved payload; this is not an exhaustive summary of
+  every covered block. Quiz generation, adaptive interview, GraphRAG, and an
+  instructor review console remain unimplemented.
+- Added tests for dashboard catalogue/resume calculations and evidence-gated
+  action prompts/control presence. Full local validation passed: lint, typecheck,
+  450 tests across 38 files, production build, and `git diff --check`.
+- In a browser on the rebuilt local production bundle, `/learn?lesson=recording&start=300`
+  redirected to sign-in while preserving both query values in `next`; the create
+  account link preserved the same destination. The local home and sign-in routes
+  returned 200. No account credentials were submitted.
+
+No production account, email, provider request, database write, migration,
+deployment or merge occurred in this checkpoint. Production behavior remains
+unchanged from `591552a`; the new code is local validation evidence until it is
+committed, pushed and previewed through PR #7.
+

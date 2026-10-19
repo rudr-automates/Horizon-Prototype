@@ -20,15 +20,15 @@ Evidence eligibility follows the lesson clock. Time-gated passages become search
 
 ## Operating Context
 
-The main workflow is a browser lesson workspace with a video or clearly labelled synthetic fixture, player controls, a timestamped transcript, a current evidence-scope summary, a question composer, citation inspection, course materials, browser-local notes and bookmarks, progress, and a public status view.
+The main workflow is a browser lesson workspace with a video or clearly labelled synthetic fixture, player controls, a timestamped transcript, a current evidence-scope summary, a question composer, citation inspection, course materials, an immediate browser-local copy of notes/bookmarks/progress with account-scoped synchronization, and a public status view.
 
 ## Capabilities and Constraints
 
 - Next.js App Router, React, TypeScript, Tailwind CSS, Fastify contracts and safety layers, Supabase/Postgres, pgvector, full-text search, and provider adapters.
 - The current playback clock and server-returned evidence scope drive the question flow. Client-side playback position is not an identity or authorization boundary.
 - Transcript captions are machine generated and may contain transcription errors. Horizon-created study materials are compiled from those captions and are not instructor-supplied handouts.
-- Email/password learner accounts and a protected account page are implemented. Notes, bookmarks and progress remain browser-local until owner-scoped database persistence is approved and applied. There is no cross-device sync or public instructor-review console yet.
-- The mock-interview extension is optional under PS1 and is not part of the required MVP flow.
+- Email/password learner accounts, protected learner routes, a course dashboard, profile form, and owner-scoped persistence APIs are implemented. The browser copy supports offline use; signed-in bootstrap and synchronization use the authenticated session and RLS. Real account restoration, cross-device conflict handling, email confirmation and two-user isolation remain unverified end to end.
+- Summary and simple-explanation actions use the standard evidence-retrieval and claim-verification path at the current boundary; their coverage is limited to retrieved evidence. Quizzes and the adaptive mock-interview extension are not implemented; no controls claim they are available.
 
 ## Evidence on Hand
 

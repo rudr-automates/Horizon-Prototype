@@ -4,6 +4,8 @@
 
 For the hosted deployment, open <https://horizon-prototype.vercel.app/>. Release commit `2800f47` was deployed and browser-checked on 2026-10-19; current details are in `docs/EVALUATION.md` Part 18. Check the public Status surface before asking a metered question. The production daily spend guard blocked a late-position test during release acceptance, so do not promise an answer if that guard is active.
 
+The current production alias still serves `591552a`; PR #7's anonymous lesson-route gate and account dashboard are not deployed. The PR remains draft pending real email-confirmation and two-account persistence checks. If a later release promotes that branch, sign in with a confirmed team QA account before opening the protected lesson. Do not rely on an unverified signup flow during a judge demo.
+
 For a local run, from the repository root:
 
 ```powershell
@@ -11,7 +13,7 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm dev
 ```
 
-Open `http://localhost:3000/learn?lesson=recording`. The app requires the environment configuration described in `.env.example` for the database-backed lesson and live model answers. Keep all credentials server-side and do not display `.env.local` during the demo. If local Supabase connectivity is unavailable, the UI must say so or use the explicitly labelled synthetic fixture; do not call fixture results real lesson answers.
+Open `http://localhost:3000/` and sign in with a configured local QA account before entering `http://localhost:3000/learn?lesson=recording`. The app requires the environment configuration described in `.env.example` for the database-backed lesson and live model answers. Keep all credentials server-side and do not display `.env.local` during the demo. If local Supabase connectivity is unavailable, the UI must say so or use the explicitly labelled synthetic fixture; do not call fixture results real lesson answers.
 
 ## Recommended five-minute flow
 
@@ -26,6 +28,7 @@ Open `http://localhost:3000/learn?lesson=recording`. The app requires the enviro
 ## Expected behavior and recovery
 
 - A supported question returns only verified claims with source citations.
+- “Summarize so far” and “Explain simply” submit through the normal evidence-gated answer path; treat their scope as the retrieved eligible evidence, not as an exhaustive transcript digest.
 - A future-only question refuses before its evidence unlocks; moving ahead may make the same evidence eligible.
 - An unrelated question refuses without fabricated claims or citations.
 - Provider, embedding, database and rate-limit failures remain distinguishable from an ordinary evidence refusal. If the live service is unavailable, show the message and continue with the source/transcript flow; do not claim a model answer succeeded.

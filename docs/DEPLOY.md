@@ -2,6 +2,12 @@
 
 **Status: DEPLOYED on 2026-10-18 — <https://horizon-prototype.vercel.app>.**
 
+**Current acceptance checkpoint (2026-10-19):** the alias serves Ready
+production commit `591552a` from `main`. PR #7 contains Auth-protected learner
+routes and account persistence changes, but remains draft and is not deployed.
+Its email-confirmation, remote-restore and two-account isolation journeys are
+release gates. Do not promote this branch until those are verified.
+
 Deployed from this repository's `main` with the Vercel CLI, on the project
 `irrelevant3/horizon-prototype` (project id `prj_hVJ27iem3nuYUuKUc5BWgnjAqt7z`).
 Deployment protection was switched **off** for the project, because with it on every
@@ -141,7 +147,8 @@ Notes on that run, because each one changed the outcome:
 5. **Deploy**. Vercel will produce a URL of the form
    `https://<project>.vercel.app`.
 6. Add the resulting domain to the Supabase project's allowed redirect URLs if
-   and when Supabase Auth is introduced. Not required today.
+   for the Supabase Auth confirmation callback. PR #7 adds cookie-backed Auth;
+   confirm the production redirect allowlist before promoting it.
 
 Environment variables are read at runtime, so changing one requires a
 **redeploy** to take effect.
@@ -259,8 +266,9 @@ the page states the absence plainly instead of failing obscurely.
   `.gitignore` excludes it. Serving it from object storage instead of the embed
   would be a deliberate change, and would need the redistribution question
   answered first.
-- **No approximate vector index**, no auth, no rate limiting beyond the spend
-  guard and request-size validation.
+- **No approximate vector index.** Cookie-backed Auth and owner-scoped learner
+  tables are in PR #7 and not yet deployed at this checkpoint. Request admission,
+  size limits and the spend guard are implemented on the current production line.
 - **Embedding COST is unmeasured.** The durable cap bounds how many embedding
   requests are made, not what they cost. `estimated_cost_usd` is still NULL.
 

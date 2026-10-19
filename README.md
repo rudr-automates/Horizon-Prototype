@@ -53,14 +53,13 @@ honest refusal.
 > `color-scheme: dark` is stated so the browser never re-maps the palette it was
 > not asked to.
 >
-> What this revision does NOT claim: authenticated accounts and owner-scoped
-> learner storage are implemented locally, and migration 0005 is applied to
-> Supabase, but the signed-in browser round trip and two-user isolation have not
-> yet been verified. There is no file-upload
-> UI (documents are ingested by an operator command), no OCR for scanned pages,
-> no summary/quiz actions, no mock interview and no instructor-review interface
-> yet. Those are listed as open in the status matrix below and in
-> [docs/EVALUATION.md](docs/EVALUATION.md) Part 10.
+> What this revision does NOT claim: owner-scoped Auth and learner synchronization
+> are implemented, and migration 0005 is applied to Supabase, but the real signed-in
+> browser round trip and two-user isolation have not yet been verified. “Summarize
+> so far” and “Explain simply” use the standard evidence-gated answer path; they do
+> not promise full-lesson coverage. There is no file-upload UI (documents are
+> ingested by an operator command), no OCR for scanned pages, no quiz, mock
+> interview, or instructor-review interface yet.
 
 ---
 
@@ -110,11 +109,12 @@ honest refusal.
 | Course-wide review lint | ✅ **executed live** — the ingest refuses to approve a document course-wide if it contains a registered late-only fact or aligns to the last fifth of the recording, and requires an explicit `--acknowledge` to override. The approved study guide carries none of the late facts, and the canary checks that from the rows |
 | Alignment review (`pnpm review:alignments`) | ✅ **executed live** — weak or ambiguous alignments are written `PENDING` with no unlock time and are therefore ineligible. Of the deck's 9 blocks, 7 auto-approved, one was approved by hand at its own segment clock (14:18) and one rejected as a provenance slide. No reviewer identity or audit table exists in this schema; a rejection reason is appended to `blocks.alignment_method` |
 | Ingestion of code files, and OCR | ❌ deferred — PDF and PPTX text layers are ingested (above); a PDF with no text layer is refused rather than silently treated as indexed |
-| Summary-so-far and quiz-on-covered-content | ❌ not built — they are in the blueprint's learner journey and remain the largest missing learning action. No control for either is rendered |
+| Summary and simple explanation | 🟡 implemented on PR #7 — both submit through the normal eligible-evidence retrieval and citation-verification path; coverage is bounded by retrieved evidence and not a full-lesson guarantee |
+| Quiz-on-covered-content | ❌ not built — no quiz answer-key and option-verification path exists |
 | Adaptive mock interview | ❌ not built — deferred, not claimed |
-| Learner authentication | ✅ email/password sign-up, sign-in, email confirmation and protected account route; local implementation, production Auth settings not yet verified |
+| Learner authentication | ⏳ email/password sign-up, sign-in, callback and protected learner routes are implemented on PR #7; production Auth settings and real confirmation remain unverified, and the branch is not deployed |
 | Instructor alignment review interface | ❌ not built — review runs through `pnpm review:alignments`; there is no reviewer role or protected review surface |
-| Cross-device notes, bookmarks and progress | ⏳ implemented locally through the owner-scoped API; migration 0005 is applied, but real-account browser sync and two-user isolation are unverified |
+| Cross-device notes, bookmarks and progress | ⏳ owner-scoped API and browser sync are implemented; migration 0005 is applied, but real-account restore and two-user isolation are unverified |
 | Raster PDF rendering and OCR | ❌ not built — the viewer shows the permitted text layer; a scanned page with no text layer is refused at ingest |
 | Learner data ownership and persistent profiles | ⏳ migration 0005 is applied with owner-scoped RLS; account profile and session-bound data APIs are implemented locally. Real-account isolation verification remains |
 

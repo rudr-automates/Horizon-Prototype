@@ -105,6 +105,6 @@ Panels use a consistent moderate radius; controls use a smaller radius. Compact 
 - Do preserve the current evidence-eligibility and citation-verification behavior when changing presentation.
 - Do use visible keyboard focus, associated form labels, and reduced-motion behavior.
 - Don't show a claim without its verified citation or show future-only lesson content early.
-- Don't present mock interview, summary or quiz controls until those features exist.
+- Don't present quiz or mock-interview controls until those features exist. Summary and simple-explanation actions must keep the current evidence boundary and use the verified answer path; they summarize retrieved eligible evidence, not a guaranteed exhaustive set of every covered passage.
 - Don't put secrets, internal spend details, or operator diagnostics in learner-facing pages.
 - Don't use decorative glass behind text, gradients as text, emoji as structural icons, or colored side rails on every card.
