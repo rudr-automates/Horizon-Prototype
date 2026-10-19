@@ -15,6 +15,17 @@ import { OPERATIONAL_DETAIL, fullHealthReport } from "./helpers/health-report";
 
 const state = vi.hoisted(() => ({
   report: null as unknown,
+  signedIn: true,
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: async () => ({
+    auth: { getUser: async () => ({ data: { user: state.signedIn ? { id: "test-user" } : null }, error: null }) },
+  }),
+}));
+
+vi.mock("next/navigation", () => ({
+  redirect: (destination: string) => { throw new Error(`REDIRECT:${destination}`); },
 }));
 
 vi.mock("@/lib/health/report", () => ({
@@ -60,6 +71,7 @@ const { default: LearnPage } = await import("@/app/learn/page");
 
 beforeEach(() => {
   state.report = fullHealthReport();
+  state.signedIn = true;
 });
 
 describe("learn page props", () => {
@@ -89,5 +101,11 @@ describe("learn page props", () => {
     expect(typeof props.configurationProblemCount).toBe("number");
     expect(props).not.toHaveProperty("configurationProblems");
     expect(JSON.stringify(props)).not.toContain("HORIZON_LLM_BASE_URL");
+  });
+
+  it("sends an unauthenticated studio visitor to sign-in and preserves the requested lesson", async () => {
+    state.signedIn = false;
+    await expect(LearnPage({ searchParams: Promise.resolve({ lesson: "recording", start: "300" }) }))
+      .rejects.toThrow("REDIRECT:/auth/signin?next=%2Flearn%3Flesson%3Drecording%26start%3D300");
   });
 });

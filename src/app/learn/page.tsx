@@ -7,6 +7,8 @@ import { resolveServerLessonVideoSource } from "@/lib/lesson/video-file";
 import { lessonTranscriptCourseId } from "@/lib/ingest/lesson-transcript";
 import { DEMO_QUESTIONS } from "@/lib/demo/lesson";
 import type { CourseSummary } from "@/lib/contracts/question";
+import { redirect } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // The page reads server configuration on every request.
 export const dynamic = "force-dynamic";
@@ -32,6 +34,23 @@ export default async function LearnPage({
 }: {
   searchParams: Promise<{ lesson?: string; section?: string; start?: string }>;
 }) {
+  let signedIn = false;
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.auth.getUser();
+    signedIn = !error && Boolean(data.user);
+  } catch {
+    // The sign-in screen can explain missing or unavailable Auth configuration.
+  }
+  if (!signedIn) {
+    const params = await searchParams;
+    const requestedPath = new URLSearchParams(
+      Object.entries(params).flatMap(([key, value]) => value ? [[key, value]] : []),
+    ).toString();
+    const next = requestedPath ? `/learn?${requestedPath}` : "/learn";
+    redirect(`/auth/signin?next=${encodeURIComponent(next)}`);
+  }
+
   const { config, providers, storeResolution } = createServerContext();
   const store = storeResolution.store;
   const params = await searchParams;

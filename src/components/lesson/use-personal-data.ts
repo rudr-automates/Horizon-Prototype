@@ -22,11 +22,9 @@ import {
 } from "@/lib/personal/store";
 import { personalStateSchema } from "@/lib/personal/local-store";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { mergePersonalStates, stateDelta } from "@/lib/personal/remote-contract";
+import { mergePersonalStates, stateDelta, syncPayloadsForDelta } from "@/lib/personal/remote-contract";
 
 let idCounter = 0;
-let remoteSyncEnabled = false;
-
 function newId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `${prefix}_${crypto.randomUUID()}`;
@@ -37,20 +35,6 @@ function newId(prefix: string): string {
 
 function subscribeAlways(): () => void {
   return () => undefined;
-}
-
-function saveRemote(payload: unknown): void {
-  if (!remoteSyncEnabled) return;
-  void fetch("/api/v1/me/learning", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  }).then((response) => {
-    if (!response.ok) throw new Error("Account sync unavailable");
-    setPersonalSyncError(null);
-  }).catch(() => {
-    setPersonalSyncError("Account sync is unavailable. Your browser copy is saved locally.");
-  });
 }
 
 /**
@@ -83,7 +67,6 @@ export function usePersonalData() {
   useEffect(() => {
     let cancelled = false;
     syncReady.current = false;
-    remoteSyncEnabled = false;
     async function bootstrap() {
       try {
         const client = createSupabaseBrowserClient();
@@ -106,7 +89,6 @@ export function usePersonalData() {
         lastRemote.current = remote.data;
         updatePersonal(() => merged);
         syncReady.current = true;
-        remoteSyncEnabled = true;
         setPersonalSyncError(null);
       } catch {
         if (!cancelled) setPersonalSyncError("Account sync is unavailable. Your browser copy is saved locally.");
@@ -118,27 +100,19 @@ export function usePersonalData() {
 
   useEffect(() => {
     if (!syncReady.current) return;
+    // All account writes flow through this state delta. Direct action writes
+    // duplicated the same mutation here before the remote baseline advanced.
     const delta = stateDelta(state, lastRemote.current);
     if (!delta.bookmarks.length && !delta.notes.length && !delta.deletedBookmarkIds.length && !delta.deletedNoteIds.length && !Object.keys(delta.progress).length) return;
     const timer = window.setTimeout(async () => {
       try {
-        for (let i = 0; i < delta.bookmarks.length; i += 25) {
-          const response = await fetch("/api/v1/me/learning", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "sync", bookmarks: delta.bookmarks.slice(i, i + 25), notes: [] }) });
+        for (const payload of syncPayloadsForDelta(delta)) {
+          const response = await fetch("/api/v1/me/learning", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
           if (!response.ok) throw new Error("Sync failed");
-        }
-        for (let i = 0; i < delta.notes.length; i += 5) {
-          const response = await fetch("/api/v1/me/learning", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "sync", bookmarks: [], notes: delta.notes.slice(i, i + 5) }) });
-          if (!response.ok) throw new Error("Sync failed");
-        }
-        for (let i = 0; i < Math.max(delta.deletedBookmarkIds.length, delta.deletedNoteIds.length); i += 25) {
-          const response = await fetch("/api/v1/me/learning", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "sync", bookmarks: [], notes: [], deletedBookmarkIds: delta.deletedBookmarkIds.slice(i, i + 25), deletedNoteIds: delta.deletedNoteIds.slice(i, i + 25) }) });
-          if (!response.ok) throw new Error("Sync failed");
-        }
-        for (const progress of Object.values(delta.progress)) {
-          for (let i = 0; i < Math.max(progress.watched.length, 1); i += 100) {
-            const response = await fetch("/api/v1/me/learning", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "progress.merge", courseId: progress.courseId, furthestSeconds: progress.furthestSeconds, watched: progress.watched.slice(i, i + 100) }) });
-            if (!response.ok) throw new Error("Sync failed");
-          }
         }
         const synced = mergePersonalStates(lastRemote.current, state);
         const deletedBookmarks = new Set(delta.deletedBookmarkIds);
@@ -185,16 +159,12 @@ export function usePersonalData() {
             now: item.createdAt,
           }),
         );
-        saveRemote({ type: "bookmark.save", item });
       },
       renameBookmark(bookmarkId: string, title: string) {
         updatePersonal((current) => renameBookmark(current, bookmarkId, title));
-        const item = getPersonalSnapshot().bookmarks.find((bookmark) => bookmark.id === bookmarkId);
-        if (item) saveRemote({ type: "bookmark.save", item });
       },
       removeBookmark(bookmarkId: string) {
         updatePersonal((current) => removeBookmark(current, bookmarkId));
-        saveRemote({ type: "bookmark.delete", id: bookmarkId });
       },
       addNoteAt(courseId: string, seconds: number, body: string) {
         const item = { id: newId("note"), courseId, seconds, body, updatedAt: new Date().toISOString() };
@@ -204,16 +174,12 @@ export function usePersonalData() {
             now: item.updatedAt,
           }),
         );
-        saveRemote({ type: "note.save", item });
       },
       updateNote(noteId: string, body: string) {
         updatePersonal((current) => updateNote(current, noteId, body, new Date().toISOString()));
-        const item = getPersonalSnapshot().notes.find((note) => note.id === noteId);
-        if (item) saveRemote({ type: "note.save", item });
       },
       removeNote(noteId: string) {
         updatePersonal((current) => removeNote(current, noteId));
-        saveRemote({ type: "note.delete", id: noteId });
       },
     }),
     [],

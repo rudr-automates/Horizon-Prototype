@@ -185,6 +185,37 @@ export function stateDelta(local: PersonalState, remote: PersonalState): {
   return { bookmarks, notes, deletedBookmarkIds, deletedNoteIds, progress };
 }
 
+/** Convert one local-vs-remote delta into the bounded API writes for that delta. */
+export function syncPayloadsForDelta(delta: ReturnType<typeof stateDelta>): Array<Record<string, unknown>> {
+  const payloads: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < delta.bookmarks.length; i += 25) {
+    payloads.push({ type: "sync", bookmarks: delta.bookmarks.slice(i, i + 25), notes: [] });
+  }
+  for (let i = 0; i < delta.notes.length; i += 5) {
+    payloads.push({ type: "sync", bookmarks: [], notes: delta.notes.slice(i, i + 5) });
+  }
+  for (let i = 0; i < Math.max(delta.deletedBookmarkIds.length, delta.deletedNoteIds.length); i += 25) {
+    payloads.push({
+      type: "sync",
+      bookmarks: [],
+      notes: [],
+      deletedBookmarkIds: delta.deletedBookmarkIds.slice(i, i + 25),
+      deletedNoteIds: delta.deletedNoteIds.slice(i, i + 25),
+    });
+  }
+  for (const progress of Object.values(delta.progress)) {
+    for (let i = 0; i < Math.max(progress.watched.length, 1); i += 100) {
+      payloads.push({
+        type: "progress.merge",
+        courseId: progress.courseId,
+        furthestSeconds: progress.furthestSeconds,
+        watched: progress.watched.slice(i, i + 100),
+      });
+    }
+  }
+  return payloads;
+}
+
 function mergeRanges(ranges: PersonalState["progress"][string]["watched"]) {
   const sorted = ranges.map((range) => ({ ...range })).sort((a, b) => a.start - b.start);
   const merged: typeof sorted = [];

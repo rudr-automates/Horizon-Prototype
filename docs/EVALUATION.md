@@ -2181,3 +2181,81 @@ On the committed release tree, the following passed before merge:
 No production migration, test-account setup, or learner-data write was part of
 this release acceptance.
 
+# Part 19 — Full user-journey acceptance and local corrections (2026-10-19)
+
+## Production baseline observed
+
+The target alias `https://horizon-prototype.vercel.app` resolves to the Ready
+production deployment `horizon-prototype-mavtwfce1-irrelevant3.vercel.app`.
+Vercel build logs identify GitHub `rudr-automates/Horizon-Prototype`, branch
+`main`, commit `591552a`. Public health at 12:56 UTC returned `status: ok`, an
+authenticated Supabase read, a responsive admission limiter, `evidenceSource:
+supabase`, and `demoContent: false`. The runtime health projection deliberately
+does not claim model reachability or expose the spend budget.
+
+The public landing page's **Open the studio** link works by mouse and keyboard
+and navigates to `/learn`. At 1440×900, 768×900, 390×844 and 360×800, both the
+landing page and lesson workspace had no horizontal document overflow. The
+lesson route showed the real YouTube embed and 10 eligible blocks at 00:00.
+Materials briefly displayed a zero-source count during its initial request, then
+loaded all three database sources (caption transcript, compiled study guide, and
+compiled slides) after the response settled; the correction branch changes the
+count to a loading label until that read completes. The sign-up form has associated
+email/password labels, required fields, a 254-character email limit and a
+12-character minimum password. The production account route redirects an
+unauthenticated visitor to sign-in. The production lesson route does **not** yet
+redirect anonymous visitors, which conflicts with this acceptance request.
+
+The browser's in-app profile already contained progress from earlier use. It was
+not a clean storage profile, and its local data was preserved. No note contents
+were inspected. The browser console had zero warning/error entries on the
+sign-up route; failed-resource instrumentation was unavailable in this browser
+interface, so no network-clean claim is made.
+
+## Read-only Supabase and spend evidence
+
+Supabase MCP re-confirmed migration `20261019114602 / learner_accounts` and all
+four learner tables. Each has RLS enabled; policy counts are 3 for profiles and
+4 each for progress, bookmarks and notes. Those four tables had zero rows at
+inspection. The only data query in this pass aggregated today's usage ledger:
+15,608 charged tokens and zero active reservations. The operational budget
+amount is not published in the learner-safe health response, so remaining
+capacity was not independently established. The earlier 50:05 request on this
+UTC day was refused by the daily spend guard. Today's ledger records Groq
+`openai/gpt-oss-20b` generation/verification and Gemini `gemini-embedding-001`
+embedding operations, last recorded at 12:24–12:25 UTC; those are prior live
+calls, not calls from this acceptance pass. No model call, account creation,
+learner-data write or migration was made in this pass.
+
+## Corrections on `codex/production-acceptance-fixes-2026-10-19`
+
+1. `/learn` now checks the cookie-backed user before loading learner surfaces;
+   anonymous visitors are sent to sign-in with the requested lesson, section and
+   resume position preserved. Sign-in and sign-up validate same-origin return
+   paths; email-confirmed registrations land on `/account` so the learner first
+   arrives at the dashboard. `/account` is now a compact learner
+   dashboard with owner-scoped course-progress, bookmark and note counts and
+   direct links into the studio. The studio shell and signed-in landing page
+   expose the account route.
+2. Bookmark and note actions previously POSTed directly and were then included
+   in the debounced local-vs-remote delta, duplicating each account write. Remote
+   writes now use one delta-to-batches path; a regression test confirms one
+   bounded payload per new bookmark and note.
+3. The Materials header now says “Loading sources…” until the source list arrives
+   instead of temporarily reporting `0 sources` and `0 approved reference`.
+
+Local production-build HTTP verification returned `/` and `/auth/signin` as
+200, and `/learn?lesson=recording` as 307 to
+`/auth/signin?next=%2Flearn%3Flesson%3Drecording`. The sign-up link retains that
+return destination. The deployed app has not received these corrections.
+
+## Local verification and remaining end-to-end gaps
+
+On the correction branch: lint passed; typecheck passed; all 447 tests across 36 files passed; and `corepack pnpm build` passed. The local production server was
+started for the HTTP redirect check. Production Auth settings, email delivery,
+registration, confirmation, signed-in session restoration, owner-data reload,
+cross-account isolation, and sign-out still need a real account and a mailbox
+the team can access. None of those steps is claimed as verified. The local
+correction branch has not been pushed, merged, or deployed; the public site still
+serves `591552a`.
+

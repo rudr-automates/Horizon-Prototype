@@ -76,6 +76,7 @@ export interface HomeExperienceProps {
   runtimeAiConfigured: boolean;
   embeddingCredentialPresent: boolean;
   lessonVideoKind: "file" | "embed";
+  signedIn: boolean;
 }
 
 export function HomeExperience(props: HomeExperienceProps) {
@@ -87,6 +88,7 @@ export function HomeExperience(props: HomeExperienceProps) {
     runtimeAiConfigured,
     embeddingCredentialPresent,
     lessonVideoKind,
+    signedIn,
   } = props;
 
   const personal = usePersonalData();
@@ -223,8 +225,8 @@ export function HomeExperience(props: HomeExperienceProps) {
               </a>
             </span>
             <span className="hidden sm:inline-flex">
-              <Link href="/auth/signin" className={`${QUIET_ACTION} shrink-0`}>
-                Sign in
+              <Link href={signedIn ? "/account" : "/auth/signin"} className={`${QUIET_ACTION} shrink-0`}>
+                {signedIn ? "Your account" : "Sign in"}
               </Link>
             </span>
             <Link href="/learn" className={`${PRIMARY_ACTION} ml-1 shrink-0 px-3.5 py-2`}>

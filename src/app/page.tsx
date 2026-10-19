@@ -4,6 +4,7 @@ import { resolveServerLessonVideoSource } from "@/lib/lesson/video-file";
 import { lessonTranscriptCourseId } from "@/lib/ingest/lesson-transcript";
 import { buildLessonEntries } from "@/lib/presentation/continue-lesson";
 import type { CourseSummary } from "@/lib/contracts/question";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // The page reads server configuration and the evidence store on every request.
 export const dynamic = "force-dynamic";
@@ -27,6 +28,14 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const { providers, storeResolution } = createServerContext();
   const store = storeResolution.store;
+  let signedIn = false;
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.auth.getUser();
+    signedIn = !error && Boolean(data.user);
+  } catch {
+    // The public landing page remains available if Auth is temporarily unavailable.
+  }
 
   const lessonCourseId = lessonTranscriptCourseId();
   let courses: CourseSummary[] = [];
@@ -58,6 +67,7 @@ export default async function HomePage() {
       // Resolved from the filesystem on every request, so the hero states the
       // source this deployment can really play rather than the one we hoped for.
       lessonVideoKind={resolveServerLessonVideoSource().kind}
+      signedIn={signedIn}
     />
   );
 }
