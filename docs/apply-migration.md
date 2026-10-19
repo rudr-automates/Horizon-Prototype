@@ -1,5 +1,14 @@
 # Applying the Supabase migrations
 
+**Current status update (2026-10-19):** migration `0004_request_rate_limit.sql`
+was applied and verified in the Horizon project. Migration
+`0005_learner_accounts.sql` was applied after explicit approval through the
+authenticated Supabase migration tool and re-read from the live schema; the
+history API records `20261019114602 / learner_accounts`. Do not reapply either
+migration. The 0004 status text below is historical and was accurate when it
+was written; use `AGENTS.md` and the newest part of `docs/EVALUATION.md` for
+current state. No `db push` is authorized by this note.
+
 **Status of `0001` and `0002`: APPLIED AND VERIFIED (2026-10-15).** Both files are
 applied on the live project: six tables with RLS, the `vector` extension at
 `0.8.2`, and all six functions present. `list_migrations` returns `[]`, so this
@@ -18,20 +27,18 @@ The instructions below remain the procedure for any fresh environment. The
 "Consequences of NOT applying 0003" section at the end describes what a project
 without it does — the answer path refuses every turn by design.
 
-**Status of `0004`: VERIFIED ON A DISPOSABLE POSTGRES 16, NOT APPLIED to the
-shared project (2026-10-19).** It creates the public question endpoint's durable
-rate-limit table and its atomic admission function. Nothing existing is altered.
-Until it is applied, the deployed code refuses every question with
-`503 RATE_LIMIT_UNAVAILABLE` — that is the intended fail-closed state, not a defect
-to relax. Apply it before promoting that code, then confirm a question is answered
-again.
+**Status of `0004`: APPLIED AND VERIFIED in the shared project (2026-10-19).** It
+creates the public question endpoint's durable rate-limit table and atomic
+admission function. The earlier disposable-Postgres rehearsal below remains
+evidence for the SQL behavior; the current live verification is recorded in
+`docs/EVALUATION.md` and `AGENTS.md`.
 
 The behaviour was exercised against a throwaway container, including twelve
 sessions contending for one bucket at the same instant, by
 `pnpm verify:rate-limit-sql` (requires Docker; never contacts Supabase). Result:
 `PASS`, 4 of 12 admitted with a stored count of exactly 4, clean re-apply, and a
 rollback rehearsal that leaves the app failing closed. That is evidence about the
-SQL, not about the shared project: the migration has still not been run there.
+SQL. The shared-project migration was separately applied and verified.
 
 Four files must be applied **in order**:
 
@@ -49,17 +56,20 @@ Four files must be applied **in order**:
    is complete for a new environment.
 4. `supabase/migrations/0004_request_rate_limit.sql` — `request_rate_limits`
    (RLS on, no policies, `anon`/`authenticated` revoked) and
-   `horizon_admit_request`, granted to `service_role` only. **NOT APPLIED**; see
-   the 0004 section below before running it.
+   `horizon_admit_request`, granted to `service_role` only. **Applied and verified
+   on the Horizon project.**
+5. `supabase/migrations/0005_learner_accounts.sql` — owner-scoped learner profile,
+   progress, bookmark and note tables. **Applied and verified on the Horizon
+   project after explicit approval.** Do not reapply it there.
 
 `0002` reuses the identical eligibility condition as
 `src/lib/eligibility/predicate.ts`, so both retrieval branches filter the same
 way. If you change one, change the other and rerun
 [`tests/retrieval-eligibility.test.ts`](../tests/retrieval-eligibility.test.ts).
 
-The Part 00 audit found that the connected Supabase MCP toolset exposes only
-read-only tools (no `execute_sql`, no `apply_migration`). The coding agent
-therefore cannot apply this migration, and must not claim that it did.
+The earlier Part 00 audit found only read-only Supabase tools. The connected
+tooling later changed; the approved `0005` migration was applied through the
+authenticated Supabase migration tool and verified from the live schema.
 
 ## Prerequisites
 

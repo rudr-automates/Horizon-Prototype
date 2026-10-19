@@ -13,6 +13,12 @@ const eslintConfig = [
       "coverage/**",
       "next-env.d.ts",
       ".freebuff/**",
+      // Project-local agent skills are vendored tool instructions and helper
+      // scripts, not application source. Some ship CommonJS/React-hook lint
+      // false positives under this repository's application-only ESLint rules.
+      ".agents/**",
+      ".codex/**",
+      ".taste-skill/**",
       ".logs/**",
     ],
   },

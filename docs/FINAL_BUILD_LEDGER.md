@@ -1,0 +1,34 @@
+# Horizon final build ledger
+
+**Scope:** PS1 learning assistant, confirmed by the project owner. This ledger tracks the broader product completion request against the repository and connected-service observations made on 2026-10-19. Statuses describe the current implementation, not aspirations.
+
+| # | Workstream | Status | Evidence and remaining work |
+|---|---|---|---|
+| 1 | Safe baseline and execution ledger | PARTIAL | `AGENTS.md`, `docs/DECISIONS.md`, `docs/EVALUATION.md`, `docs/COMPETITION_CRITERIA_MATRIX.md`; repo branch is `codex/finish-horizon-mvp-2026-10-19`. Preserve changes already in the working tree. Recover any additional blueprint requirements if they become available; no separate blueprint/PRD/stack guide was found in the repository. |
+| 2 | Authentication and secure user data | PARTIAL | Cookie-backed Auth and protected `/account` are implemented locally. Approved migration 0005 is applied and the four owner-scoped tables/RLS policies were re-read. Profile form and account-data API are implemented, but real-account browser flow and two-user isolation remain unverified. |
+| 3 | Personalized home and catalogue | PARTIAL | `/` renders real catalogue data and browser-local continue state (`src/app/page.tsx`, `src/components/home/home-experience.tsx`). Add authenticated learner preferences and enrollment once user-owned storage is available. |
+| 4 | Persistent learning and progress | PARTIAL | Browser state is namespaced by Auth user; signed-in bootstrap reads owner-scoped remote data, bookmark/note mutations write through the session-bound API, and progress is debounced and merged. Contract tests pass. No real Auth browser round trip, two-user isolation, remote reload restoration or concurrent-device test was run. Guest data is deliberately not imported automatically into an account. |
+| 5 | Ingestion and learning materials | PARTIAL | Transcript and document build/ingestion scripts exist (`scripts/`, `src/lib/ingest/`). Operator workflow is not an authenticated upload/review queue; scanned-page OCR and background job processing are absent. |
+| 6 | Timestamp-aware learning assistant | COMPLETE for core invariant | Eligibility predicate, retrieval filtering, server-resolved verbatim citations, refusal behavior, budgets and admission controls are implemented and documented in `docs/EVALUATION.md`. Current-turn production health returned `ok`; no model call was made. |
+| 7 | Summaries and quizzes | MISSING | The studio marks “Summarize so far” and “Quiz me” as not implemented (`src/components/learning-studio.tsx`). Build from eligible evidence with citations, position gates and fixture tests. |
+| 8 | Adaptive mock interview | MISSING | No interview workflow or evaluation schema exists. This is a major feature and needs its own requirements and evidence-grounded design. |
+| 9 | Evaluation, performance and cost | PARTIAL | Automated unit/fixture suites and documented production checks exist. Automated latency/cost benchmarks and full diagnostics/retention automation remain outstanding; no live provider evaluation was run in this turn. |
+| 10 | Security, architecture and interoperability | PARTIAL | Single Next.js App Router architecture is an accepted recorded decision (`docs/DECISIONS.md`). RAG and request protections are in place; Auth is now locally implemented. Owner-scoped RLS for learner data, Auth configuration verification, and threat review remain outstanding. |
+| 11 | Deployment, documentation and demo | PARTIAL | Vercel CLI access verified project `irrelevant3/horizon-prototype`, production domain and current Ready deployment. Its build log links `rudr-automates/Horizon-Prototype` branch `main`, commit `393c86c`. Production environment variable names are present; the public runtime health returned `ok`, Supabase evidence and two catalogue rows. Authenticated persistence is not yet verified on production. This working-tree revision has not been deployed. |
+
+## Integration observations
+
+- **GitHub:** authenticated connector verified `rudr-automates/Horizon-Prototype`; default branch is `main`. The local focused branch starts at the same commit as `origin/main` at inspection time.
+- **Supabase:** authenticated connector verified project `Horizon-Prototype`, ref `hirbfuhnpwkiswvihcwb`, URL `https://hirbfuhnpwkiswvihcwb.supabase.co`. Migration 0005 was explicitly approved, applied and re-read: four learner tables, 15 owner policies, indexes/FKs and authenticated grants present; the four new tables were empty after apply. Migration API recorded `20261019114602 / learner_accounts`. Advisor reports `auth_rls_initplan` performance warnings; no two-user access test was run.
+- **Vercel:** CLI authenticated as `rudr-automates`. Verified project `irrelevant3/horizon-prototype` (ID `prj_hVJ27iem3nuYUuKUc5BWgnjAqt7z`), domain `https://horizon-prototype.vercel.app`, production deployment Ready, and the `main` source build at `393c86c` from the expected GitHub repo. Production variable names include Supabase URL/anon-key and server-side model/database settings; secret values were not inspected or disclosed. The public runtime reports `ok`, Supabase evidence source, `demoContent: false`, and two catalogue records. The exact configured Supabase ref cannot be read from the public-safe health response, so runtime project-ref matching is not independently proven.
+
+## Implementation dependencies and blockers
+
+- `@supabase/ssr` was approved and added for cookie-backed App Router sessions.
+- The current Auth UI depends on Supabase email/password Auth and the configured email redirect allowlist. The confirmation callback uses the production URL by default; deployments with another canonical URL should set `NEXT_PUBLIC_SITE_URL`.
+- Supabase Auth redirect/email settings remain unverified. Vercel MCP remains unavailable, but the authenticated Vercel CLI provided project, deployment, build-log and environment-name inspection. Vercel environment values and the exact runtime Supabase project ref were not exposed.
+- Authenticated data writes use the user's cookie session and RLS, never the service-role key. Browser storage remains the immediate offline copy. New API behavior has local contract tests only; no live user row was written.
+
+## Verification status
+
+Current working tree passed lint, typecheck, 442 tests across 34 files, build and `git diff --check`. The local browser inspected `/learn?lesson=recording` and `/` at its available 616 px viewport. At 25:00, the player reported 25:00 and the scope showed 37 eligible blocks; no model call was made. The mobile sticky navigation was made opaque after the screenshot showed lesson text bleeding through it. No Auth account, learner row, AI call, push, merge or deployment was made in the implementation phase. Migration 0005 was the only approved production database mutation.

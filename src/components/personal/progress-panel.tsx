@@ -7,7 +7,8 @@
  * furthest point reached is a resume position, while watched coverage is what
  * playback actually reported. Scrubbing to the end moves the first and not the
  * second, and neither is presented as "completion" — Horizon has no completion
- * model and no per-user store to back one.
+ * model. Signed-in progress is persisted per account; anonymous progress stays
+ * in this browser.
  */
 import { Icon } from "@/components/ui/icons";
 import { Button, EmptyState, Panel, PanelHeader, Pill } from "@/components/ui/primitives";
@@ -54,8 +55,7 @@ export function ProgressPanel({
             What you have actually watched
           </h1>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-soft">
-            {courseTitle} · measured from this browser&rsquo;s playback reports. There is no
-            account, so this is not a syncable record.
+            {courseTitle} · measured from playback reports and synced to your account when signed in.
           </p>
         </div>
         <Pill tone="neutral">

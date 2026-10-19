@@ -43,7 +43,7 @@ Targeted verification:
 - Live production behavior verified: the narrowed opening question returns an evidence-cited answer; a late-only compliance fact refuses at 20:00 without disclosing its marker terms and answers with a timestamped citation at 50:00; an unsupported Kubernetes/gRPC question refuses without claims; a 17 KB request returns `413 FILE_TOO_LARGE`; the public Status HTML contains no spend/model/schema/secret-name diagnostics.
 - The first suggested-question wording was narrowed to the exact phrasing that produced a live cited response. CI and Vercel checks passed for that change.
 - The production course uses the recording's automatic captions. The study guide/PPT are compiled by Horizon from those captions, not instructor-supplied materials. State this distinction honestly.
-- Notes, bookmarks and progress are browser-local; accounts/cross-device sync and an instructor review console are not implemented. Rate-limit retention remains manual. Embedding monetary cost and low-powered-device frame timing are unmeasured.
+- Email/password accounts, a protected account page, and the owner-scoped learner API are implemented locally. Migration `0005_learner_accounts.sql` was explicitly approved, applied to the Horizon Supabase project, and re-read on 2026-10-19. Browser sync is not yet verified with real accounts or two-user isolation; guest data is not automatically imported. An instructor review console is not implemented. Rate-limit retention remains manual. Embedding monetary cost and low-powered-device frame timing are unmeasured.
 - Full production diagnostics with a valid bearer token and automated scheduled retention have not been verified/configured.
 
 ## Definition of done for code tasks
@@ -53,3 +53,13 @@ Before reporting completion:
 2. Review `git diff` for unrelated edits, accidental secrets, weakened guards, or unverified claims.
 3. Summarize changed files, test results, known limitations, and whether any live database/provider/deployment action occurred.
 4. Leave changes on a branch with a PR unless the user explicitly requested another workflow.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

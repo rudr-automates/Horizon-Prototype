@@ -53,10 +53,13 @@ honest refusal.
 > `color-scheme: dark` is stated so the browser never re-maps the palette it was
 > not asked to.
 >
-> What this revision does NOT claim: no authentication, no file-upload UI (the
-> documents are ingested by an operator command), no OCR for scanned pages, no
-> summary/quiz actions, no mock interview and no instructor-review interface yet.
-> Those are listed as open in the status matrix below and in
+> What this revision does NOT claim: authenticated accounts and owner-scoped
+> learner storage are implemented locally, and migration 0005 is applied to
+> Supabase, but the signed-in browser round trip and two-user isolation have not
+> yet been verified. There is no file-upload
+> UI (documents are ingested by an operator command), no OCR for scanned pages,
+> no summary/quiz actions, no mock interview and no instructor-review interface
+> yet. Those are listed as open in the status matrix below and in
 > [docs/EVALUATION.md](docs/EVALUATION.md) Part 10.
 
 ---
@@ -84,7 +87,7 @@ honest refusal.
 | Video-grounded Q&A from the recording | ✅ **live-verified** — the recording's own automatic English captions (1505 lines, 0.1 s–3386.5 s of the recording's 3399.3 s, so 99.6% coverage) are parsed into **56 timestamped blocks** in a course of their own and are cited. A fact stated only late in the lesson (`compliance score` … `below 75%`, unlocking at 44:52) is absent from the eligible set and from the entire response body at 05:00 and at 20:00 — including when the learner asks about it directly — and is answered from a verbatim-cited block at 50:00. It is **machine transcription**, and every screen that shows it says so |
 | The transcript ingest itself (`pnpm ingest:lesson`) | ✅ **executed live** — captions parsed and segmented (56 blocks, mean 60.5 s), embedded in 3 batched requests against a cap of 10, every row 768-dimensional, every row `TIMELINE_BOUND/AUTO_APPROVED/INDEXED`, and **0 rows** carry synthetic-fixture text. OCR and PDF/slide parsing remain ❌ deferred |
 | Playback clock → evidence scope | ✅ **verified live** — the position a question is asked at is the player's own clock (`Source: the player's own playback clock.`), and the eligible count moves with it: 0 blocks at 00:03, 9 at 10:00, 19 at 20:00, 49 at 50:00, each matching an independently written oracle. With no player clock the control falls back to a manual position that is labelled as manual |
-| Supabase migrations (schema, search RPCs, atomic budget) | ✅ **all three applied and verified live** — six tables with RLS, pgvector `0.8.2`, six functions, and `0003`'s reservation columns; a re-read then confirmed 6/6 tables, 6/6 functions and a readable ledger |
+| Supabase migrations | ✅ **0001–0005 applied and verified** — core schema/search, durable budget, request admission and owner-scoped learner tables; migration 0005 was re-read after approval on 2026-10-19. See `docs/EVALUATION.md` for evidence and remaining Auth test limits. |
 | Database-backed retrieval | ✅ **verified live** — with the corpus seeded, the store's `listCourses`, `getCourse`, `listEligible`, `searchFullText`, `searchVector` and `hasMatchingIneligible` all ran against Supabase, and `GET /api/v1/courses` + `/scope` serve those rows over HTTP |
 | Live embeddings (`gemini-embedding-001`, 768d) | ✅ **real calls made** on the current revision — `pnpm smoke`, plus one batched call that embedded all 18 demo documents for the seed |
 | Live inference (`openai/gpt-oss-20b` on Groq) | ✅ **live-verified** — `pnpm smoke` parsed a structured claim, charged 396 tokens against reported 315 + 81. Generation moved off `gemini-3.6-flash`, whose free-tier daily quota was exhausted with a ~15 h retry delay |
@@ -109,13 +112,16 @@ honest refusal.
 | Ingestion of code files, and OCR | ❌ deferred — PDF and PPTX text layers are ingested (above); a PDF with no text layer is refused rather than silently treated as indexed |
 | Summary-so-far and quiz-on-covered-content | ❌ not built — they are in the blueprint's learner journey and remain the largest missing learning action. No control for either is rendered |
 | Adaptive mock interview | ❌ not built — deferred, not claimed |
-| Instructor alignment review interface | ❌ not built — review runs through `pnpm review:alignments`, because there is no authentication and a browser control would expose a privileged decision to anonymous visitors |
-| Cross-device notes, bookmarks and progress | ❌ not built — there is no account, so these are stored in one browser and every panel says so |
+| Learner authentication | ✅ email/password sign-up, sign-in, email confirmation and protected account route; local implementation, production Auth settings not yet verified |
+| Instructor alignment review interface | ❌ not built — review runs through `pnpm review:alignments`; there is no reviewer role or protected review surface |
+| Cross-device notes, bookmarks and progress | ⏳ implemented locally through the owner-scoped API; migration 0005 is applied, but real-account browser sync and two-user isolation are unverified |
 | Raster PDF rendering and OCR | ❌ not built — the viewer shows the permitted text layer; a scanned page with no text layer is refused at ingest |
-| Authentication, ownership and learner accounts | ❌ absent by design in this build: the server uses the service role, RLS denies `anon`, and there is no file-upload surface to abuse. Do not read "deployed" as "multi-tenant safe" |
+| Learner data ownership and persistent profiles | ⏳ migration 0005 is applied with owner-scoped RLS; account profile and session-bound data APIs are implemented locally. Real-account isolation verification remains |
 
 Scope decisions and deferrals are recorded in [docs/DECISIONS.md](docs/DECISIONS.md);
 evaluation cases and their actual results are in [docs/EVALUATION.md](docs/EVALUATION.md).
+For the selected PS1 goal, see the [criteria matrix](docs/COMPETITION_CRITERIA_MATRIX.md),
+[architecture diagram](docs/ARCHITECTURE.md), and [judged-demo runbook](docs/DEMO_RUNBOOK.md).
 
 ---
 

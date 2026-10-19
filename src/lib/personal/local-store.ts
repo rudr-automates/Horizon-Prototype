@@ -4,10 +4,9 @@ import { z } from "zod";
  * Personal learning data: bookmarks, notes and watched progress.
  *
  * WHY THIS IS LOCAL, AND SAYS SO
- *   Horizon has no authentication. Notes that claimed to sync would be a lie on
- *   the first reload of another device, so nothing here pretends otherwise: the
- *   state lives in one browser's `localStorage`, every panel that shows it says
- *   "saved in this browser", and there is no cross-user surface to get wrong.
+ *   The browser copy remains the immediate offline store. Signed-in sessions
+ *   namespace it by Auth user and synchronize validated changes through the
+ *   owner-scoped account API; a failed remote write must still be reported.
  *
  * WHY THE LOGIC IS PURE
  *   Two things are worth testing and neither needs a DOM: that a stored document

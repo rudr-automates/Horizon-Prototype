@@ -3,10 +3,9 @@
 /**
  * Bookmarks and notes.
  *
- * Both are attached to a lesson position and both are stored in this browser
- * only. Horizon has no accounts, so the panel says that plainly instead of
- * implying a sync it cannot perform. The two destructive actions use a two-step
- * confirmation, and nothing is removed without one.
+ * Both are attached to a lesson position. Browser storage is the immediate
+ * offline copy; signed-in changes sync through the owner-scoped account API.
+ * The two destructive actions use a two-step confirmation.
  */
 import { useState } from "react";
 import { Icon } from "@/components/ui/icons";
@@ -72,8 +71,7 @@ export function NotesPanel({
             Notes and bookmarks
           </h1>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-soft">
-            {courseTitle} · saved in this browser only. Horizon has no accounts yet, so
-            nothing here syncs between devices.
+            {courseTitle} · kept in this browser and synced to your account when you are signed in.
           </p>
         </div>
         <Pill tone="neutral">
