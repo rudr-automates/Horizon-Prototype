@@ -2,7 +2,7 @@
 
 ## Before the demo
 
-For the hosted deployment, open <https://horizon-prototype.vercel.app/> and confirm the page loads. The dated health and answer evidence is in `docs/EVALUATION.md` Part 13; this runbook does not claim this working copy has just been deployed or live-tested.
+For the hosted deployment, open <https://horizon-prototype.vercel.app/>. Release commit `2800f47` was deployed and browser-checked on 2026-10-19; current details are in `docs/EVALUATION.md` Part 18. Check the public Status surface before asking a metered question. The production daily spend guard blocked a late-position test during release acceptance, so do not promise an answer if that guard is active.
 
 For a local run, from the repository root:
 
@@ -16,12 +16,12 @@ Open `http://localhost:3000/learn?lesson=recording`. The app requires the enviro
 ## Recommended five-minute flow
 
 1. **Open the real lesson.** Select “Lesson recording” and point out its original source and machine-generated caption provenance. Mention that the generated study guide/slides were compiled from the captions, not supplied by the instructor.
-2. **Show current scope.** Set the player to `05:00`. The scope summary and assistant boundary should read at or before that position. Ask the suggested question: “According to the opening transcript, which items are listed immediately after ‘Prompt engineering’?” Historical production evidence records one cited answer to this exact wording.
-3. **Inspect the citation.** Open it. Show source kind, timestamp and verbatim quote; use “Show in transcript” or “Play from” to connect the citation back to the lesson.
-4. **Demonstrate the temporal refusal.** Ask “What happens when the compliance score falls below 75%?” at `20:00`. The expected response is an insufficient-evidence refusal with no claims or citations because the passage is not yet eligible.
-5. **Advance and ask again.** Move to `50:00` and submit the same question. The historical verified response is one claim with a citation to the `44:52–45:53` transcript passage. Show that the evidence unlocks only after the lesson reaches it.
+2. **Show current scope.** At `00:00`, the public release returned a cited answer to: “According to the opening transcript, which items are listed immediately after ‘Prompt engineering?’” The citation opened to a verbatim quote from page 1 of the compiled PDF, marked as an approved course-wide reference.
+3. **Inspect the citation.** Open it and show the source type, page and verbatim quote. The player reports its own clock and the scope changes with seeking; keep the exact current position visible.
+4. **Demonstrate the temporal refusal.** At `20:08`, the production release refused “What happens when the compliance score falls below 75%?” without revealing the future-only fact.
+5. **Advance and ask again only when the Status view indicates budget availability.** Earlier live evidence recorded an eligible cited answer at `50:00`, but during the current release acceptance the `50:05` request was safely blocked by the daily spend guard. Do not claim the late answer works in a live demo unless it succeeds in that session.
 6. **Demonstrate unsupported refusal.** At `50:00`, ask “How do I configure a Kubernetes ingress controller to serve gRPC over HTTP/2?” The expected result is an insufficient-evidence refusal with no claims or citations.
-7. **Close with honest limits.** Show Materials, Notes or Progress if useful. Signed-in personal data syncs through the owner-scoped API; this local implementation has not had a real-account browser round trip. The Status page is the learner-safe health projection, not operator diagnostics.
+7. **Close with honest limits.** Show Materials, Notes or Progress if useful. The account API and RLS tables are deployed, but real-account browser sync, email confirmation and two-user isolation have not been verified. The Status page is the learner-safe health projection, not operator diagnostics.
 
 ## Expected behavior and recovery
 
