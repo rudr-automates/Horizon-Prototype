@@ -159,8 +159,11 @@ export async function probeSchemaStatus(
  * A hung database must not hang the health endpoint. The timeout rejects rather
  * than returning a partially-typed value, so every caller treats it as a
  * failure — which is the correct reading of "no answer in time".
+ *
+ * Exported because the rate-limit readiness probe is a database round trip too,
+ * and the health endpoint must not hang on it either.
  */
-async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number): Promise<T> {
+export async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

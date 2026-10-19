@@ -12,6 +12,8 @@ export const errorCodeSchema = z.enum([
   "FILE_TOO_LARGE",
   "UNSUPPORTED_TYPE",
   "RATE_LIMITED",
+  /** The limiter itself could not answer, so the request was refused (fail closed). */
+  "RATE_LIMIT_UNAVAILABLE",
   "PROVIDER_UNAVAILABLE",
   "BUDGET_EXHAUSTED",
   "INTERNAL_ERROR",
@@ -152,7 +154,45 @@ export const runtimeInfoSchema = z.object({
 });
 export type RuntimeInfo = z.infer<typeof runtimeInfoSchema>;
 
-/** Health response contract. Contains no secrets and no env values. */
+/**
+ * The PUBLIC health payload.
+ *
+ * Deliberately smaller than `healthResponseSchema`: it answers whether the
+ * service is up and whether it can read its database, and which corpus it is
+ * serving. It carries no token totals, no budget, no model ids, no embedding
+ * cap, no schema-object counts and no configuration problems. Those remain
+ * available to an operator through `GET /health/diagnostics` and are rendered
+ * server-side on the Status surface.
+ */
+export const publicHealthResponseSchema = z.object({
+  ok: z.boolean(),
+  status: z.enum(["ok", "degraded"]),
+  service: z.literal("horizon"),
+  version: z.string(),
+  requestId: z.string(),
+  timestamp: z.string(),
+  checks: z.object({
+    app: dependencyCheckSchema,
+    database: dependencyCheckSchema,
+    runtimeAi: dependencyCheckSchema,
+    /**
+     * Whether a question could actually be admitted right now.
+     *
+     * This is the dependency that fails when migration 0004 is missing: every
+     * request is refused before any provider call, so a report that omitted it
+     * said "Operational" about a deployment that could not answer a question.
+     * The detail is one public-safe sentence; it names no object, count or error.
+     */
+    admission: dependencyCheckSchema,
+  }),
+  runtime: z.object({
+    evidenceSource: z.enum(["supabase", "fixture"]),
+    demoContent: z.boolean(),
+  }),
+});
+export type PublicHealthResponse = z.infer<typeof publicHealthResponseSchema>;
+
+/** The operator report. Contains no secrets and no env values. */
 export const healthResponseSchema = z.object({
   ok: z.boolean(),
   status: z.enum(["ok", "degraded"]),
@@ -164,6 +204,7 @@ export const healthResponseSchema = z.object({
     app: dependencyCheckSchema,
     database: databaseCheckSchema,
     runtimeAi: dependencyCheckSchema,
+    admission: dependencyCheckSchema,
   }),
   runtime: runtimeInfoSchema,
 });

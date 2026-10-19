@@ -18,7 +18,22 @@ The instructions below remain the procedure for any fresh environment. The
 "Consequences of NOT applying 0003" section at the end describes what a project
 without it does — the answer path refuses every turn by design.
 
-Three files must be applied **in order**:
+**Status of `0004`: VERIFIED ON A DISPOSABLE POSTGRES 16, NOT APPLIED to the
+shared project (2026-10-19).** It creates the public question endpoint's durable
+rate-limit table and its atomic admission function. Nothing existing is altered.
+Until it is applied, the deployed code refuses every question with
+`503 RATE_LIMIT_UNAVAILABLE` — that is the intended fail-closed state, not a defect
+to relax. Apply it before promoting that code, then confirm a question is answered
+again.
+
+The behaviour was exercised against a throwaway container, including twelve
+sessions contending for one bucket at the same instant, by
+`pnpm verify:rate-limit-sql` (requires Docker; never contacts Supabase). Result:
+`PASS`, 4 of 12 admitted with a stored count of exactly 4, clean re-apply, and a
+rollback rehearsal that leaves the app failing closed. That is evidence about the
+SQL, not about the shared project: the migration has still not been run there.
+
+Four files must be applied **in order**:
 
 1. `supabase/migrations/0001_init.sql` — types, tables, indexes, RLS.
 2. `supabase/migrations/0002_search_functions.sql` — the search/list functions
@@ -32,6 +47,10 @@ Three files must be applied **in order**:
    an existing table and it changes how the app spends money. **Already applied on
    the connected project** (see the status above); it is listed here so the order
    is complete for a new environment.
+4. `supabase/migrations/0004_request_rate_limit.sql` — `request_rate_limits`
+   (RLS on, no policies, `anon`/`authenticated` revoked) and
+   `horizon_admit_request`, granted to `service_role` only. **NOT APPLIED**; see
+   the 0004 section below before running it.
 
 `0002` reuses the identical eligibility condition as
 `src/lib/eligibility/predicate.ts`, so both retrieval branches filter the same
@@ -287,3 +306,172 @@ applied, and by design:
 
 If you see those three symptoms together, the fix is this migration — not raising
 the budget, and not editing the ledger by hand.
+
+## Migration history: how to reconcile it before touching the shared schema
+
+The shared project was built by pasting `0001`–`0003` into the SQL Editor. Its
+migration ledger is therefore empty (`list_migrations` returns `[]`) even though
+the objects exist, and this checkout has **no** `supabase/config.toml` and **no**
+linked project (`supabase/.temp/project-ref` is absent).
+
+That combination makes the usual CLI commands the wrong tool, for concrete
+reasons:
+
+- **`supabase db push`** would replay every local migration against a database
+  that already has those objects. `0001`/`0002` are mostly guarded with
+  `if not exists`, but the run is not guaranteed to be a no-op, it needs a shadow
+  database to diff, and a failure halfway leaves the schema neither old nor new.
+  It also writes bookkeeping rows on the way.
+- **`supabase migration repair`** only writes to
+  `supabase_migrations.schema_migrations`. It does not create or verify anything.
+  Run against a ledger that does not describe the real schema, it produces a
+  history that is confidently wrong.
+
+**The safe order is:**
+
+1. **Read the live schema, do not write.** Run the verification queries in this
+   document (and `pnpm verify:data-path` for behaviour) against the project and
+   confirm the artifacts of `0001`–`0003` are present. That is what establishes
+   the baseline, whether or not a ledger exists.
+2. **Exercise the change somewhere disposable.** `pnpm verify:rate-limit-sql`
+   applies `0004` to a throwaway Postgres, proves the atomic behaviour under
+   concurrency, and drops the database. It needs Docker and no credentials.
+3. **Apply `0004` as a reviewed script** through the SQL Editor (below), then
+   verify the objects, the grants and the three-call behaviour query.
+4. **Only if the team wants CLI bookkeeping**: `supabase link`, then
+   `supabase migration repair --status applied 0001 0002 0003 0004`. That is a
+   separate, approved change that records what step 1 already proved. Do not run
+   it before step 1, and never use `--status reverted` to "clean up".
+
+Until step 4 is done deliberately, the migration files plus this document are the
+source of truth, and that is a legitimate state for this project.
+
+## Applying 0004 (required before the rate-limited build is promoted)
+
+`0004_request_rate_limit.sql` adds one table and one function. It does not alter
+any existing object, so it is safe to apply on a live project, but it must be
+applied **before** code that calls it is promoted: without it, every question is
+refused with `503 RATE_LIMIT_UNAVAILABLE` by design.
+
+1. SQL Editor → New query → paste the entire file → Run.
+2. Re-running is safe: the table uses `IF NOT EXISTS` and the function is
+   `create or replace`.
+3. Verify the objects, the shape and the privileges:
+
+   ```sql
+   -- Expect: table_present non-null.
+   select to_regclass('public.request_rate_limits') as table_present;
+
+   -- Expect: one row, prosecdef = true, search_path pinned.
+   select proname, prosecdef, proconfig
+   from pg_proc
+   where proname = 'horizon_admit_request';
+
+   -- Expect: service_can_execute true, anon_can_execute false.
+   select has_function_privilege('service_role',
+     'public.horizon_admit_request(text,integer,integer,timestamptz)', 'execute') as service_can_execute,
+     has_function_privilege('anon',
+     'public.horizon_admit_request(text,integer,integer,timestamptz)', 'execute') as anon_can_execute;
+
+   -- Expect: relrowsecurity true and no policy on the table.
+   select relrowsecurity from pg_class where oid = 'public.request_rate_limits'::regclass;
+   select count(*) as policies from pg_policies where tablename = 'request_rate_limits';
+
+   -- Expect: bucket_key,window_seconds,window_start.
+   select string_agg(a.attname, ',' order by array_position(i.indkey, a.attnum))
+   from pg_index i
+   join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any (i.indkey)
+   where i.indrelid = 'public.request_rate_limits'::regclass and i.indisprimary;
+   ```
+
+4. Exercise the function directly. These calls use a throwaway bucket and write
+   two rows; delete them afterwards. The key is 64 hex characters because that is
+   the shape the server sends, and the function rejects anything that is not at
+   least 16 characters long.
+
+   ```sql
+   select * from public.horizon_admit_request(repeat('0123456789abcdef', 4), 600, 2, now());
+   select * from public.horizon_admit_request(repeat('0123456789abcdef', 4), 600, 2, now());
+   select * from public.horizon_admit_request(repeat('0123456789abcdef', 4), 600, 2, now());
+   -- Expect: admitted true, true, false — with a positive retry_after_seconds
+   -- on the third call, and request_count still 2 (the refusal is not counted).
+   select request_count from public.request_rate_limits
+   where bucket_key = repeat('0123456789abcdef', 4);
+   delete from public.request_rate_limits
+   where bucket_key = repeat('0123456789abcdef', 4);
+   ```
+
+5. Optionally, prove the contention path on the live project. This does write and
+   then delete a throwaway bucket; skip it if you would rather not write at all:
+   twelve concurrent calls with `limit = 4` must admit exactly 4. The disposable
+   harness (`pnpm verify:rate-limit-sql`) already proves exactly this on Postgres
+   16, so this is confirmation rather than the primary evidence.
+
+5. Confirm the public endpoint answers questions again (`429` after the burst
+   allowance, not `503`).
+
+### Consequences of NOT applying 0004
+
+- Every `POST /questions` returns `503` with code `RATE_LIMIT_UNAVAILABLE`,
+  **before** parsing or any provider call. The limiter fails closed on purpose:
+  a limiter that opens when it is broken looks protected while allowing unlimited
+  spend.
+- `/api/v1/health` still answers, and it no longer calls the deployment
+  operational: `checks.admission.reachable` is `false`, `status` is `degraded`,
+  and the public Status surface shows **Admission: unavailable**. The health
+  probe asks the limiter with a deliberately invalid key, which the function
+  rejects before writing, so the probe itself consumes nothing.
+- `GET /api/v1/courses`, `/scope`, `/transcript`, `/resources` and the player are
+  unaffected.
+
+## Retention, rollback and recovery for 0004
+
+**Retention is NOT automatic.** No cron, scheduler or trigger deletes these rows,
+and nothing in this repository creates one. The mechanism is an operator command:
+
+```bash
+pnpm prune:rate-limits                 # dry run: prints the cutoff and eligible count
+pnpm prune:rate-limits --apply         # delete eligible rows
+pnpm prune:rate-limits --apply --retention-days=7
+```
+
+It reads `.env.local` (or the process environment), needs the service-role key, and
+prints only the cutoff, the retention and counts — never a key, address or row.
+
+**Why it cannot reset a live counter.** Eligibility is
+`window_start < now − retention − widest window`. For every configured window
+that guarantees the window ended at least `retention` seconds ago, so no active
+window is selectable. The arithmetic lives in `src/lib/rate-limit/retention.ts`;
+`tests/rate-limit-retention.test.ts` proves the property for every configured
+window (including at `retention = 0`), and every deleted row is re-checked. A bad
+retention value (negative, NaN) is rejected rather than producing a future cutoff.
+
+The default retention is 2 days after a window closes, so the effective cutoff is
+about 3 days back because the widest window is a day. To schedule it, run the
+command with `--apply` daily or weekly from any scheduler that has the two database
+variables; until such a job exists and has been observed running, do not describe
+retention as automatic. Growth is one row per bucket per window (at most two live
+rows per client per day), so a missed run is harmless; a run that deletes nothing
+is also normal.
+
+**Rollback.** Safe and complete, because 0004 touched nothing else:
+
+```sql
+drop function if exists public.horizon_admit_request(text, integer, integer, timestamptz);
+drop table if exists public.request_rate_limits;
+```
+
+Rolling back makes the durable limiter fail closed (`503
+RATE_LIMIT_UNAVAILABLE`), which is the intended direction: no limit is never the
+failure mode. Redeploy the previous code at the same time to remove the symptom.
+
+**Recovery from a partial apply.** The file is a single transaction when run as
+one script in the SQL Editor; if it failed, nothing was created. If it was run
+statement-by-statement and stopped after the table, re-running the whole file is
+the fix — the table is `if not exists` and the function is `create or replace`.
+The one thing not to do is create the table by hand without the function's
+`revoke`s: a table reachable by `anon` would let a client read or edit counters.
+
+**Usage data is never erased by rollback.** The only rows in this table are
+short-lived counters for a closed window; no turn, ledger entry, course or
+learner record lives here, and no other table references it.

@@ -19,7 +19,9 @@
  *   No new answer path, no sampling change, no fabricated result, and no
  *   "Summarize so far" or "Quiz me" button: those actions are not implemented, so
  *   they are not on screen pretending to be. Diagnostics moved rather than
- *   multiplied — the status view reads the same endpoint the old panel did.
+ *   multiplied — the status view renders the same public health projection the
+ *   health endpoint returns, and the detailed operator report is not part of
+ *   this page at all.
  *
  * ONE POSITION
  *   The position a question is asked at is the player's own clock whenever the
@@ -29,6 +31,7 @@
  *   but can never reveal one the learner has not reached.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell, type SectionId, type ShellStatusTone } from "@/components/shell/app-shell";
 import { AssistantPanel } from "@/components/lesson/assistant-panel";
 import { LessonStage, type JumpPreset } from "@/components/lesson/lesson-stage";
@@ -41,7 +44,7 @@ import { ProgressPanel } from "@/components/personal/progress-panel";
 import { StatusPanel } from "@/components/status/status-panel";
 import { Icon } from "@/components/ui/icons";
 import { Alert } from "@/components/ui/alert";
-import type { HealthResponse } from "@/lib/contracts/http";
+import type { PublicHealthResponse } from "@/lib/contracts/http";
 import type { TranscriptSegmentPayload } from "@/lib/contracts/lesson-view";
 import type { CourseSummary, QuestionResponse, ScopeSummary } from "@/lib/contracts/question";
 import {
@@ -82,11 +85,22 @@ export interface LearningStudioProps {
   initialSection?: SectionId;
   /** A saved position to resume, from a real progress record. 0 means none. */
   initialSeconds?: number;
+  /**
+   * The PUBLIC health projection, built on the server. Null means it could not be
+   * built. The detailed operator report is deliberately not passed here: a prop
+   * to a client component is serialized into the page, which makes it public.
+   */
+  health: PublicHealthResponse | null;
   lessonVideo: LessonVideoSource;
   suggestedQuestions: string[];
   runtimeAiConfigured: boolean;
   embeddingCredentialPresent: boolean;
-  configurationProblems: string[];
+  /**
+   * How many configuration problems exist, never which ones. The count is a
+   * truthful warning a learner can act on; the names stay in the operator report
+   * so they are not serialized into this page.
+   */
+  configurationProblemCount: number;
   evidenceSource: "supabase" | "fixture";
   evidenceReason: string;
   storeError: string | null;
@@ -101,16 +115,19 @@ export default function LearningStudio(props: LearningStudioProps) {
     initialLesson,
     initialSection = "learn",
     initialSeconds = 0,
+    health,
     lessonVideo,
     suggestedQuestions,
     runtimeAiConfigured,
     embeddingCredentialPresent,
-    configurationProblems,
+    configurationProblemCount,
     evidenceSource,
     evidenceReason,
     storeError,
   } = props;
 
+  // The Status refresh re-runs the server component, which rebuilds the report.
+  const router = useRouter();
   const videoAvailable = videoCourse !== null;
   const [section, setSection] = useState<SectionId>(initialSection);
   const [view, setView] = useState<LessonView>(
@@ -152,8 +169,7 @@ export default function LearningStudio(props: LearningStudioProps) {
   const [askedAt, setAskedAt] = useState<number | null>(null);
 
   const [refreshToken, setRefreshToken] = useState(0);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [healthFailed, setHealthFailed] = useState(false);
+  const healthFailed = health === null;
   const [bookmarkedAt, setBookmarkedAt] = useState<number | null>(null);
 
   const personal = usePersonalData();
@@ -282,24 +298,6 @@ export default function LearningStudio(props: LearningStudioProps) {
       });
     return () => controller.abort();
   }, [courseId, boundarySeconds, refreshToken]);
-
-  /* ---------------- Health ---------------- */
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/v1/health", { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("health");
-        const payload = (await response.json()) as HealthResponse;
-        if (controller.signal.aborted) return;
-        setHealth(payload);
-        setHealthFailed(false);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setHealthFailed(true);
-      });
-    return () => controller.abort();
-  }, [refreshToken]);
 
   /* ---------------- Actions ---------------- */
 
@@ -454,12 +452,11 @@ export default function LearningStudio(props: LearningStudioProps) {
 
   /* ---------------- Presentation facts ---------------- */
 
-  const spendBlocked = health?.runtime.spendGuard === "blocked";
   const statusTone: ShellStatusTone = healthFailed
     ? "warn"
     : health === null
       ? "unknown"
-      : health.status === "ok" && !spendBlocked
+      : health.status === "ok"
         ? "ok"
         : "warn";
   const statusLabel =
@@ -468,9 +465,7 @@ export default function LearningStudio(props: LearningStudioProps) {
         ? "Status unavailable"
         : "Checking status"
       : health.status === "ok"
-        ? spendBlocked
-          ? "Spend guard closed"
-          : "Service normal"
+        ? "Service normal"
         : "Degraded";
   const statusShortLabel =
     health === null ? (healthFailed ? "Unknown" : "Checking") : statusTone === "ok" ? "Live" : "Attention";
@@ -534,7 +529,15 @@ export default function LearningStudio(props: LearningStudioProps) {
       statusTone={statusTone}
       statusLabel={statusLabel}
       statusShortLabel={statusShortLabel}
-      statusDetail={health?.runtime.evidenceReason ?? "The health endpoint has not answered yet."}
+      statusDetail={
+        health
+          ? health.runtime.evidenceSource === "supabase"
+            ? "Database-backed evidence"
+            : "Sample fixture evidence"
+          : healthFailed
+            ? "The status report could not be built."
+            : "The status report has not been built yet."
+      }
     >
       {section === "learn" && (
         <div className="space-y-4">
@@ -565,20 +568,14 @@ export default function LearningStudio(props: LearningStudioProps) {
             </Alert>
           )}
 
-          {configurationProblems.length > 0 && (
-            <Alert
-              tone="warn"
-              title={`${configurationProblems.length} configuration problem${configurationProblems.length === 1 ? "" : "s"} to review`}
-              action={
-                <button
-                  type="button"
-                  onClick={() => navigate("status")}
-                  className="font-semibold underline"
-                >
-                  Open status
-                </button>
-              }
-            />
+          {/* A configuration fault is stated without naming the setting: the names
+              and any detail belong to the operator, and the detailed report is behind
+              the token-protected endpoint rather than in this page. */}
+          {configurationProblemCount > 0 && (
+            <Alert tone="warn" title="This deployment is not fully configured">
+              The assistant may refuse a question it could otherwise answer. The operator
+              can read the specifics from the restricted diagnostics report.
+            </Alert>
           )}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_25rem]">
@@ -632,8 +629,6 @@ export default function LearningStudio(props: LearningStudioProps) {
                 onShowInTranscript={showInTranscript}
                 aiConfigured={runtimeAiConfigured}
                 embeddingConfigured={embeddingCredentialPresent}
-                spendBlocked={spendBlocked}
-                onOpenStatus={() => navigate("status")}
               />
             </div>
 
@@ -709,9 +704,13 @@ export default function LearningStudio(props: LearningStudioProps) {
         <StatusPanel
           health={health}
           healthFailed={healthFailed}
-          configurationProblems={configurationProblems}
           storeError={storeError}
-          onRefresh={() => setRefreshToken((token) => token + 1)}
+          onRefresh={() => {
+            setRefreshToken((token) => token + 1);
+            // The operator report is server-rendered, so refreshing it means
+            // re-running the page rather than re-fetching a public endpoint.
+            router.refresh();
+          }}
         />
       )}
 

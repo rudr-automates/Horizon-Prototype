@@ -4,6 +4,11 @@ import { errorResponse, newRequestId } from "@/lib/http/api";
 import { readServerEnv } from "@/lib/env";
 import { createServiceRoleClient, isDatabaseConfigured } from "@/lib/db/server";
 import { createServerContext } from "@/lib/server/context";
+import {
+  summarizeResources,
+  type ResourceBlockRow,
+  type ResourceRow,
+} from "@/lib/presentation/resource-summary";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,13 +49,6 @@ const responseSchema = z.object({
   note: z.string(),
 });
 
-interface BlockRow {
-  resource_id: string;
-  policy: string;
-  review_state: string;
-  ingest_status: string;
-  unlock_seconds: string | number | null;
-}
 
 export async function GET(
   request: Request,
@@ -89,6 +87,7 @@ export async function GET(
           resources: [],
           note: "This server is serving the labelled fixture corpus, which has no resource records to list.",
         }),
+        { headers: { "cache-control": "no-store" } },
       );
     }
 
@@ -105,7 +104,9 @@ export async function GET(
         .order("created_at", { ascending: true }),
       client
         .from("blocks")
-        .select("resource_id, policy, review_state, ingest_status, unlock_seconds")
+        .select(
+          "course_id, resource_id, policy, review_state, lint_status, ingest_status, unlock_seconds",
+        )
         .eq("course_id", courseId),
     ]);
 
@@ -113,55 +114,16 @@ export async function GET(
       return errorResponse("INTERNAL_ERROR", "Could not read course resources.", requestId);
     }
 
-    const blocksByResource = new Map<string, BlockRow[]>();
-    for (const row of (blockResult.data ?? []) as BlockRow[]) {
-      const list = blocksByResource.get(row.resource_id) ?? [];
-      list.push(row);
-      blocksByResource.set(row.resource_id, list);
-    }
-
-    const resources = ((resourceResult.data ?? []) as Array<Record<string, unknown>>).map(
-      (resource) => {
-        const rows = blocksByResource.get(String(resource.id)) ?? [];
-        const policies = new Set(rows.map((row) => row.policy));
-        const eligibleNow = rows.filter((row) => {
-          if (row.ingest_status !== "INDEXED") return false;
-          const approved =
-            row.review_state === "AUTO_APPROVED" || row.review_state === "HUMAN_APPROVED";
-          if (row.policy === "COURSE_WIDE") {
-            return approved; // The lint status is not selected here; course-wide rows
-            // are only written as approved when the lint passed or a human
-            // acknowledged it, and both are eligible by the same predicate branch.
-          }
-          if (!approved) return false;
-          const unlock = Number(row.unlock_seconds);
-          return Number.isFinite(unlock) && unlock <= boundarySeconds;
-        }).length;
-
-        return {
-          id: String(resource.id),
-          kind: String(resource.kind ?? "notes") as z.infer<typeof resourceKindSchema>,
-          title: String(resource.title ?? "Untitled resource"),
-          coverage:
-            resource.extraction_coverage === null || resource.extraction_coverage === undefined
-              ? null
-              : Number(resource.extraction_coverage),
-          parser: resource.parser_version ? String(resource.parser_version) : null,
-          policy:
-            policies.size === 0
-              ? ("TIMELINE_BOUND" as const)
-              : policies.size > 1
-                ? ("MIXED" as const)
-                : (String(resource.default_policy ?? "TIMELINE_BOUND") as
-                    | "COURSE_WIDE"
-                    | "TIMELINE_BOUND"),
-          blocks: rows.length,
-          eligibleNow,
-          pendingReview: rows.filter((row) => row.review_state === "PENDING").length,
-          rejected: rows.filter((row) => row.review_state === "REJECTED").length,
-        };
-      },
-    );
+    // Counts come from the canonical predicate, never from a rule restated here.
+    // `summarizeResources` calls `isBlockEligible`, the same function the store
+    // applies after every retrieval query, so the library cannot advertise a
+    // block the answer path would refuse to cite.
+    const resources = summarizeResources({
+      courseId,
+      boundarySeconds,
+      resources: (resourceResult.data ?? []) as ResourceRow[],
+      blocks: (blockResult.data ?? []) as ResourceBlockRow[],
+    });
 
     return NextResponse.json(
       responseSchema.parse({
@@ -171,8 +133,10 @@ export async function GET(
         resources,
         note:
           "Counts only. A course-wide resource is approved reference material and is available " +
-          "at every playhead; a timeline-bound one unlocks as the recording reaches it.",
+          "at every playhead once its lint passes or is acknowledged; a timeline-bound one " +
+          "unlocks as the recording reaches it.",
       }),
+      { headers: { "cache-control": "no-store" } },
     );
   } catch {
     return errorResponse("INTERNAL_ERROR", "Could not read course resources.", requestId);

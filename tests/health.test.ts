@@ -53,6 +53,16 @@ const state = vi.hoisted(() => ({
    * endpoint must render this, not infer it from configuration: a configured
    * provider whose calls are all refused still looks perfectly healthy by name.
    */
+  /**
+   * Whether the limiter can answer at all. Defaults to ready; the case below
+   * sets it to unavailable, which is the production state without migration
+   * 0004 and must not be reported as operational.
+   */
+  admission: {
+    ready: true,
+    mode: "durable",
+    detail: "The request limiter answered, so a question can be admitted.",
+  } as { ready: boolean; mode: "durable" | "memory"; detail: string },
   providerCallEvidence: { state: "not_durable" } as
     | { state: "not_durable" }
     | { state: "none_recorded" }
@@ -76,6 +86,12 @@ vi.mock("@/lib/db/server", () => ({
   hasServiceRoleKey: () => state.credentialsPresent,
   probeDatabaseReadable: async () => state.readProbe,
   probeSchemaStatus: async () => state.schema,
+}));
+
+// The limiter is a dependency of its own. Replacing it here isolates the
+// report's derivation, which is the subject of this file.
+vi.mock("@/lib/rate-limit", () => ({
+  probeAdmission: async () => state.admission,
 }));
 
 vi.mock("@/lib/server/context", () => ({
@@ -131,7 +147,10 @@ vi.mock("@/lib/server/context", () => ({
   }),
 }));
 
-const { GET } = await import("@/app/api/v1/health/route");
+// The derivation moved out of the public route when the public payload was
+// reduced. These cases test the report itself — the source both the Status page
+// and the diagnostics route render.
+const { buildHealthReport } = await import("@/lib/health/report");
 
 /** A schema probe result with every required object present. */
 function verifiedSchema(overrides: Partial<NonNullable<typeof state.schema>> = {}) {
@@ -147,8 +166,9 @@ function verifiedSchema(overrides: Partial<NonNullable<typeof state.schema>> = {
 }
 
 async function callHealth() {
-  const response = await GET();
-  return (await response.json()) as ReturnType<typeof healthResponseSchema.parse>;
+  return (await buildHealthReport("health-test")) as ReturnType<
+    typeof healthResponseSchema.parse
+  >;
 }
 
 beforeEach(() => {
@@ -168,6 +188,11 @@ beforeEach(() => {
   state.provider = "google-genai";
   state.thinkingBudget = null;
   state.providerCallEvidence = { state: "not_durable" };
+  state.admission = {
+    ready: true,
+    mode: "durable",
+    detail: "The request limiter answered, so a question can be admitted.",
+  };
 });
 
 describe("the completed-provider-call line", () => {
@@ -358,6 +383,57 @@ describe("database health reports what actually happened", () => {
       "HORIZON_LLM_THINKING_BUDGET",
     );
     expect(body.checks.runtimeAi.detail).toContain("pnpm smoke");
+  });
+});
+
+describe("admission is part of health", () => {
+  it("is not operational when the limiter is unavailable, however healthy the database is", async () => {
+    // The production state before 0004: 0001-0003 applied, the ledger readable,
+    // the budget positive — and every question refused with 503.
+    state.admission = {
+      ready: false,
+      mode: "durable",
+      detail: "The request limiter is unavailable, so every question is refused before any provider call.",
+    };
+
+    const body = await callHealth();
+
+    expect(body.checks.database.schemaObjects).toBe("verified");
+    expect(body.runtime.spendGuard).toBe("permitted");
+    expect(body.checks.admission.reachable).toBe(false);
+    expect(body.ok).toBe(false);
+    expect(body.status).toBe("degraded");
+  });
+
+  it("carries a public-safe sentence and no object name", async () => {
+    state.admission = {
+      ready: false,
+      mode: "durable",
+      detail: "The request limiter is unavailable, so every question is refused before any provider call.",
+    };
+
+    const raw = JSON.stringify(await callHealth());
+
+    expect(raw).not.toContain("horizon_admit_request");
+    expect(raw).not.toContain("request_rate_limits");
+    expect(raw).not.toContain("PGRST");
+  });
+
+  it("reports the process-local mode honestly rather than as a durable limit", async () => {
+    state.databaseConfigured = false;
+    state.ledgerMode = "memory";
+    state.admission = {
+      ready: true,
+      mode: "memory",
+      detail:
+        "No database is configured, so requests are limited per process only. The limit is real for this instance but is not shared.",
+    };
+
+    const body = await callHealth();
+
+    expect(body.checks.admission.configured).toBe(false);
+    expect(body.checks.admission.reachable).toBe(true);
+    expect(body.checks.admission.detail).toContain("per process only");
   });
 });
 

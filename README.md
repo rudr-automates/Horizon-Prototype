@@ -273,9 +273,28 @@ It never returns credential values, and it never reports a dependency as healthy
 just because an env var exists. `runtimeAi.reachable` stays `null` until a real
 smoke test is run.
 
-The database check reports five separate facts, and `ok` is true only when they
-all hold. This is the real payload, copied from the running server on the current
-revision with all three migrations applied:
+**Two payloads (Gate 1).** The public `GET /api/v1/health` answers only: is the
+app up, did an authenticated database read succeed, is a generation credential
+configured, which corpus is being served, and **whether a question could be
+admitted at all**. That last check is what stops a deployment missing migration
+`0004` from calling itself operational while refusing every question. It
+deliberately omits the day's token spend, the budget, model ids, the embedding cap,
+schema-object counts and configuration problems — all of which used to be
+machine-readable to any anonymous caller.
+
+The full report below is what **`GET /api/v1/health/diagnostics`** returns to a
+caller holding `Authorization: Bearer $HORIZON_DIAGNOSTICS_TOKEN` (404 when the
+setting is empty, so an unconfigured deployment does not advertise it). Scripts
+that need it can set the token; `pnpm verify:data-path` does.
+
+The Status surface does **not** render this report. A page prop is serialized
+into the HTML, so the page receives only `toPublicHealth(report)` — the same
+projection the public endpoint returns — and therefore shows no spend, budget,
+model ids, schema counts or configuration detail. Those are operator-only.
+
+The operator report keeps the database facts separate, and `ok` is true only when
+they all hold. This is the real payload, copied from the running server on the
+current revision with all three migrations applied:
 
 ```jsonc
 {
@@ -435,11 +454,12 @@ reasoning token twice. Each adapter is tested for its own shape.
 that API reports no token usage. `HORIZON_MAX_EMBEDDING_CALLS` bounds their
 *count*, not their cost. And when no database is configured the ledger is
 in-memory, so the daily total resets on restart and is not shared between
-instances. `/api/v1/health` reports `runtime.usageMode`, `spentTokensToday`,
-`embeddingRequestsToday` (the durable figure for the day, `null` when it could not
-be read) and `embeddingCalls` (that process alone) so none of this has to be
-guessed, and so the figure shown beside a durable cap is read from the store that
-cap is counted in.
+instances. `/api/v1/health/diagnostics` reports `runtime.usageMode`,
+`spentTokensToday`, `embeddingRequestsToday` (the durable figure for the day,
+`null` when it could not be read) and `embeddingCalls` (that process alone) so
+none of this has to be guessed, and so the figure shown beside a durable cap is
+read from the store that cap is counted in. The public health payload omits all
+of it.
 
 Never prefix a secret with `NEXT_PUBLIC_`. Never commit `.env.local`.
 
@@ -575,10 +595,11 @@ Specific consequences of that rule:
 ```
 pnpm lint         exit 0
 pnpm typecheck    exit 0
-pnpm test         exit 0   371 tests, 23 files   (all mocked; the transcript/integration cases run against fixtures written in the tests)
+pnpm test         exit 0   424 tests, 32 files   (all mocked; the transcript/integration cases run against fixtures written in the tests)
 pnpm build        exit 0   routes: / (Home), /learn (studio), 9 API routes
 pnpm seed:demo    exit 0   1 embedding request (cap 10) -> 1 course / 6 resources / 18 blocks, real 768-d vectors
 pnpm verify:budget exit 0  12 concurrent generation reservations -> exactly 4 granted of a 4-slot budget; 12 concurrent embedding admissions -> exactly 3 of a cap of 3; cleanup complete, 0 probe rows
+pnpm verify:rate-limit-sql exit 0  disposable Postgres 16: 0004 applies and re-applies cleanly; 3 calls at limit 2 -> admitted,admitted,refused with the count left at 2; 12 concurrent sessions at limit 4 -> exactly 4 admitted and a stored count of 4; anon is refused at the table and the function; rollback leaves the app failing closed
 pnpm verify:data-path exit 0  25 passed, 0 failed, 0 pending — real rows, zero provider calls
 pnpm smoke        exit 0   2 LIVE calls: 1 embedding (768d, all finite) + 1 generation (1 structured claim, charged 396 = 315 + 81)
 pnpm ingest:lesson exit 0  LIVE: 1505 caption lines -> 56 blocks, 99.6% coverage; 3 embedding requests (0 -> 3 of a cap of 10); 56/56 rows at 768 dimensions, 0 rows with fixture text

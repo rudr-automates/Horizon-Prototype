@@ -51,6 +51,17 @@ export interface ServerEnv {
   /** Reasoning-token budget (Google-genai only). null = not configured. */
   llmThinkingBudget: number | null;
   requestTimeoutMs: number;
+  /**
+   * Secret pepper for the request-rate-limit bucket key. Optional: when absent a
+   * value is derived from the service-role key (see `lib/rate-limit`). It is
+   * never sent anywhere, and it is why a raw client IP is never stored.
+   */
+  rateLimitSalt: string;
+  /**
+   * Bearer token for `GET /api/v1/health/diagnostics`. Empty means the endpoint
+   * answers 404, so an unconfigured deployment does not advertise it.
+   */
+  diagnosticsToken: string;
 }
 
 function read(name: string): string {
@@ -127,5 +138,7 @@ export function readServerEnv(): ServerEnv {
     maxEmbeddingCalls: readInt("HORIZON_MAX_EMBEDDING_CALLS", 0),
     llmThinkingBudget: readOptionalInt("HORIZON_LLM_THINKING_BUDGET"),
     requestTimeoutMs: readInt("HORIZON_LLM_TIMEOUT_MS", 30000),
+    rateLimitSalt: read("HORIZON_RATE_LIMIT_SALT"),
+    diagnosticsToken: read("HORIZON_DIAGNOSTICS_TOKEN"),
   };
 }

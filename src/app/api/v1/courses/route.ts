@@ -18,7 +18,7 @@ export async function GET(): Promise<NextResponse> {
       evidenceReason: storeResolution.reason,
       demoContent: storeResolution.store.demoContent,
       courses: courses.map((course) => courseSummarySchema.parse(course)),
-    });
+    }, { headers: { "cache-control": "no-store" } });
   } catch {
     return errorResponse("INTERNAL_ERROR", "Could not list courses.", requestId);
   }

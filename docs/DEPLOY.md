@@ -167,15 +167,18 @@ concurrent requests cannot both be admitted against the same remaining budget.
 
 To allow inference, set a positive value, for example `HORIZON_DAILY_TOKEN_BUDGET=200000`.
 
-Confirm the guard's state from the public health endpoint rather than guessing.
-`spendGuard` reports whether the **next provider call would be admitted**, so it
-is `"blocked"` until all three of a positive budget, a readable durable ledger and
-migration 0003's reservation objects are in place. On the development project all
-three now hold, so it reads `"permitted"`:
+Confirm the guard's state from the operator diagnostics endpoint rather than
+guessing. `spendGuard` reports whether the **next provider call would be
+admitted**, so it is `"blocked"` until all three of a positive budget, a readable
+durable ledger and migration 0003's reservation objects are in place. On the
+development project all three now hold, so it reads `"permitted"`:
 
 ```bash
-curl -s https://<project>.vercel.app/api/v1/health | node -e \
+curl -s -H "Authorization: Bearer $HORIZON_DIAGNOSTICS_TOKEN" \
+  https://<project>.vercel.app/api/v1/health/diagnostics | node -e \
   "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(j.runtime.spendGuard, '| ledger:', j.checks.database.durableLedger, '| schema:', j.checks.database.schemaObjects)})"
+# The public /api/v1/health no longer publishes these figures, by design.
+# Without the token, that route answers 404.
 # observed on the development project: permitted | ledger: usable     | schema: verified
 # before 0003 is applied:            blocked   | ledger: unreadable | schema: unknown
 ```
@@ -331,3 +334,86 @@ Do not present a local `next start` as a deployment — it is not reachable by a
 and do not describe the aliased URL as verified for behaviour that was not exercised on
 it. The rows that are still **not run** on the deployed origin are listed at the top of
 this document.
+
+---
+
+## 10. Gate 1 rollout — request admission, minimal health, turn sequencing
+
+This revision changes what happens **before** a question reaches the pipeline. It
+adds one migration and two environment settings. Nothing about retrieval,
+prompts, models or the recorded corpus changed.
+
+### 10.1 What must be applied, and in what order
+
+1. **Apply `0004_request_rate_limit.sql`** through the SQL Editor. Procedure and
+   verification queries: [apply-migration.md](apply-migration.md#applying-0004-required-before-the-rate-limited-build-is-promoted).
+   It is additive: one table, one function, no alteration of existing objects.
+   The SQL has been exercised on a disposable Postgres 16 with
+   `pnpm verify:rate-limit-sql` (Docker required, no credentials, no Supabase
+   contact): clean apply and re-apply, the limit binding at exactly the configured
+   count, twelve concurrent sessions admitting exactly four with a stored count of
+   four, `anon` refused at both the table and the function, and a rollback that
+   leaves the app failing closed. That is evidence about the SQL; the migration
+   still has **not** been run on the shared project, which is a separate approval.
+2. **Set `HORIZON_RATE_LIMIT_SALT`** to a long random string (Vercel → Settings →
+   Environment Variables, production and preview). If it is empty the key is
+   derived from the service-role key, which works but ties bucket rotation to a
+   credential rotation.
+3. **Set `HORIZON_DIAGNOSTICS_TOKEN`** to a different long random string. This is
+   what re-enables the detailed health report for an operator; without it the
+   diagnostics route answers 404. It is never sent to a browser.
+4. Redeploy preview, then production. **Order matters:** a deployment of this
+   code against a project without `0004` refuses every question with
+   `503 RATE_LIMIT_UNAVAILABLE` before parsing or any provider call, and health
+   reports `status: degraded` with `checks.admission.reachable: false` rather than
+   "Operational".
+5. **Schedule the retention command** (recommended, not automatic):
+   `pnpm prune:rate-limits --apply` daily or weekly from a host that has
+   `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Run it once by hand
+   first and confirm the dry run reports a cutoff about three days back and does
+   not report active rows as eligible. There is no scheduler in this repository;
+   until one is observed, retention is a manual operation.
+
+### 10.2 What to verify on the preview, then on production
+
+| Check | Expected |
+|---|---|
+| `GET /api/v1/health` | 200, `cache-control: no-store`, and **no** `spentTokensToday`, `textModel`, `configurationProblems`, `durableLedger` or `schemaObjects` anywhere in the body |
+| `GET /api/v1/health` before 0004 | `status: "degraded"`, `checks.admission.reachable: false`, detail says questions are refused; **not** "Operational" |
+| `GET /api/v1/health` after 0004 | `checks.admission.reachable: true` and the overall `status` becomes `ok` — if it does not, the limiter probe is failing and no question will be answered |
+| `GET /api/v1/health/diagnostics` without a token | 404 (not 401 — the route is not advertised) |
+| `GET /api/v1/health/diagnostics` with the token | 200, full report, `cache-control: no-store`; `spendGuard` matches the deployment's real state |
+| `POST /questions` with a body over 16 KiB | 413 `FILE_TOO_LARGE`, `cache-control: no-store`, no provider activity |
+| `POST /questions` with a body of 1–2 MB sent chunked (no `content-length`) | 413; the stream is cut, not buffered |
+| `POST /questions` normally | Answered as before; the response carries `cache-control: no-store` |
+| Burst of 9 questions from one address within 10 minutes | The 9th is `429 RATE_LIMITED` with a `retry-after` header; other addresses are unaffected |
+| Status surface (`/learn?section=status`) | Shows only the public facts (overall status, authenticated database read, evidence source, credential present, admission ready/unavailable). **No** spend figure, budget, model id, schema count or configuration name in the HTML or the RSC payload |
+| Status surface source | `view-source:` contains no `spentTokensToday`, `textModel`, `schemaObjects`, `configurationProblems` or `HORIZON_` setting name |
+
+### 10.3 Rollback
+
+- **Code:** redeploy the previous commit. The rate-limit table may stay; it is
+  inert to older code.
+- **Database:** `drop function if exists public.horizon_admit_request(text, integer, integer, timestamptz); drop table if exists public.request_rate_limits;`
+  Dropping them makes the limiter fail closed (503), never open, and health will
+  report `checks.admission.reachable: false`.
+- **Retention:** rollback also stops any pruning job you created. The rows that
+  remain are closed-window counters only; they are never read by the application
+  again and can be dropped with the table.
+- **Health:** removing `HORIZON_DIAGNOSTICS_TOKEN` returns the diagnostics route
+  to 404. The public payload is unaffected.
+
+### 10.4 Known limits of this revision
+
+- **Retention is manual.** `request_rate_limits` is pruned only by
+  `pnpm prune:rate-limits --apply`; there is no cron in this repository and the
+  table does not prune itself. Until a scheduler is observed running it, treat the
+  table as growing by one row per client per window and plan a weekly run. The
+  command is dry-run by default and can never select an active window.
+- **The limiter's SQL is verified on a disposable Postgres, not on this project.**
+  `pnpm verify:rate-limit-sql` proves the migration and its concurrency behaviour,
+  but it does not prove Supabase-specific role configuration.
+- **The Status surface still has no authentication.** It now renders only the
+  public health projection, so there is nothing private on it to protect; the
+  detailed operator report is behind a bearer token. Per-user surfaces remain a
+  later gate.

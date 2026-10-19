@@ -15,6 +15,8 @@
     "seed:demo": "tsx scripts/seed-demo.ts",
     "ingest:lesson": "tsx scripts/ingest-lesson.ts",
     "verify:budget": "tsx scripts/verify-budget-concurrency.ts",
+    "verify:rate-limit-sql": "tsx scripts/verify-rate-limit-sql.ts",
+    "prune:rate-limits": "tsx scripts/prune-rate-limits.ts",
     "verify:data-path": "tsx scripts/verify-data-path.ts",
     "canary": "tsx scripts/canary.ts",
     "canary:lesson": "tsx scripts/canary-lesson.ts",

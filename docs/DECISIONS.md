@@ -1189,3 +1189,74 @@ rule is written in `globals.css` where the tokens are defined.
 layered glass over a midnight field while the working area reads as a document.
 That contrast is the point: the atmosphere belongs to the frame, not to the
 material being studied.
+
+---
+
+## D-043 — Admission happens before parsing, and the public health payload got smaller
+
+**Context.** The Phase 0 audit found the question endpoint reachable by anyone
+with no per-client limit and no body-size limit, and found `/api/v1/health`
+publishing the day's token spend, the budget, model ids, schema-object counts and
+configuration problems to anonymous callers. It also found the materials library
+counting availability with its own copy of the eligibility rule, which omitted the
+`lint_status` check for course-wide blocks.
+
+**Decision.**
+
+1. **The library counts with the canonical predicate.** `summarizeResources`
+   (`src/lib/presentation/resource-summary.ts`) calls `isBlockEligible`, so the
+   materials list and the answer path cannot disagree. The regression case — an
+   approved but FLAGGED course-wide block — now counts as zero.
+2. **Admission precedes work.** `POST /questions` checks a declared oversized
+   body, then a durable per-client limit, then reads the body through a
+   16 KiB-capped stream, and only then validates the contract. A refused caller
+   never reaches the pipeline.
+3. **The limit is durable or it fails closed.** With a database configured, the
+   limit is one atomic SQL statement (`0004`); if that statement cannot run, the
+   route answers `503 RATE_LIMIT_UNAVAILABLE`. An in-process limiter is used only
+   where no database is configured at all, i.e. where the spend ledger is already
+   process-local — and the deployment reports itself as degraded there.
+4. **No IP is stored.** The bucket key is `HMAC-SHA256(salt, day + address)`,
+   scoped to one UTC day.
+5. **Health has two readers, and the page gets the public one.** The public
+   endpoint answers liveness and the data path. The Status surface receives
+   `toPublicHealth(report)` — the same projection the endpoint returns — so a
+   field the public contract does not declare cannot reach the browser through a
+   page prop. The full report is available only at `/health/diagnostics` behind
+   an operator token. Both halves come from one builder, so they cannot diverge.
+6. **The client address is read from the header the platform overwrites.**
+   Vercel documents that it overwrites `x-forwarded-for` from the TCP connection;
+   its `x-real-ip` claim is only "identical to" that header, with no separate
+   overwrite guarantee. `clientAddress` therefore reads `x-forwarded-for`
+   (left-most entry) first and uses `x-real-ip` only as a fallback. Reading
+   `x-real-ip` first would let a client that sets it mint a fresh bucket per
+   request — the same as having no limit. Ports and IPv6 brackets are stripped so
+   one client cannot split itself across buckets; the value is HMAC'd, never
+   stored.
+7. **Admission readiness is part of health.** The public report carries a
+   boolean for whether a question could be admitted, because the answer path
+   refuses before parsing when the limiter is missing. The probe calls
+   `horizon_admit_request` with a deliberately invalid key, which the function
+   rejects *before* touching the table, so readiness is established without
+   claiming a slot, writing a row or consuming a counter. A missing function, a
+   revoked grant, a missing table or a timeout all read as unavailable; a probe
+   that guessed "ready" on an unknown error would be worse than no probe.
+8. **Retention is an operator command, not a promise.** `request_rate_limits`
+   does not prune itself and this repository schedules nothing. `pnpm
+   prune:rate-limits` is dry-run by default and `--apply` deletes rows whose
+   windows closed at least the retention period ago. The cutoff includes the
+   widest configured window, so an active window can never be selected; that
+   property is tested for every window, and every deleted row is re-checked.
+   Docs say "manual" because it is manual.
+9. **Turn sequencing retries a lost race.** A unique violation on
+   `(conversation_id, sequence)` is recomputed and retried up to three times;
+   after that the turn is reported as not stored rather than silently dropped.
+
+**Consequence.** Promoting this code requires `0004` first. Without it the
+endpoint refuses every question — the intended direction, because a limiter that
+opens when it is broken is worse than no limiter. The Status page no longer
+exposes spend figures, model ids, schema counts or configuration detail: it
+renders the public projection only, and the detailed report needs the operator
+token. The historical diagnostic bypass described in D-034 is unchanged and is
+not claimed to be reproduced or fixed; no new diagnostic path calls a provider,
+and `GET /health` remains read-only.
