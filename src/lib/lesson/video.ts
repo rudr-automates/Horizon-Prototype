@@ -69,7 +69,7 @@ export const LESSON_VIDEO_EVIDENCE = "indexed" as const;
  * honest one.
  */
 export const LESSON_VIDEO_SUGGESTED_QUESTIONS = [
-  "What topics does the instructor list at the very start of this lesson?",
+  "According to the opening transcript, which items are listed immediately after “Prompt engineering”?",
   "Why does traditional keyword search fail for a question about resetting a password?",
   "What happens when the compliance score falls below 75%?",
 ] as const;
