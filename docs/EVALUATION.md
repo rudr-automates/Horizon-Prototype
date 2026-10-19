@@ -2255,7 +2255,5 @@ On the correction branch: lint passed; typecheck passed; all 447 tests across 36
 started for the HTTP redirect check. Production Auth settings, email delivery,
 registration, confirmation, signed-in session restoration, owner-data reload,
 cross-account isolation, and sign-out still need a real account and a mailbox
-the team can access. None of those steps is claimed as verified. The local
-correction branch has not been pushed, merged, or deployed; the public site still
-serves `591552a`.
+the team can access. None of those steps is claimed as verified. The correction branch was pushed as commit `4cf0bca` and is under draft PR #7; it has not been merged or deployed. The public site still serves `591552a`.
 
