@@ -2299,3 +2299,52 @@ deployment or merge occurred in this checkpoint. Production behavior remains
 unchanged from `591552a`; the new code is local validation evidence until it is
 committed, pushed and previewed through PR #7.
 
+# Part 21 — Final release candidate checks (2026-10-19)
+
+## Candidate and production identity
+
+The current local candidate is `a66085d76ec39c49ef3e28a00af93fd08b97cf21`
+on `codex/production-acceptance-fixes-2026-10-19`; its local tracked worktree
+was clean before this documentation alignment. Vercel lists a Ready preview
+`horizon-prototype-puduxarmy-irrelevant3.vercel.app` with Git metadata for
+`rudr-automates/Horizon-Prototype`, the candidate branch and that exact commit.
+The preview is configured without production database or generation credentials:
+its health endpoint reports `degraded`, `evidenceSource: fixture`, and
+`demoContent: true`. This validates preview runtime configuration and route
+rendering; it is not evidence of production database or AI behavior.
+
+The Vercel production deployment remains Ready at
+`horizon-prototype-mavtwfce1-irrelevant3.vercel.app`, aliased to
+`https://horizon-prototype.vercel.app`, from `main` commit `591552a`. The public
+health response returned `ok`, `evidenceSource: supabase`, `demoContent: false`,
+and a successful authenticated database read. The production course catalogue
+returned HTTP 200 with the database evidence store. No question was submitted.
+
+## Bounded route checks
+
+Vercel's authenticated deployment fetch returned HTTP 200 for the candidate
+landing page, sign-in page, sign-up page and the anonymous
+`/learn?lesson=recording&start=300` request. The landing HTML contains the
+primary **Open the studio** link to `/learn`. For the protected candidate route,
+Vercel reported the rendered route as `/auth/signin`; the HTML carries the
+original lesson and `start=300` in the sign-in form's `next` value and in its
+sign-up link. These are server-rendered route checks, not account-registration
+or authenticated-session tests.
+
+On production, the landing page, sign-in, sign-up and lesson route all returned
+HTTP 200. The production lesson matched `/learn`, showing the current production
+revision does not yet include the candidate's anonymous route gate. This is a
+known difference until the candidate is merged and deployed. The production
+catalogue returned its Supabase-backed data. The in-app browser surface was
+disabled, so no fresh viewport, click-through or overflow check was possible;
+historical responsive/browser evidence remains dated in earlier evaluation
+parts. No credentials, learner data, or model-provider calls were used.
+
+## Local final checks
+
+Observed on this candidate: lint passed; typecheck passed; all 450 tests across
+38 files passed; `next build` completed successfully with the current App Router
+routes; and `git diff --check` completed without reported whitespace errors.
+These checks do not establish Supabase Auth email delivery, account confirmation,
+session restoration or isolation between two real users.
+

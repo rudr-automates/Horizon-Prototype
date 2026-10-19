@@ -2,9 +2,9 @@
 
 ## Before the demo
 
-For the hosted deployment, open <https://horizon-prototype.vercel.app/>. Release commit `2800f47` was deployed and browser-checked on 2026-10-19; current details are in `docs/EVALUATION.md` Part 18. Check the public Status surface before asking a metered question. The production daily spend guard blocked a late-position test during release acceptance, so do not promise an answer if that guard is active.
+For the hosted deployment, open <https://horizon-prototype.vercel.app/>. The production alias currently serves `main` commit `591552a`; its health endpoint reports the Supabase-backed runtime as healthy. The candidate `a66085d` has a Ready Vercel preview at <https://horizon-prototype-puduxarmy-irrelevant3.vercel.app>, but that preview has fixture-only configuration and is for route/build inspection, not the live lesson demo. See the current release evidence in `docs/EVALUATION.md` Part 21 and historical production observations in Parts 13 and 18. Check the public Status surface before asking a metered question.
 
-The current production alias still serves `591552a`; PR #7's anonymous lesson-route gate and account dashboard are not deployed. The PR remains draft pending real email-confirmation and two-account persistence checks. If a later release promotes that branch, sign in with a confirmed team QA account before opening the protected lesson. Do not rely on an unverified signup flow during a judge demo.
+The production alias has not yet been verified to serve the learner-account candidate. The candidate preview's anonymous lesson route renders sign-in while preserving its `next` destination, and both auth forms render. Real production email confirmation, signed-in restoration and two-account persistence remain unverified. Do not rely on an unverified signup flow during a judge demo.
 
 For a local run, from the repository root:
 

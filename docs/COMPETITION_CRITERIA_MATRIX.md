@@ -22,7 +22,7 @@ Statuses reflect evidence in this repository and dated evaluation records. “PA
 
 | Deliverable | Evidence/status |
 |---|---|
-| Hosted working system | Existing public URL: `https://horizon-prototype.vercel.app`; dated successful checks are in README and EVALUATION Part 13. Not redeployed by this task. |
+| Hosted working system | Production URL `https://horizon-prototype.vercel.app` currently serves `main` commit `591552a`; the PR #7 candidate is Ready at its Vercel preview URL. Current route and health observations are in EVALUATION Part 21; preview uses the labelled fixture configuration. |
 | Source code | Repository source and tests. |
 | Architecture diagram | `docs/ARCHITECTURE.md` contains a Mermaid diagram and verified question-path/data-boundary notes. |
 | README/setup guide | `README.md` documents setup, environment variables, routes and operations. |
