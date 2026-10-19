@@ -2101,3 +2101,83 @@ current local changes still require a fresh validation, commit, branch push, PR,
 and production release followed by public-URL acceptance checks. Vercel MCP is
 unavailable, but authenticated CLI inspection works.
 
+This section records the pre-release checkpoint. The later implementation,
+merge, and production acceptance results are in Part 18.
+
+# Part 18 — Release and production acceptance (2026-10-19)
+
+## Source and deployment
+
+The release branch `codex/finish-horizon-mvp-2026-10-19` was committed as
+`1f124c8bae297693b7483d0d36f8b292df07057d`, pushed, and opened as PR #5. The
+Vercel preview built successfully from that branch and was Ready. GitHub's
+Vercel status check completed successfully. The preview had no preview-scoped
+Supabase or model configuration, so its runtime clearly identified itself as
+the synthetic fixture and generation was unavailable; no production secret was
+copied to preview.
+
+PR #5 was squash-merged to `main` as
+`2800f47bb5cd66d55349603637a749e1ea0223e8`. Vercel deployment
+`horizon-prototype-o8cq1z8zm-irrelevant3.vercel.app` reached Ready; its logs
+confirm the GitHub `main` source and merged SHA. The deployment is serving at
+`https://horizon-prototype.vercel.app`.
+
+## Public runtime checks
+
+- `GET /api/v1/health`: `status: ok`, evidence source `supabase`,
+  `demoContent: false`.
+- `GET /api/v1/courses`: HTTP 200 with two database catalogue entries: the
+  recording lesson and the labelled synthetic sample.
+- `GET /api/v1/me/learning` without a session: HTTP 401.
+- `GET /auth/signin`: HTTP 200; the production browser rendered the email and
+  password fields. Opening `/account` without a session redirected to sign-in.
+- The production landing page identified the real lesson and both catalogue
+  entries. A clean in-app browser tab opened `/learn?lesson=recording`; the
+  YouTube IFrame Player API reported its own clock, captions appeared as the
+  clock advanced, and the evidence scope changed with seeking.
+
+## Deliberate live model checks
+
+These checks used the deployed production request path and consumed the
+configured metered provider allowance. They are evidence for this run only.
+
+1. At `00:00`, “According to the opening transcript, which items are listed
+   immediately after ‘Prompt engineering’?” returned one answer with a citation
+   to page 1 of the compiled PDF. Expanding the citation showed the matched
+   verbatim quote and the approved course-wide reference policy. The answer took
+   6,009 ms and retrieved six blocks.
+2. At `20:08`, “What happens when the compliance score falls below 75%?” returned
+   the safe insufficient-evidence refusal, with no claims and no disclosure of
+   the future answer. The response took 4,833 ms and retrieved six eligible
+   blocks.
+3. At `50:05`, the same question was submitted after the evidence became
+   eligible. The request returned “temporarily unavailable” because the
+   configured daily spend guard refused another call. No answer was generated.
+   This release run therefore does not establish a fresh late-position success;
+   earlier live late-position evidence remains historical in Part 13. The guard
+   stayed intact and was not bypassed. No more live provider calls were made.
+
+No user account or learner row was created, and no production learner-data write
+occurred. Migration 0005 was applied earlier after explicit approval and was
+not reapplied during release. Real sign-up/email confirmation, signed-in
+remote-data restoration, two-account isolation, and Auth redirect settings
+remain unverified. The production-safe health projection does not expose the
+runtime Supabase project ref, so exact environment-ref matching remains
+unproven. No browser console log review was available in the active in-app
+browser workflow; no console-clean claim is made. Local visual inspection was at
+the available narrow viewport, not a desktop screenshot review of the deployed
+release.
+
+## Local release checks
+
+On the committed release tree, the following passed before merge:
+
+- `corepack pnpm lint`
+- `corepack pnpm typecheck`
+- `corepack pnpm test` — 442 tests across 34 files
+- `corepack pnpm build`
+- `git diff --check`
+
+No production migration, test-account setup, or learner-data write was part of
+this release acceptance.
+
