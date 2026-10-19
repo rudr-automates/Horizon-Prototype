@@ -5,6 +5,22 @@ recorded lesson, asks a question, and receives an answer supported only by
 content that is **permitted at their current position** — with citations — or an
 honest refusal.
 
+> **Live AI demo check (2026-10-19):** Production first refused a supported
+> question because the durable daily token budget was nearly full (15,608 of
+> 20,000 tokens used; the request needed about 5,912 with only 4,392 remaining).
+> A retry then exposed the separate daily embedding-request cap (10/10). The
+> production caps were raised, without disabling either guard, to 25,000 text
+> tokens and 11 embedding requests. After a Ready production redeploy, the real
+> lesson question “What happens when the compliance score falls below 75%?” at
+> 50:00 returned a Groq-generated and model-verified answer with a verbatim
+> citation to the eligible 44:52–45:53 transcript block. The turn charged 2,426
+> reported tokens, leaving 18,034 of 25,000 used. The one added embedding call
+> also used the full 11/11 daily call allowance, so another live question is
+> blocked until the UTC counter resets. No new provider key was needed. These
+> Vercel caps remain until an operator changes them; usage counters reset daily
+> at UTC. See [docs/EVALUATION.md](docs/EVALUATION.md) Part 19 for observed
+> responses and limitations.
+
 > **Repository state:** the **learning-assistant revision**, deployed.
 >
 > **There is a public URL: <https://horizon-prototype.vercel.app>.** The home
@@ -206,6 +222,41 @@ serialized; both collapse into `INSUFFICIENT_EVIDENCE`.
 pnpm install
 cp .env.example .env.local   # then fill in real values (never commit them)
 ```
+
+### Testing a live AI answer
+
+The production question API was verified on 2026-10-19. To reproduce the demo,
+open <https://horizon-prototype.vercel.app/learn?lesson=recording>, seek to
+50:00, and ask: “What happens when the compliance score falls below 75%?” The
+observed response was ANSWERED and cited the verbatim transcript passage
+“If node 3 determines compliance score is below 75% the conditional edge
+routes back to node one to gather additional documents.” Its source label was
+Transcript 44:52–45:53, and its timeline-bound block was eligible at 50:00.
+This dated live result does not guarantee that the daily allowance will remain
+available.
+
+For a locally configured live request, set the server-only environment names
+HORIZON_LLM_PROVIDER, HORIZON_LLM_API_KEY, HORIZON_LLM_MODEL,
+HORIZON_EMBEDDING_API_KEY, HORIZON_EMBEDDING_MODEL,
+HORIZON_DAILY_TOKEN_BUDGET, and HORIZON_MAX_EMBEDDING_CALLS as appropriate.
+The verified production providers were Groq generation
+(openai/gpt-oss-20b) and Google Gemini embeddings (gemini-embedding-001,
+768 dimensions). Provider account billing and quota are separate from
+Horizon’s token budget. The embedding-call cap bounds request count, not
+embedding cost. A positive HORIZON_DAILY_TOKEN_BUDGET is required;
+HORIZON_DAILY_TOKEN_BUDGET=0 is an intentional hard stop. Keep keys in
+server-side environment settings or local .env.local; never put them in
+browser variables or source control.
+
+For the 2026-10-19 production demo window, HORIZON_DAILY_TOKEN_BUDGET is
+25,000 and HORIZON_MAX_EMBEDDING_CALLS is 11. The previous values were 20,000
+and 10. The 11-call allowance was fully used by the verified question on
+2026-10-19; the next question must wait for the UTC reset. These are bounded
+daily ceilings, not a bypass, and persist in Vercel until manually changed.
+The public health endpoint intentionally omits spend
+and embedding counts; configured credentials there do not prove provider
+reachability. Do not run a multi-position canary or repeated live tests against
+production during the demo window.
 
 ## Scripts
 

@@ -2181,3 +2181,72 @@ On the committed release tree, the following passed before merge:
 No production migration, test-account setup, or learner-data write was part of
 this release acceptance.
 
+# Part 19 — Production AI demo unblock (2026-10-19)
+
+## Diagnosis
+
+The learner-facing BUDGET_EXHAUSTED state came from Horizon's own pre-provider
+guards, not a provider quota rejection. A live question at 05:00 reached the
+Supabase evidence store, retrieved six blocks and was refused before provider
+work: the durable ledger held 15,608 of a 20,000-token daily budget, with no
+active reservations. Its conservative minimum reservation was 5,912 tokens,
+more than the 4,392 remaining. The response identified Groq
+openai/gpt-oss-20b and Gemini gemini-embedding-001; no generation ran.
+
+After the token cap was increased, a second request was refused before
+embedding because the independent durable embedding-call cap had reached 10 of
+10 for the UTC day. The public health route returned status ok, an authenticated
+database read succeeded, request admission was reachable, and a generation
+credential was configured. Health does not prove provider reachability.
+Vercel runtime-log MCP queries returned 403 because the connected MCP user's
+team-scope authorization was insufficient; no provider-quota failure was
+observed in the question responses.
+
+## Bounded configuration and live result
+
+The authenticated Vercel CLI updated only two production settings:
+
+- HORIZON_DAILY_TOKEN_BUDGET: 20,000 → 25,000 tokens.
+- HORIZON_MAX_EMBEDDING_CALLS: 10 → 11 requests per UTC day.
+
+Both guards remain enabled. Vercel redeployed the existing Ready production
+revision to apply the settings; the new deployment reached Ready and received
+the production alias. No key was added, rotated, revealed or replaced.
+
+One supported production question was sent to the recording course at 50:00:
+“What happens when the compliance score falls below 75%?” The response was
+ANSWERED with one claim and one server-resolved citation to the timeline-bound
+block c4e269b3-ac4d-5c01-872d-4b4863a7c004, Transcript 44:52–45:53. Its
+verbatim quote was:
+
+> If node 3 determines compliance score is below 75% the conditional edge
+> routes back to node one to gather additional documents.
+
+The scope reported 66 eligible blocks at the 50:00 boundary, the evidence
+source was Supabase, generation and verification were Groq, and embedding was
+gemini-embedding-001. The turn took 8,739 ms and charged 2,426 reported
+tokens, bringing today's ledger from 15,608 to 18,034 of the 25,000 cap. The
+response was persisted as a turn. The added embedding call brought the durable
+counter to its new cap, 11 of 11. No learner account, profile, bookmark, note,
+migration or provider configuration was changed.
+
+The temporary caps stay in Vercel until manually restored; only usage counters
+reset at UTC midnight. The public health projection intentionally does not
+show either cap or remaining spend. Browser automation was disabled in the
+Work settings during this pass, so the production API answer was verified but
+a fresh visual check of the learner UI was unavailable. The earlier refusal
+requests were also persisted as turns; neither made an embedding or model
+call. No further production provider calls were made.
+
+## Validation
+
+- Production health: HTTP 200, status ok; Supabase read and request admission
+  succeeded.
+- Production Vercel deployment: Ready and aliased to
+  https://horizon-prototype.vercel.app.
+- Live question: ANSWERED; one eligible verbatim citation; 18,034 of 25,000
+  tokens and 11 of 11 embedding requests used afterward.
+- Local lint, typecheck, unit tests and build were not rerun because this pass
+  changed production environment settings and documentation only; application
+  source was unchanged.
+
